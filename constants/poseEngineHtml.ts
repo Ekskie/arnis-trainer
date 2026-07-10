@@ -150,6 +150,20 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       sendToReactNative({ type: "STATUS", message: msg });
     }
 
+    // Helper: import with a timeout to avoid hanging on slow/dead CDNs
+    function importWithTimeout(url, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Timeout after " + timeoutMs + "ms")), timeoutMs);
+        import(url).then((mod) => {
+          clearTimeout(timer);
+          resolve(mod);
+        }).catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+    }
+
     // Initialize MediaPipe PoseLandmarker
     async function initPoseEstimation() {
       try {
@@ -165,45 +179,63 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         
         for (const url of cdns) {
           try {
-            logStatus("Loading library from " + url.split('/')[2] + "...");
-            module = await import(url);
+            const cdnHost = url.split('/')[2];
+            logStatus("Loading library from " + cdnHost + "...");
+            module = await importWithTimeout(url, 8000);
             successUrl = url;
+            logStatus("Loaded from " + cdnHost + " ✓");
             break;
           } catch (e) {
-            console.warn("Failed to load from " + url, e);
+            console.warn("Failed to load from " + url, e.message || e);
           }
         }
 
         if (!module || !successUrl) {
-          throw new Error("Failed to load vision bundle from all CDNs. Check your network connection.");
+          throw new Error("Could not load MediaPipe from any CDN. Please check your internet connection and try again.");
         }
 
         const { PoseLandmarker, FilesetResolver } = module;
         
         const baseUrl = successUrl.substring(0, successUrl.lastIndexOf('/'));
         const wasmUrl = baseUrl + "/wasm";
-        logStatus("Loading WASM from " + wasmUrl.split('/')[2] + "...");
+        logStatus("Loading WASM runtime...");
         
         const vision = await FilesetResolver.forVisionTasks(wasmUrl);
-        logStatus("FilesetResolver loaded. Creating PoseLandmarker...");
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: "${modelUrl}",
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: 1
-        });
+        logStatus("Creating PoseLandmarker (GPU)...");
+
+        // Try GPU delegate first, fall back to CPU if it fails
+        try {
+          poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: "${modelUrl}",
+              delegate: "GPU"
+            },
+            runningMode: "VIDEO",
+            numPoses: 1
+          });
+        } catch (gpuErr) {
+          logStatus("GPU unavailable, using CPU fallback...");
+          console.warn("GPU delegate failed:", gpuErr);
+          poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: "${modelUrl}",
+              delegate: "CPU"
+            },
+            runningMode: "VIDEO",
+            numPoses: 1
+          });
+        }
         
-        logStatus("PoseLandmarker created. Accessing Camera...");
+        logStatus("PoseLandmarker ready. Starting camera...");
         startCamera();
       } catch (err) {
-        logStatus("Init Error: " + err.message);
-        sendToReactNative({ type: "ERROR", message: err.message });
+        const msg = err.message || String(err);
+        logStatus("Init Error: " + msg);
+        sendToReactNative({ type: "ERROR", message: msg });
       }
     }
 
-    // Access Web Camera
+    // Access Web Camera with timeout
     async function startCamera() {
       const constraints = {
         video: {
@@ -215,23 +247,47 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       };
 
       try {
-        logStatus("Requesting camera access (getUserMedia)...");
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        logStatus("Camera stream acquired. Binding to video element...");
+        logStatus("Requesting camera access...");
+        
+        // Wrap getUserMedia in a timeout to avoid indefinite hanging
+        const streamPromise = navigator.mediaDevices.getUserMedia(constraints);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Camera permission timed out after 10s. Please grant camera access and retry.")), 10000)
+        );
+        
+        const stream = await Promise.race([streamPromise, timeoutPromise]);
+        logStatus("Camera stream acquired. Binding...");
         video.srcObject = stream;
-        logStatus("Waiting for video data to start playing...");
-        video.addEventListener("loadeddata", () => {
-          logStatus("Video stream playing. Initializing canvas...");
-          canvasElement.width = video.videoWidth;
-          canvasElement.height = video.videoHeight;
-          loadingEl.classList.add("hidden");
-          webcamRunning = true;
-          sendToReactNative({ type: "READY" });
-          requestAnimationFrame(predictLoop);
+        
+        // Force play to handle WebView quirks where autoplay doesn't trigger
+        try { await video.play(); } catch(playErr) { console.warn("video.play() hint failed:", playErr); }
+        
+        // Wait for video data with a timeout
+        const videoReady = new Promise((resolve, reject) => {
+          const dataTimer = setTimeout(() => reject(new Error("Video stream did not start within 8s")), 8000);
+          video.addEventListener("loadeddata", () => {
+            clearTimeout(dataTimer);
+            resolve();
+          }, { once: true });
+          // If video already has data (e.g., play() resolved fast)
+          if (video.readyState >= 2) {
+            clearTimeout(dataTimer);
+            resolve();
+          }
         });
+
+        await videoReady;
+        logStatus("Camera active. Starting pose detection...");
+        canvasElement.width = video.videoWidth;
+        canvasElement.height = video.videoHeight;
+        loadingEl.classList.add("hidden");
+        webcamRunning = true;
+        sendToReactNative({ type: "READY" });
+        requestAnimationFrame(predictLoop);
       } catch (err) {
-        logStatus("Camera error: " + err.message);
-        sendToReactNative({ type: "ERROR", message: "Camera access failed: " + err.message });
+        const msg = err.message || String(err);
+        logStatus("Camera error: " + msg);
+        sendToReactNative({ type: "ERROR", message: "Camera: " + msg });
       }
     }
 

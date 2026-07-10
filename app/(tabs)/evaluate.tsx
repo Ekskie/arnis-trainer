@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useCameraPermissions } from 'expo-camera';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { saveSession } from '@/constants/historyStore';
 
@@ -37,6 +38,7 @@ const STRIKE_RULES: Record<string, StrikeRule> = {
 export default function EvaluateScreen() {
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
+  const [permission, requestPermission] = useCameraPermissions();
   
   // Navigation states: 'selection' | 'live' | 'result'
   const [screenState, setScreenState] = useState<'selection' | 'live' | 'result'>('selection');
@@ -272,7 +274,17 @@ export default function EvaluateScreen() {
     }
   };
 
-  const handleStartEvaluation = (strikeId: string) => {
+  const handleStartEvaluation = async (strikeId: string) => {
+    // Request native camera permission before entering live view
+    // This ensures Android shows the permission dialog before WebView tries getUserMedia
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        setErrorMsg('Camera permission is required for pose evaluation. Please grant camera access in your device settings.');
+        return;
+      }
+    }
+    
     setSelectedStrikeId(strikeId);
     setPoseScoreProgress(0);
     setWebReady(false);
@@ -434,6 +446,9 @@ export default function EvaluateScreen() {
             domStorageEnabled={true}
             mixedContentMode="always"
             allowsInlineMediaPlayback={true}
+            allowFileAccess={true}
+            androidLayerType="hardware"
+            mediaCapturePermissionGrantType="grant"
             onPermissionRequest={(event) => {
               event.grant(event.resources);
             }}
