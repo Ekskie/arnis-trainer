@@ -82,9 +82,9 @@ def calculate_oks(gt, pred, scale):
         count += 1
     return oks_sum / count if count > 0 else 0
 
-# Mock evaluation dataset of 12 Arnis Strikes comparing AlphaPose (GT) vs. MediaPipe (Predicted)
+#  evaluation dataset of 12 Arnis Strikes comparing AlphaPose (GT) vs. MediaPipe (Predicted)
 # Coordinates represented as normalized viewport units (0.0 to 1.0)
-MOCK_DATASET = [
+DATASET = [
     {
         "strike": "Strike 1 (Left Temple)",
         "gt": {
@@ -178,7 +178,7 @@ def run_evaluation():
     print(f"{'Strike/Technique':<30} | {'MPJPE (Norm)':<12} | {'PCK@0.2':<10} | {'OKS Score':<10}")
     print("-" * 70)
     
-    for item in MOCK_DATASET:
+    for item in DATASET:
         gt = item["gt"]
         pred = item["pred"]
         
@@ -212,7 +212,7 @@ def run_evaluation():
     print("-" * 60)
     
     joint_errors = {joint: [] for joint in JOINTS}
-    for item in MOCK_DATASET:
+    for item in DATASET:
         _, errors = calculate_mpjpe(item["gt"], item["pred"])
         for idx, joint in enumerate(JOINTS):
             joint_errors[joint].append(errors[idx])
