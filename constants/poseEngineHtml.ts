@@ -120,6 +120,7 @@ export const getPoseEngineHtml = (modelUrl: string) => `
     };
 
     let activeStrike = "strike_1";
+    let stickColorMode = "rattan";
     let poseLandmarker = undefined;
     let webcamRunning = false;
 
@@ -135,6 +136,106 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         activeStrike = strike;
       }
     };
+
+    // Receive selected stick color from React Native
+    window.setStickColor = (color) => {
+      stickColorMode = color;
+    };
+
+    const PERSON_COLORS = [
+      { primary: "#10b981", secondary: "rgba(16, 185, 129, 0.4)" },
+      { primary: "#8b5cf6", secondary: "rgba(139, 92, 246, 0.4)" },
+      { primary: "#f59e0b", secondary: "rgba(245, 158, 11, 0.4)" },
+      { primary: "#ec4899", secondary: "rgba(236, 72, 153, 0.4)" }
+    ];
+
+    function isStickColor(r, g, b, mode) {
+      if (mode === 'red') {
+        return r > 120 && g < 90 && b < 90 && (r - g) > 40;
+      } else if (mode === 'blue') {
+        return b > 120 && r < 90 && g < 90 && (b - r) > 40;
+      } else if (mode === 'green') {
+        return g > 120 && r < 90 && b < 90 && (g - r) > 40;
+      } else if (mode === 'rattan') {
+        // Rattan / wooden stick: warm yellowish-brown
+        return r > 130 && g > 100 && b < 120 && (r - g) > 15 && (g - b) > 15 && r > b;
+      } else { // 'auto' / 'any'
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const diff = max - min;
+        const isSaturated = diff > 50 && max > 100;
+        const isRattan = r > 130 && g > 100 && b < 120 && (r - g) > 15 && (g - b) > 15 && r > b;
+        return isSaturated || isRattan;
+      }
+    }
+
+    function detectStick(wristLandmark, imgData, stickMode) {
+      if (!wristLandmark || wristLandmark.visibility < 0.4 || !imgData) {
+        return { detected: false };
+      }
+      
+      const width = imgData.width;
+      const height = imgData.height;
+      const startX = (1 - wristLandmark.x) * width;
+      const startY = wristLandmark.y * height;
+      const data = imgData.data;
+
+      function getPixelColor(x, y) {
+        const xi = Math.round(x);
+        const yi = Math.round(y);
+        if (xi < 0 || xi >= width || yi < 0 || yi >= height) {
+          return null;
+        }
+        const idx = (yi * width + xi) * 4;
+        return { r: data[idx], g: data[idx+1], b: data[idx+2] };
+      }
+
+      const numAngles = 16;
+      const maxSteps = 12;
+      const stepSize = 8; // pixels
+
+      let bestAngle = 0;
+      let maxMatches = 0;
+      let bestLinePoints = [];
+
+      for (let a = 0; a < numAngles; a++) {
+        const angle = (a * 2 * Math.PI) / numAngles;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+
+        let matches = 0;
+        let points = [];
+
+        for (let s = 1; s <= maxSteps; s++) {
+          const dist = s * stepSize;
+          const px = startX + cosA * dist;
+          const py = startY + sinA * dist;
+
+          const color = getPixelColor(px, py);
+          if (color) {
+            if (isStickColor(color.r, color.g, color.b, stickMode)) {
+              matches++;
+              points.push({ x: px, y: py });
+            }
+          }
+        }
+
+        if (matches > maxMatches) {
+          maxMatches = matches;
+          bestAngle = angle;
+          bestLinePoints = points;
+        }
+      }
+
+      const detected = maxMatches >= 5;
+      return {
+        detected,
+        angle: bestAngle,
+        points: bestLinePoints,
+        startX,
+        startY
+      };
+    }
 
     // Send data back to React Native helper
     function sendToReactNative(data) {
@@ -211,7 +312,7 @@ export const getPoseEngineHtml = (modelUrl: string) => `
               delegate: "GPU"
             },
             runningMode: "VIDEO",
-            numPoses: 1
+            numPoses: 4
           });
         } catch (gpuErr) {
           logStatus("GPU unavailable, using CPU fallback...");
@@ -222,7 +323,7 @@ export const getPoseEngineHtml = (modelUrl: string) => `
               delegate: "CPU"
             },
             runningMode: "VIDEO",
-            numPoses: 1
+            numPoses: 4
           });
         }
         
@@ -340,155 +441,287 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       canvasCtx.scale(-1, 1);
       canvasCtx.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
 
-      // Reset transformations to draw overlay text natively, but keep skeleton mirrored
-      let landmarks = null;
+      // Get image data once per frame for stick detection
+      let imgData = null;
       if (results && results.landmarks && results.landmarks.length > 0) {
-        landmarks = results.landmarks[0];
+        try {
+          imgData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+        } catch (e) {
+          console.error("Canvas read error:", e);
+        }
       }
 
-      if (landmarks) {
-        // Mapped joint indexes for MediaPipe
-        // 11=L_Shoulder, 13=L_Elbow, 15=L_Wrist
-        // 12=R_Shoulder, 14=R_Elbow, 16=R_Wrist
-        const leftShoulder = landmarks[11];
-        const leftElbow = landmarks[13];
-        const leftWrist = landmarks[15];
-        const rightShoulder = landmarks[12];
-        const rightElbow = landmarks[14];
-        const rightWrist = landmarks[16];
+      let personsData = [];
 
-        const leftAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-        const rightAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+      if (results && results.landmarks && results.landmarks.length > 0) {
+        results.landmarks.forEach((landmarks, personIdx) => {
+          const leftShoulder = landmarks[11];
+          const leftElbow = landmarks[13];
+          const leftWrist = landmarks[15];
+          const leftIndex = landmarks[19];
+          
+          const rightShoulder = landmarks[12];
+          const rightElbow = landmarks[14];
+          const rightWrist = landmarks[16];
+          const rightIndex = landmarks[20];
 
-        // Apply evaluator thresholds
-        const rules = STRIKE_RULES[activeStrike];
-        let isLeftGood = false;
-        let isRightGood = false;
+          const leftHip = landmarks[23];
+          const rightHip = landmarks[24];
+          const leftKnee = landmarks[25];
+          const rightKnee = landmarks[26];
+          const leftAnkle = landmarks[27];
+          const rightAnkle = landmarks[28];
 
-        if (leftAngle !== null && rules) {
-          isLeftGood = leftAngle >= rules.left_min && leftAngle <= rules.left_max;
-        }
-        if (rightAngle !== null && rules) {
-          isRightGood = rightAngle >= rules.right_min && rightAngle <= rules.right_max;
-        }
+          // 1. Calculate actual joint angles
+          const leftAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+          const rightAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
 
-        // Send state back to React Native
-        sendToReactNative({
-          type: "POSE_DATA",
-          leftAngle: leftAngle,
-          rightAngle: rightAngle,
-          isLeftGood: isLeftGood,
-          isRightGood: isRightGood,
-          activeStrikeName: rules ? rules.name : "",
-          isPersonVisible: true
-        });
+          const leftShoulderAngle = calculateAngle(leftHip, leftShoulder, leftElbow);
+          const rightShoulderAngle = calculateAngle(rightHip, rightShoulder, rightElbow);
 
-        // 2. Draw Skeleton connectors with neon colors
-        const connectorColor = "rgba(120, 180, 255, 0.4)";
-        const leftColor = isLeftGood ? "#10b981" : "#ef4444"; // Green vs Red
-        const rightColor = isRightGood ? "#10b981" : "#ef4444";
+          const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
+          const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
 
-        const connections = [
-          [11, 12], // shoulder-to-shoulder
-          [11, 23], [12, 24], [23, 24], // torso
-          [23, 25], [25, 27], // left leg
-          [24, 26], [26, 28]  // right leg
-        ];
+          const leftWristRaw = calculateAngle(leftElbow, leftWrist, leftIndex);
+          const rightWristRaw = calculateAngle(rightElbow, rightWrist, rightIndex);
 
-        // Draw basic skeleton body lines
-        canvasCtx.lineWidth = 4;
-        canvasCtx.strokeStyle = connectorColor;
-        connections.forEach(([p1, p2]) => {
-          const joint1 = landmarks[p1];
-          const joint2 = landmarks[p2];
-          if (joint1 && joint2 && joint1.visibility > 0.4 && joint2.visibility > 0.4) {
+          // Convert wrist angle into a signed deviation from straight line (180 deg)
+          const leftWristAngle = leftWristRaw !== null ? Math.round(180 - leftWristRaw) : null;
+          const rightWristAngle = rightWristRaw !== null ? Math.round(180 - rightWristRaw) : null;
+
+          // Apply evaluator thresholds (elbow ranges)
+          const rules = STRIKE_RULES[activeStrike];
+          let isLeftGood = false;
+          let isRightGood = false;
+
+          if (leftAngle !== null && rules) {
+            isLeftGood = leftAngle >= rules.left_min && leftAngle <= rules.left_max;
+          }
+          if (rightAngle !== null && rules) {
+            isRightGood = rightAngle >= rules.right_min && rightAngle <= rules.right_max;
+          }
+
+          // Stick detection
+          const stickLeft = detectStick(leftWrist, imgData, stickColorMode);
+          const stickRight = detectStick(rightWrist, imgData, stickColorMode);
+
+          personsData.push({
+            id: personIdx,
+            leftAngle: leftAngle,
+            rightAngle: rightAngle,
+            leftShoulderAngle: leftShoulderAngle,
+            rightShoulderAngle: rightShoulderAngle,
+            leftKneeAngle: leftKneeAngle,
+            rightKneeAngle: rightKneeAngle,
+            leftWristAngle: leftWristAngle,
+            rightWristAngle: rightWristAngle,
+            isLeftGood: isLeftGood,
+            isRightGood: isRightGood,
+            isHoldingLeft: stickLeft.detected,
+            isHoldingRight: stickRight.detected,
+            stickLeft: stickLeft,
+            stickRight: stickRight,
+            isPersonVisible: true
+          });
+
+          // Draw skeleton connectors with neon colors based on person index
+          const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
+          const connectorColor = colors.secondary;
+          const leftColor = isLeftGood ? "#10b981" : "#ef4444";
+          const rightColor = isRightGood ? "#10b981" : "#ef4444";
+          
+          const leftKneeColor = leftKneeAngle !== null && leftKneeAngle < 155 ? "#10b981" : colors.secondary;
+          const rightKneeColor = rightKneeAngle !== null && rightKneeAngle < 155 ? "#10b981" : colors.secondary;
+
+          const torsoConnections = [
+            [11, 12], // shoulder-to-shoulder
+            [11, 23], [12, 24], [23, 24] // torso
+          ];
+
+          // Draw basic torso lines
+          canvasCtx.lineWidth = 4;
+          canvasCtx.strokeStyle = connectorColor;
+          torsoConnections.forEach(([p1, p2]) => {
+            const joint1 = landmarks[p1];
+            const joint2 = landmarks[p2];
+            if (joint1 && joint2 && joint1.visibility > 0.4 && joint2.visibility > 0.4) {
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(joint1.x * canvasElement.width, joint1.y * canvasElement.height);
+              canvasCtx.lineTo(joint2.x * canvasElement.width, joint2.y * canvasElement.height);
+              canvasCtx.stroke();
+            }
+          });
+
+          // Draw left leg
+          canvasCtx.strokeStyle = leftKneeColor;
+          canvasCtx.beginPath();
+          if (leftHip && leftKnee && leftHip.visibility > 0.4 && leftKnee.visibility > 0.4) {
+            canvasCtx.moveTo(leftHip.x * canvasElement.width, leftHip.y * canvasElement.height);
+            canvasCtx.lineTo(leftKnee.x * canvasElement.width, leftKnee.y * canvasElement.height);
+          }
+          if (leftKnee && leftAnkle && leftKnee.visibility > 0.4 && leftAnkle.visibility > 0.4) {
+            canvasCtx.lineTo(leftAnkle.x * canvasElement.width, leftAnkle.y * canvasElement.height);
+          }
+          canvasCtx.stroke();
+
+          // Draw right leg
+          canvasCtx.strokeStyle = rightKneeColor;
+          canvasCtx.beginPath();
+          if (rightHip && rightKnee && rightHip.visibility > 0.4 && rightKnee.visibility > 0.4) {
+            canvasCtx.moveTo(rightHip.x * canvasElement.width, rightHip.y * canvasElement.height);
+            canvasCtx.lineTo(rightKnee.x * canvasElement.width, rightKnee.y * canvasElement.height);
+          }
+          if (rightKnee && rightAnkle && rightKnee.visibility > 0.4 && rightAnkle.visibility > 0.4) {
+            canvasCtx.lineTo(rightAnkle.x * canvasElement.width, rightAnkle.y * canvasElement.height);
+          }
+          canvasCtx.stroke();
+
+          // Draw left arm
+          canvasCtx.strokeStyle = leftColor;
+          if (leftShoulder && leftElbow && leftShoulder.visibility > 0.4 && leftElbow.visibility > 0.4) {
             canvasCtx.beginPath();
-            canvasCtx.moveTo(joint1.x * canvasElement.width, joint1.y * canvasElement.height);
-            canvasCtx.lineTo(joint2.x * canvasElement.width, joint2.y * canvasElement.height);
+            canvasCtx.moveTo(leftShoulder.x * canvasElement.width, leftShoulder.y * canvasElement.height);
+            canvasCtx.lineTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
             canvasCtx.stroke();
           }
+          if (leftElbow && leftWrist && leftElbow.visibility > 0.4 && leftWrist.visibility > 0.4) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
+            canvasCtx.lineTo(leftWrist.x * canvasElement.width, leftWrist.y * canvasElement.height);
+            canvasCtx.stroke();
+          }
+
+          // Draw right arm
+          canvasCtx.strokeStyle = rightColor;
+          if (rightShoulder && rightElbow && rightShoulder.visibility > 0.4 && rightElbow.visibility > 0.4) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(rightShoulder.x * canvasElement.width, rightShoulder.y * canvasElement.height);
+            canvasCtx.lineTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
+            canvasCtx.stroke();
+          }
+          if (rightElbow && rightWrist && rightElbow.visibility > 0.4 && rightWrist.visibility > 0.4) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
+            canvasCtx.lineTo(rightWrist.x * canvasElement.width, rightWrist.y * canvasElement.height);
+            canvasCtx.stroke();
+          }
+
+          // Draw joint points
+          landmarks.forEach((joint, idx) => {
+            if (joint.visibility < 0.4) return;
+            const corePoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+            if (!corePoints.includes(idx)) return;
+
+            let ptColor = colors.primary;
+            if (idx === 13 || idx === 15) ptColor = leftColor;
+            if (idx === 14 || idx === 16) ptColor = rightColor;
+
+            canvasCtx.beginPath();
+            canvasCtx.arc(joint.x * canvasElement.width, joint.y * canvasElement.height, 6, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = ptColor;
+            canvasCtx.fill();
+          });
         });
+      }
 
-        // Draw left arm (Shoulder -> Elbow -> Wrist)
-        canvasCtx.strokeStyle = leftColor;
-        if (leftShoulder && leftElbow && leftShoulder.visibility > 0.4 && leftElbow.visibility > 0.4) {
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(leftShoulder.x * canvasElement.width, leftShoulder.y * canvasElement.height);
-          canvasCtx.lineTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
-          canvasCtx.stroke();
-        }
-        if (leftElbow && leftWrist && leftElbow.visibility > 0.4 && leftWrist.visibility > 0.4) {
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
-          canvasCtx.lineTo(leftWrist.x * canvasElement.width, leftWrist.y * canvasElement.height);
-          canvasCtx.stroke();
-        }
-
-        // Draw right arm (Shoulder -> Elbow -> Wrist)
-        canvasCtx.strokeStyle = rightColor;
-        if (rightShoulder && rightElbow && rightShoulder.visibility > 0.4 && rightElbow.visibility > 0.4) {
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(rightShoulder.x * canvasElement.width, rightShoulder.y * canvasElement.height);
-          canvasCtx.lineTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
-          canvasCtx.stroke();
-        }
-        if (rightElbow && rightWrist && rightElbow.visibility > 0.4 && rightWrist.visibility > 0.4) {
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
-          canvasCtx.lineTo(rightWrist.x * canvasElement.width, rightWrist.y * canvasElement.height);
-          canvasCtx.stroke();
-        }
-
-        // Draw joint points
-        landmarks.forEach((joint, idx) => {
-          if (joint.visibility < 0.4) return;
-          // Only draw points for core skeleton to keep it clean
-          const corePoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
-          if (!corePoints.includes(idx)) return;
-
-          let ptColor = "#ffffff";
-          if (idx === 13 || idx === 15) ptColor = leftColor;
-          if (idx === 14 || idx === 16) ptColor = rightColor;
-
-          canvasCtx.beginPath();
-          canvasCtx.arc(joint.x * canvasElement.width, joint.y * canvasElement.height, 6, 0, 2 * Math.PI);
-          canvasCtx.fillStyle = ptColor;
-          canvasCtx.fill();
+      // Send state back to React Native
+      const rules = STRIKE_RULES[activeStrike];
+      if (personsData.length > 0) {
+        sendToReactNative({
+          type: "POSE_DATA",
+          persons: personsData,
+          activeStrikeName: rules ? rules.name : ""
         });
-
-        // 3. Draw text markers (Angles)
-        // Since the canvas is mirrored, we temporarily restore matrix transformations to print text normally
-        canvasCtx.restore();
-        canvasCtx.save();
-        
-        canvasCtx.font = "bold 16px sans-serif";
-        
-        // Print Left Elbow Angle (Left side of physical body is drawn mirrored on canvas)
-        if (leftAngle !== null && leftElbow && leftElbow.visibility > 0.4) {
-          // Convert mirrored X to display X
-          const x = (1 - leftElbow.x) * canvasElement.width;
-          const y = leftElbow.y * canvasElement.height - 15;
-          canvasCtx.fillStyle = leftColor;
-          canvasCtx.strokeStyle = "#0b0f19";
-          canvasCtx.lineWidth = 3;
-          canvasCtx.strokeText(leftAngle + "°", x, y);
-          canvasCtx.fillText(leftAngle + "°", x, y);
-        }
-
-        // Print Right Elbow Angle
-        if (rightAngle !== null && rightElbow && rightElbow.visibility > 0.4) {
-          const x = (1 - rightElbow.x) * canvasElement.width;
-          const y = rightElbow.y * canvasElement.height - 15;
-          canvasCtx.fillStyle = rightColor;
-          canvasCtx.strokeStyle = "#0b0f19";
-          canvasCtx.lineWidth = 3;
-          canvasCtx.strokeText(rightAngle + "°", x, y);
-          canvasCtx.fillText(rightAngle + "°", x, y);
-        }
       } else {
         sendToReactNative({
           type: "POSE_DATA",
-          isPersonVisible: false
+          persons: []
+        });
+      }
+
+      // Draw text annotations, person names, angles, and sticks in absolute coordinates
+      canvasCtx.restore();
+      canvasCtx.save();
+      
+      canvasCtx.font = "bold 16px sans-serif";
+
+      if (results && results.landmarks && results.landmarks.length > 0) {
+        results.landmarks.forEach((landmarks, personIdx) => {
+          const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
+          const data = personsData[personIdx];
+          if (!data) return;
+
+          const leftShoulder = landmarks[11];
+          const rightShoulder = landmarks[12];
+          const leftElbow = landmarks[13];
+          const rightElbow = landmarks[14];
+
+          // 1. Draw Person Label (e.g. "Person 1")
+          if (leftShoulder && rightShoulder) {
+            const avgX = (leftShoulder.x + rightShoulder.x) / 2;
+            const avgY = (leftShoulder.y + rightShoulder.y) / 2;
+            const absX = (1 - avgX) * canvasElement.width;
+            const absY = avgY * canvasElement.height - 35;
+
+            canvasCtx.fillStyle = colors.primary;
+            canvasCtx.font = "bold 14px sans-serif";
+            canvasCtx.strokeStyle = "#0b0f19";
+            canvasCtx.lineWidth = 3;
+            canvasCtx.strokeText("Person " + (personIdx + 1), absX, absY);
+            canvasCtx.fillText("Person " + (personIdx + 1), absX, absY);
+          }
+
+          // 2. Draw Elbow Angles
+          canvasCtx.font = "bold 16px sans-serif";
+          if (data.leftAngle !== null && leftElbow && leftElbow.visibility > 0.4) {
+            const x = (1 - leftElbow.x) * canvasElement.width;
+            const y = leftElbow.y * canvasElement.height - 15;
+            const color = data.isLeftGood ? "#10b981" : "#ef4444";
+            canvasCtx.fillStyle = color;
+            canvasCtx.strokeStyle = "#0b0f19";
+            canvasCtx.lineWidth = 3;
+            canvasCtx.strokeText(Math.round(data.leftAngle) + "°", x, y);
+            canvasCtx.fillText(Math.round(data.leftAngle) + "°", x, y);
+          }
+
+          if (data.rightAngle !== null && rightElbow && rightElbow.visibility > 0.4) {
+            const x = (1 - rightElbow.x) * canvasElement.width;
+            const y = rightElbow.y * canvasElement.height - 15;
+            const color = data.isRightGood ? "#10b981" : "#ef4444";
+            canvasCtx.fillStyle = color;
+            canvasCtx.strokeStyle = "#0b0f19";
+            canvasCtx.lineWidth = 3;
+            canvasCtx.strokeText(Math.round(data.rightAngle) + "°", x, y);
+            canvasCtx.fillText(Math.round(data.rightAngle) + "°", x, y);
+          }
+
+          // 3. Draw Stick highlights
+          function drawStickLine(stick) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(stick.startX, stick.startY);
+            if (stick.points && stick.points.length > 0) {
+              const lastPt = stick.points[stick.points.length - 1];
+              canvasCtx.lineTo(lastPt.x, lastPt.y);
+            } else {
+              const endX = stick.startX + Math.cos(stick.angle) * 80;
+              const endY = stick.startY + Math.sin(stick.angle) * 80;
+              canvasCtx.lineTo(endX, endY);
+            }
+            canvasCtx.lineWidth = 6;
+            canvasCtx.strokeStyle = "#facc15"; // bright yellow stick overlay
+            canvasCtx.lineCap = "round";
+            canvasCtx.shadowBlur = 8;
+            canvasCtx.shadowColor = "#facc15";
+            canvasCtx.stroke();
+            canvasCtx.shadowBlur = 0; // reset
+          }
+
+          if (data.stickLeft && data.stickLeft.detected) {
+            drawStickLine(data.stickLeft);
+          }
+          if (data.stickRight && data.stickRight.detected) {
+            drawStickLine(data.stickRight);
+          }
         });
       }
 
