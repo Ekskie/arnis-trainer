@@ -15,32 +15,36 @@ interface StrikeRule {
   id: string;
   name: string;
   desc: string;
+  chamber_elb: number;
   right_min: number;
   right_max: number;
   left_min: number;
   left_max: number;
+  ideal_shoulder: number;
+  ideal_knee: number;
+  ext_delta: number;
 }
 
 const STRIKE_RULES: Record<string, StrikeRule> = {
-  "strike_1": { id: "strike_1", name: "Strike 1", desc: "Left Temple", right_min: 92.3, right_max: 150.8, left_min: 55.2, left_max: 155.9 },
-  "strike_2": { id: "strike_2", name: "Strike 2", desc: "Right Temple", right_min: 76.0, right_max: 148.5, left_min: 33.0, left_max: 65.3 },
-  "strike_3": { id: "strike_3", name: "Strike 3", desc: "Left Torso/Ribs", right_min: 72.6, right_max: 113.7, left_min: 41.8, left_max: 99.5 },
-  "strike_4": { id: "strike_4", name: "Strike 4", desc: "Right Torso/Ribs", right_min: 27.9, right_max: 139.2, left_min: 29.6, left_max: 61.0 },
-  "strike_5": { id: "strike_5", name: "Strike 5", desc: "Stomach Thrust", right_min: 155.7, right_max: 169.2, left_min: 40.4, left_max: 81.2 },
-  "strike_6": { id: "strike_6", name: "Strike 6", desc: "Left Chest Thrust", right_min: 93.2, right_max: 155.2, left_min: 80.4, left_max: 107.2 },
-  "strike_7": { id: "strike_7", name: "Strike 7", desc: "Right Chest Thrust", right_min: 96.3, right_max: 168.4, left_min: 50.7, left_max: 118.8 },
-  "strike_8": { id: "strike_8", name: "Strike 8", desc: "Left Knee", right_min: 128.4, right_max: 174.1, left_min: 27.7, left_max: 98.2 },
-  "strike_9": { id: "strike_9", name: "Strike 9", desc: "Right Knee", right_min: 109.2, right_max: 171.9, left_min: 41.1, left_max: 123.3 },
-  "strike_10": { id: "strike_10", name: "Strike 10", desc: "Left Eye Thrust", right_min: 112.7, right_max: 153.0, left_min: 53.1, left_max: 116.6 },
-  "strike_11": { id: "strike_11", name: "Strike 11", desc: "Right Eye Thrust", right_min: 101.6, right_max: 168.3, left_min: 48.2, left_max: 133.7 },
-  "strike_12": { id: "strike_12", name: "Strike 12", desc: "Crown Strike", right_min: 90.0, right_max: 130.2, left_min: 45.0, left_max: 114.5 }
+  "strike_1": { id: "strike_1", name: "Strike 1", desc: "Left Temple", chamber_elb: 143.0, right_min: 110.9, right_max: 156.8, left_min: 25.7, left_max: 94.2, ideal_shoulder: 38.5, ideal_knee: 170.9, ext_delta: 28.0 },
+  "strike_2": { id: "strike_2", name: "Strike 2", desc: "Right Temple", chamber_elb: 77.3, right_min: 132.3, right_max: 175.3, left_min: 21.8, left_max: 149.0, ideal_shoulder: 81.9, ideal_knee: 165.3, ext_delta: 75.1 },
+  "strike_3": { id: "strike_3", name: "Strike 3", desc: "Left Torso/Ribs", chamber_elb: 69.5, right_min: 87.2, right_max: 114.0, left_min: 3.7, left_max: 127.7, ideal_shoulder: 77.4, ideal_knee: 163.2, ext_delta: 83.4 },
+  "strike_4": { id: "strike_4", name: "Strike 4", desc: "Right Torso/Ribs", chamber_elb: 81.6, right_min: 121.1, right_max: 165.8, left_min: 23.5, left_max: 84.2, ideal_shoulder: 75.3, ideal_knee: 164.0, ext_delta: 67.1 },
+  "strike_5": { id: "strike_5", name: "Strike 5", desc: "Stomach Thrust", chamber_elb: 28.5, right_min: 151.1, right_max: 168.4, left_min: 22.0, left_max: 69.1, ideal_shoulder: 27.8, ideal_knee: 159.3, ext_delta: 145.8 },
+  "strike_6": { id: "strike_6", name: "Strike 6", desc: "Left Chest Thrust", chamber_elb: 164.2, right_min: 158.0, right_max: 178.8, left_min: 55.6, left_max: 100.2, ideal_shoulder: 32.6, ideal_knee: 161.3, ext_delta: 14.7 },
+  "strike_7": { id: "strike_7", name: "Strike 7", desc: "Right Chest Thrust", chamber_elb: 168.5, right_min: 149.2, right_max: 172.1, left_min: 69.4, left_max: 172.3, ideal_shoulder: 21.3, ideal_knee: 160.5, ext_delta: 97.9 },
+  "strike_8": { id: "strike_8", name: "Strike 8", desc: "Left Knee", chamber_elb: 99.5, right_min: 165.5, right_max: 178.0, left_min: 25.1, left_max: 97.8, ideal_shoulder: 17.4, ideal_knee: 164.4, ext_delta: 98.6 },
+  "strike_9": { id: "strike_9", name: "Strike 9", desc: "Right Knee", chamber_elb: 105.2, right_min: 170.3, right_max: 176.3, left_min: 37.5, left_max: 66.8, ideal_shoulder: 11.2, ideal_knee: 168.3, ext_delta: 94.5 },
+  "strike_10": { id: "strike_10", name: "Strike 10", desc: "Left Eye Thrust", chamber_elb: 170.4, right_min: 161.9, right_max: 179.1, left_min: 39.2, left_max: 84.2, ideal_shoulder: 18.3, ideal_knee: 162.8, ext_delta: 15.1 },
+  "strike_11": { id: "strike_11", name: "Strike 11", desc: "Right Eye Thrust", chamber_elb: 167.3, right_min: 151.9, right_max: 178.9, left_min: 88.2, left_max: 169.8, ideal_shoulder: 22.7, ideal_knee: 159.9, ext_delta: 113.0 },
+  "strike_12": { id: "strike_12", name: "Strike 12", desc: "Crown Strike", chamber_elb: 114.4, right_min: 111.1, right_max: 135.0, left_min: 24.3, left_max: 118.3, ideal_shoulder: 87.1, ideal_knee: 167.0, ext_delta: 27.6 }
 };
 
 const getJointScore = (actual: number | null | undefined, minVal: number, maxVal: number) => {
-  if (actual === null || actual === undefined || actual === 0) return 60;
+  if (actual === null || actual === undefined || actual === 0) return 0;
   if (actual >= minVal && actual <= maxVal) return 100;
   const dev = actual < minVal ? minVal - actual : actual - maxVal;
-  return Math.max(35, Math.round(100 - dev * 2));
+  return Math.max(0, Math.round(100 - dev * 2));
 };
 
 interface PersonData {
@@ -64,6 +68,10 @@ interface PersonData {
   wristScore: number;
   kneeScore: number;
   leadKneeAngle: number;
+  motionPhase?: 'chambering' | 'swinging' | 'apex_hit' | 'idle';
+  swingVelocity?: number;
+  extDelta?: number;
+  isApex?: boolean;
 }
 
 export default function EvaluateScreen() {
@@ -107,9 +115,9 @@ export default function EvaluateScreen() {
   const recordingIntervalRef = useRef<any>(null);
   
   // Real-time progress bars values
-  const [rtElbowScore, setRtElbowScore] = useState(70);
-  const [rtShoulderScore, setRtShoulderScore] = useState(70);
-  const [rtWristScore, setRtWristScore] = useState(70);
+  const [rtElbowScore, setRtElbowScore] = useState(0);
+  const [rtShoulderScore, setRtShoulderScore] = useState(0);
+  const [rtWristScore, setRtWristScore] = useState(0);
 
   // Result Summary cache
   const [finalSessionStats, setFinalSessionStats] = useState<{
@@ -232,7 +240,7 @@ export default function EvaluateScreen() {
         }
         
         // Timer completed! Read best recorded score
-        const finalScore = bestScoreRef.current || 65;
+        const finalScore = bestScoreRef.current || 0;
         const angles = bestAnglesRef.current;
         
         // Calculate true joint scores using the peak angles
@@ -241,21 +249,23 @@ export default function EvaluateScreen() {
         const finalShoulderScore = getJointScore(angles.rightShoulderAngle, 60, 130);
         const finalWristScore = getJointScore(angles.rightWristAngle, 0, 15);
         
-        const leadKneeAngle = Math.min(angles.leftKneeAngle || 180, angles.rightKneeAngle || 180);
-        const finalKneeScore = getJointScore(leadKneeAngle, 115, 150);
+        const leadKneeAngle = (angles.leftKneeAngle || angles.rightKneeAngle)
+          ? Math.min(angles.leftKneeAngle || 180, angles.rightKneeAngle || 180)
+          : 0;
+        const finalKneeScore = leadKneeAngle > 0 ? getJointScore(leadKneeAngle, 115, 150) : 0;
         
         const stats = {
           score: finalScore,
-          grade: finalScore >= 95 ? 'Grade A' : finalScore >= 85 ? 'Grade B' : finalScore >= 75 ? 'Grade C' : 'Grade D',
+          grade: finalScore >= 95 ? 'Grade A' : finalScore >= 85 ? 'Grade B' : finalScore >= 75 ? 'Grade C' : finalScore >= 60 ? 'Grade D' : 'Grade F',
           elbow: { 
             score: finalElbowScore, 
-            actual: angles.rightAngle || 159, 
+            actual: angles.rightAngle || 0, 
             ideal: Math.round((currentRule.right_min + currentRule.right_max) / 2) 
           },
           shoulder: { 
             score: finalShoulderScore, 
-            actual: angles.rightShoulderAngle || 81, 
-            ideal: 95 
+            actual: angles.rightShoulderAngle || 0, 
+            ideal: Math.round(currentRule.ideal_shoulder) || 90 
           },
           wrist: { 
             score: finalWristScore, 
@@ -264,8 +274,8 @@ export default function EvaluateScreen() {
           },
           knee: { 
             score: finalKneeScore, 
-            actual: leadKneeAngle || 150, 
-            ideal: 135 
+            actual: leadKneeAngle || 0, 
+            ideal: Math.round(currentRule.ideal_knee) || 165 
           }
         };
         
@@ -327,27 +337,48 @@ export default function EvaluateScreen() {
           const leftWristAngle = p.leftWristAngle !== null ? Math.round(p.leftWristAngle) : 0;
           const rightWristAngle = p.rightWristAngle !== null ? Math.round(p.rightWristAngle) : 0;
 
-          // Calculate scores dynamically!
+          // Calculate scores dynamically using dataset-calibrated parameters!
           const leftElbowScore = getJointScore(leftAngle, currentRule.left_min, currentRule.left_max);
           const rightElbowScore = getJointScore(rightAngle, currentRule.right_min, currentRule.right_max);
-          const elbowScore = Math.round((leftElbowScore + rightElbowScore) / 2);
+          let elbowScore = 0;
+          if (rightAngle > 0 && leftAngle > 0) {
+            elbowScore = Math.round((leftElbowScore + rightElbowScore) / 2);
+          } else if (rightAngle > 0) {
+            elbowScore = rightElbowScore;
+          } else if (leftAngle > 0) {
+            elbowScore = leftElbowScore;
+          }
 
-          // Shoulder score (Ideal range: 60 to 130)
-          const leftShoulderScore = getJointScore(leftShoulderAngle, 60, 130);
-          const rightShoulderScore = getJointScore(rightShoulderAngle, 60, 130);
-          const shoulderScore = Math.round((leftShoulderScore + rightShoulderScore) / 2);
+          // Calibrated Shoulder elevation score around ideal_shoulder
+          const shldMin = Math.max(10, currentRule.ideal_shoulder - 25);
+          const shldMax = Math.min(170, currentRule.ideal_shoulder + 25);
+          const shoulderScore = rightShoulderAngle > 0 ? getJointScore(rightShoulderAngle, shldMin, shldMax) : 0;
 
           // Wrist score (Ideal deviation from straight: 0 to 15 degrees)
-          const leftWristScore = getJointScore(leftWristAngle, 0, 15);
-          const rightWristScore = getJointScore(rightWristAngle, 0, 15);
-          const wristScore = Math.round((leftWristScore + rightWristScore) / 2);
+          const leftWristScore = leftWristAngle !== null ? getJointScore(leftWristAngle, 0, 15) : 0;
+          const rightWristScore = rightWristAngle !== null ? getJointScore(rightWristAngle, 0, 15) : 0;
+          let wristScore = 0;
+          if (rightWristAngle !== null && leftWristAngle !== null) {
+            wristScore = Math.round((leftWristScore + rightWristScore) / 2);
+          } else if (rightWristAngle !== null) {
+            wristScore = rightWristScore;
+          } else if (leftWristAngle !== null) {
+            wristScore = leftWristScore;
+          }
 
-          // Knee score (Lead knee should bend to between 115 and 150 degrees)
-          const leadKneeAngle = Math.min(leftKneeAngle || 180, rightKneeAngle || 180);
-          const kneeScore = getJointScore(leadKneeAngle, 115, 150);
+          // Knee score calibrated against stance ideal_knee
+          const leadKneeAngle = (leftKneeAngle > 0 && rightKneeAngle > 0)
+            ? Math.min(leftKneeAngle, rightKneeAngle)
+            : (rightKneeAngle || leftKneeAngle || 0);
+          const kneeMin = Math.max(110, currentRule.ideal_knee - 30);
+          const kneeMax = Math.min(180, currentRule.ideal_knee + 10);
+          const kneeScore = leadKneeAngle > 0 ? getJointScore(leadKneeAngle, kneeMin, kneeMax) : 0;
 
-          // Total posture accuracy
-          const accuracy = Math.round((elbowScore + shoulderScore + wristScore + kneeScore) / 4);
+          // Total posture & motion trajectory accuracy (average of valid detected scores)
+          const activeScores = [elbowScore, shoulderScore, wristScore, kneeScore].filter(s => s > 0);
+          const accuracy = activeScores.length > 0
+            ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
+            : 0;
 
           // Voice feedback logic for this person
           let personWarning: string | null = null;
@@ -355,17 +386,22 @@ export default function EvaluateScreen() {
           if (!isHoldingStick) {
             personWarning = "please hold your stick";
           } else {
-            if (leadKneeAngle > 155) {
-              personWarning = "stance too high, bend your lead knee";
-            } else if (rightWristAngle > 20 || leftWristAngle > 20) {
-              personWarning = "adjust your angle, straighten your wrist";
-            } else if (rightShoulderAngle < 55 && rightShoulderAngle > 0) {
-              personWarning = "adjust your angle, raise your shoulder";
-            } else if (!p.isRightGood && rightAngle > 0) {
-              if (rightAngle < currentRule.right_min) {
-                personWarning = "extend your striking arm more";
-              } else if (rightAngle > currentRule.right_max) {
-                personWarning = "keep your striking arm tighter";
+            if (p.motionPhase === 'chambering') {
+              // Chambering phase guidance
+              if (rightAngle > 0 && Math.abs(rightAngle - currentRule.chamber_elb) > 30) {
+                personWarning = "chamber your stick for the strike";
+              }
+            } else if (p.motionPhase === 'swinging') {
+              if (!p.isRightGood && rightAngle > 0) {
+                personWarning = rightAngle < currentRule.right_min ? "extend your strike fully" : "control your arm trajectory";
+              }
+            } else if (p.motionPhase === 'apex_hit' || p.isApex) {
+              personWarning = "great strike impact peak!";
+            } else {
+              if (leadKneeAngle > kneeMax) {
+                personWarning = "stance too high, bend your lead knee";
+              } else if (rightWristAngle > 20 || leftWristAngle > 20) {
+                personWarning = "straighten your wrist angle";
               }
             }
           }
@@ -394,7 +430,11 @@ export default function EvaluateScreen() {
             shoulderScore,
             wristScore,
             kneeScore,
-            leadKneeAngle
+            leadKneeAngle,
+            motionPhase: p.motionPhase || 'idle',
+            swingVelocity: p.swingVelocity || 0,
+            extDelta: p.extDelta || 0,
+            isApex: !!p.isApex
           };
         });
 
@@ -472,7 +512,11 @@ export default function EvaluateScreen() {
             setPoseScoreProgress(primaryPerson.accuracy);
           }
         } else {
-          // No person visible
+          // No person visible: reset all real-time visual metrics to 0
+          setRtElbowScore(0);
+          setRtShoulderScore(0);
+          setRtWristScore(0);
+          setPoseScoreProgress(0);
           setWarningMsg(null);
           if (evaluationMode === 'evaluate') {
             if (countdownState === 'counting') {
@@ -737,6 +781,41 @@ export default function EvaluateScreen() {
             </View>
           )}
 
+          {webReady && !errorMsg && persons.length > 0 && (
+            <View style={styles.motionBadgeOverlay}>
+              {(() => {
+                const activeP = persons.find(p => p.id === primaryPersonId) || persons[0];
+                const phase = activeP?.motionPhase || 'idle';
+                const speed = activeP?.swingVelocity || 0;
+                
+                let badgeColor = '#64748B';
+                let badgeText = 'READY STANCE';
+                let iconName: any = 'shield-outline';
+
+                if (phase === 'chambering') {
+                  badgeColor = '#F59E0B';
+                  badgeText = 'CHAMBERING';
+                  iconName = 'hand-left-outline';
+                } else if (phase === 'swinging') {
+                  badgeColor = '#3B82F6';
+                  badgeText = `SWINGING (${speed.toFixed(1)} m/s)`;
+                  iconName = 'flash-outline';
+                } else if (phase === 'apex_hit' || activeP?.isApex) {
+                  badgeColor = '#10B981';
+                  badgeText = 'IMPACT APEX HIT!';
+                  iconName = 'checkmark-circle-outline';
+                }
+
+                return (
+                  <View style={[styles.motionBadgePill, { backgroundColor: badgeColor + '30', borderColor: badgeColor }]}>
+                    <Ionicons name={iconName} size={14} color={badgeColor} style={{ marginRight: 6 }} />
+                    <Text style={[styles.motionBadgeText, { color: badgeColor }]}>{badgeText}</Text>
+                  </View>
+                );
+              })()}
+            </View>
+          )}
+
           {webReady && !errorMsg && evaluationMode === 'evaluate' && (
             <>
               {countdownState === 'waiting_for_person' && (
@@ -921,13 +1000,13 @@ export default function EvaluateScreen() {
           <Text style={styles.resultMeta}>SESSION COMPLETE · SAVED TO HISTORY</Text>
           <Text style={styles.resultTitle}>{currentRule.name} — {currentRule.desc}</Text>
           
-          <View style={[styles.resultCircle, { borderColor: getScoreColor(finalSessionStats?.score || 89) }]}>
-            <Text style={styles.resultScoreText}>{finalSessionStats?.score || 89}</Text>
+          <View style={[styles.resultCircle, { borderColor: getScoreColor(finalSessionStats?.score || 0) }]}>
+            <Text style={styles.resultScoreText}>{finalSessionStats?.score ?? 0}</Text>
           </View>
 
-          <View style={[styles.resultGradePill, { backgroundColor: getScoreColor(finalSessionStats?.score || 89) + '20' }]}>
-            <Text style={[styles.resultGradeText, { color: getScoreColor(finalSessionStats?.score || 89) }]}>
-              {finalSessionStats?.grade || 'Grade B'}
+          <View style={[styles.resultGradePill, { backgroundColor: getScoreColor(finalSessionStats?.score || 0) + '20' }]}>
+            <Text style={[styles.resultGradeText, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
+              {finalSessionStats?.grade || 'Grade F'}
             </Text>
           </View>
         </View>
@@ -940,13 +1019,13 @@ export default function EvaluateScreen() {
           <View style={styles.breakdownItem}>
             <View style={styles.breakdownTextRow}>
               <Text style={styles.breakdownLabel}>Striking Elbow</Text>
-              <Text style={styles.breakdownValue}>{finalSessionStats?.elbow.score || 87}%</Text>
+              <Text style={styles.breakdownValue}>{finalSessionStats?.elbow.score ?? 0}%</Text>
             </View>
             <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.elbow.score || 87}%` }]} />
+              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.elbow.score ?? 0}%` }]} />
             </View>
             <Text style={styles.breakdownActual}>
-              Actual: {finalSessionStats?.elbow.actual || 159}° · Ideal: {finalSessionStats?.elbow.ideal || 165}°
+              Actual: {finalSessionStats?.elbow.actual ?? 0}° · Ideal: {finalSessionStats?.elbow.ideal ?? 0}°
             </Text>
           </View>
 
@@ -954,13 +1033,13 @@ export default function EvaluateScreen() {
           <View style={styles.breakdownItem}>
             <View style={styles.breakdownTextRow}>
               <Text style={styles.breakdownLabel}>Striking Shoulder</Text>
-              <Text style={styles.breakdownValue}>{finalSessionStats?.shoulder.score || 80}%</Text>
+              <Text style={styles.breakdownValue}>{finalSessionStats?.shoulder.score ?? 0}%</Text>
             </View>
             <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.shoulder.score || 80}%` }]} />
+              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.shoulder.score ?? 0}%` }]} />
             </View>
             <Text style={styles.breakdownActual}>
-              Actual: {finalSessionStats?.shoulder.actual || 81}° · Ideal: {finalSessionStats?.shoulder.ideal || 90}°
+              Actual: {finalSessionStats?.shoulder.actual ?? 0}° · Ideal: {finalSessionStats?.shoulder.ideal ?? 0}°
             </Text>
           </View>
 
@@ -968,13 +1047,13 @@ export default function EvaluateScreen() {
           <View style={styles.breakdownItem}>
             <View style={styles.breakdownTextRow}>
               <Text style={styles.breakdownLabel}>Wrist Alignment</Text>
-              <Text style={styles.breakdownValue}>{finalSessionStats?.wrist.score || 89}%</Text>
+              <Text style={styles.breakdownValue}>{finalSessionStats?.wrist.score ?? 0}%</Text>
             </View>
             <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.wrist.score || 89}%` }]} />
+              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.wrist.score ?? 0}%` }]} />
             </View>
             <Text style={styles.breakdownActual}>
-              Actual: {finalSessionStats?.wrist.actual || -15}° · Ideal: {finalSessionStats?.wrist.ideal || -10}°
+              Actual: {finalSessionStats?.wrist.actual ?? 0}° · Ideal: {finalSessionStats?.wrist.ideal ?? 0}°
             </Text>
           </View>
 
@@ -982,13 +1061,13 @@ export default function EvaluateScreen() {
           <View style={styles.breakdownItem}>
             <View style={styles.breakdownTextRow}>
               <Text style={styles.breakdownLabel}>Lead Knee</Text>
-              <Text style={styles.breakdownValue}>{finalSessionStats?.knee.score || 100}%</Text>
+              <Text style={styles.breakdownValue}>{finalSessionStats?.knee.score ?? 0}%</Text>
             </View>
             <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.knee.score || 100}%` }]} />
+              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.knee.score ?? 0}%` }]} />
             </View>
             <Text style={styles.breakdownActual}>
-              Actual: {finalSessionStats?.knee.actual || 150}° · Ideal: {finalSessionStats?.knee.ideal || 150}°
+              Actual: {finalSessionStats?.knee.actual ?? 0}° · Ideal: {finalSessionStats?.knee.ideal ?? 0}°
             </Text>
           </View>
         </View>
@@ -1588,5 +1667,25 @@ const styles = StyleSheet.create({
     borderColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  motionBadgeOverlay: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 20,
+  },
+  motionBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    backdropFilter: 'blur(8px)',
+  },
+  motionBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
 });

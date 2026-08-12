@@ -105,19 +105,96 @@ export const getPoseEngineHtml = (modelUrl: string) => `
   <script>
 
     const STRIKE_RULES = {
-      "strike_1": { name: "Strike 1: Left Temple", right_min: 92.3, right_max: 150.8, left_min: 55.2, left_max: 155.9 },
-      "strike_2": { name: "Strike 2: Right Temple", right_min: 76.0, right_max: 148.5, left_min: 33.0, left_max: 65.3 },
-      "strike_3": { name: "Strike 3: Left Torso", right_min: 72.6, right_max: 113.7, left_min: 41.8, left_max: 99.5 },
-      "strike_4": { name: "Strike 4: Right Torso", right_min: 27.9, right_max: 139.2, left_min: 29.6, left_max: 61.0 },
-      "strike_5": { name: "Strike 5: Abdomen Thrust", right_min: 155.7, right_max: 169.2, left_min: 40.4, left_max: 81.2 },
-      "strike_6": { name: "Strike 6: Left Chest", right_min: 93.2, right_max: 155.2, left_min: 80.4, left_max: 107.2 },
-      "strike_7": { name: "Strike 7: Right Chest", right_min: 96.3, right_max: 168.4, left_min: 50.7, left_max: 118.8 },
-      "strike_8": { name: "Strike 8: Left Knee", right_min: 128.4, right_max: 174.1, left_min: 27.7, left_max: 98.2 },
-      "strike_9": { name: "Strike 9: Right Knee", right_min: 109.2, right_max: 171.9, left_min: 41.1, left_max: 123.3 },
-      "strike_10": { name: "Strike 10: Left Eye", right_min: 112.7, right_max: 153.0, left_min: 53.1, left_max: 116.6 },
-      "strike_11": { name: "Strike 11: Right Eye", right_min: 101.6, right_max: 168.3, left_min: 48.2, left_max: 133.7 },
-      "strike_12": { name: "Strike 12: Crown", right_min: 90.0, right_max: 130.2, left_min: 45.0, left_max: 114.5 }
+      "strike_1": { id: "strike_1", name: "Strike 1: Left Temple", chamber_elb: 143.0, right_min: 110.9, right_max: 156.8, left_min: 25.7, left_max: 94.2, ideal_shoulder: 38.5, ideal_knee: 170.9, ext_delta: 28.0 },
+      "strike_2": { id: "strike_2", name: "Strike 2: Right Temple", chamber_elb: 77.3, right_min: 132.3, right_max: 175.3, left_min: 21.8, left_max: 149.0, ideal_shoulder: 81.9, ideal_knee: 165.3, ext_delta: 75.1 },
+      "strike_3": { id: "strike_3", name: "Strike 3: Left Torso", chamber_elb: 69.5, right_min: 87.2, right_max: 114.0, left_min: 3.7, left_max: 127.7, ideal_shoulder: 77.4, ideal_knee: 163.2, ext_delta: 83.4 },
+      "strike_4": { id: "strike_4", name: "Strike 4: Right Torso", chamber_elb: 81.6, right_min: 121.1, right_max: 165.8, left_min: 23.5, left_max: 84.2, ideal_shoulder: 75.3, ideal_knee: 164.0, ext_delta: 67.1 },
+      "strike_5": { id: "strike_5", name: "Strike 5: Abdomen Thrust", chamber_elb: 28.5, right_min: 151.1, right_max: 168.4, left_min: 22.0, left_max: 69.1, ideal_shoulder: 27.8, ideal_knee: 159.3, ext_delta: 145.8 },
+      "strike_6": { id: "strike_6", name: "Strike 6: Left Chest", chamber_elb: 164.2, right_min: 158.0, right_max: 178.8, left_min: 55.6, left_max: 100.2, ideal_shoulder: 32.6, ideal_knee: 161.3, ext_delta: 14.7 },
+      "strike_7": { id: "strike_7", name: "Strike 7: Right Chest", chamber_elb: 168.5, right_min: 149.2, right_max: 172.1, left_min: 69.4, left_max: 172.3, ideal_shoulder: 21.3, ideal_knee: 160.5, ext_delta: 97.9 },
+      "strike_8": { id: "strike_8", name: "Strike 8: Left Knee", chamber_elb: 99.5, right_min: 165.5, right_max: 178.0, left_min: 25.1, left_max: 97.8, ideal_shoulder: 17.4, ideal_knee: 164.4, ext_delta: 98.6 },
+      "strike_9": { id: "strike_9", name: "Strike 9: Right Knee", chamber_elb: 105.2, right_min: 170.3, right_max: 176.3, left_min: 37.5, left_max: 66.8, ideal_shoulder: 11.2, ideal_knee: 168.3, ext_delta: 94.5 },
+      "strike_10": { id: "strike_10", name: "Strike 10: Left Eye", chamber_elb: 170.4, right_min: 161.9, right_max: 179.1, left_min: 39.2, left_max: 84.2, ideal_shoulder: 18.3, ideal_knee: 162.8, ext_delta: 15.1 },
+      "strike_11": { id: "strike_11", name: "Strike 11: Right Eye", chamber_elb: 167.3, right_min: 151.9, right_max: 178.9, left_min: 88.2, left_max: 169.8, ideal_shoulder: 22.7, ideal_knee: 159.9, ext_delta: 113.0 },
+      "strike_12": { id: "strike_12", name: "Strike 12: Crown", chamber_elb: 114.4, right_min: 111.1, right_max: 135.0, left_min: 24.3, left_max: 118.3, ideal_shoulder: 87.1, ideal_knee: 167.0, ext_delta: 27.6 }
     };
+
+    // Motion history buffer per person (up to 15 frames)
+    const personHistories = {};
+
+    function updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, timestamp) {
+      if (!personHistories[personIdx]) {
+        personHistories[personIdx] = [];
+      }
+      const history = personHistories[personIdx];
+      
+      let wristDist = 0;
+      if (rightWrist && rightShoulder) {
+        const dx = rightWrist.x - rightShoulder.x;
+        const dy = rightWrist.y - rightShoulder.y;
+        wristDist = Math.sqrt(dx * dx + dy * dy);
+      }
+
+      history.push({
+        x: rightWrist ? rightWrist.x : 0,
+        y: rightWrist ? rightWrist.y : 0,
+        dist: wristDist,
+        angle: rightAngle || 0,
+        t: timestamp
+      });
+
+      if (history.length > 15) {
+        history.shift();
+      }
+
+      let velocity = 0;
+      let extDelta = 0;
+      if (history.length >= 2) {
+        const newest = history[history.length - 1];
+        const oldest = history[0];
+        const prev = history[history.length - 2];
+
+        const dt = Math.max(0.001, (newest.t - prev.t) / 1000);
+        const dx = newest.x - prev.x;
+        const dy = newest.y - prev.y;
+        velocity = Math.sqrt(dx * dx + dy * dy) / dt;
+        extDelta = newest.dist - oldest.dist;
+      }
+
+      const rules = STRIKE_RULES[activeStrike];
+      let phase = "idle";
+      let isApex = false;
+
+      if (rules) {
+        const elDiffChamber = rightAngle !== null ? Math.abs(rightAngle - rules.chamber_elb) : 99;
+        if (elDiffChamber < 25 || velocity < 0.12) {
+          phase = "chambering";
+        } else if (velocity >= 0.12) {
+          phase = "swinging";
+        }
+
+        if (history.length >= 3 && rightAngle !== null) {
+          const curr = history[history.length - 1];
+          const prev1 = history[history.length - 2];
+          const prev2 = history[history.length - 3];
+
+          const isInTargetRange = rightAngle >= (rules.right_min - 12) && rightAngle <= (rules.right_max + 12);
+          const isLocalPeakExt = prev1.dist >= prev2.dist && curr.dist < prev1.dist;
+          
+          if (isInTargetRange && (isLocalPeakExt || (phase === "swinging" && velocity < 0.25))) {
+            phase = "apex_hit";
+            isApex = true;
+          }
+        }
+      }
+
+      return {
+        velocity: parseFloat(velocity.toFixed(3)),
+        extDelta: parseFloat(extDelta.toFixed(3)),
+        phase: phase,
+        isApex: isApex
+      };
+    }
 
     let activeStrike = "strike_1";
     let stickColorMode = "rattan";
@@ -505,6 +582,9 @@ export const getPoseEngineHtml = (modelUrl: string) => `
           const stickLeft = detectStick(leftWrist, imgData, stickColorMode);
           const stickRight = detectStick(rightWrist, imgData, stickColorMode);
 
+          // Dynamic Motion Tracking Calculation
+          const motionState = updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, performance.now());
+
           personsData.push({
             id: personIdx,
             leftAngle: leftAngle,
@@ -521,6 +601,10 @@ export const getPoseEngineHtml = (modelUrl: string) => `
             isHoldingRight: stickRight.detected,
             stickLeft: stickLeft,
             stickRight: stickRight,
+            motionPhase: motionState.phase,
+            swingVelocity: motionState.velocity,
+            extDelta: motionState.extDelta,
+            isApex: motionState.isApex,
             isPersonVisible: true
           });
 
