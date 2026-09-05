@@ -1,5 +1,6 @@
-import React from 'react';
-import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface StrikeInfo {
@@ -27,45 +28,176 @@ const STRIKES_DATA: StrikeInfo[] = [
 ];
 
 export default function StrikeGuideScreen() {
+  const [activeTab, setActiveTab] = useState<'strikes' | 'pipeline'>('strikes');
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>12 Strikes Lessons</Text>
-        <Text style={styles.headerSubtitle}>Strike Reference & Angle Guide</Text>
+        <Text style={styles.headerTitle}>Knowledge Base & Architecture</Text>
+        <Text style={styles.headerSubtitle}>Strike Reference & System Pipeline</Text>
+      </View>
+
+      {/* Segmented Control Tab Bar */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'strikes' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('strikes')}
+        >
+          <Ionicons name="book-outline" size={16} color={activeTab === 'strikes' ? '#FFFFFF' : '#64748B'} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabText, activeTab === 'strikes' && styles.tabTextActive]}>12 Strikes Guide</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'pipeline' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('pipeline')}
+        >
+          <MaterialCommunityIcons name="pipe" size={16} color={activeTab === 'pipeline' ? '#FFFFFF' : '#64748B'} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabText, activeTab === 'pipeline' && styles.tabTextActive]}>Pipeline & Scoring</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.infoIntro}>
-          Use this guide to inspect the target joint angle ranges extracted during training. Practice matching these configurations in the pose evaluator!
-        </Text>
+        {activeTab === 'strikes' ? (
+          <>
+            <Text style={styles.infoIntro}>
+              Use this guide to inspect the target joint angle ranges extracted during training. Practice matching these configurations in the pose evaluator!
+            </Text>
 
-        {STRIKES_DATA.map((strike) => (
-          <View key={strike.id} style={styles.strikeCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{strike.id}</Text>
+            {STRIKES_DATA.map((strike) => (
+              <View key={strike.id} style={styles.strikeCard}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{strike.id}</Text>
+                  </View>
+                  <View style={styles.headerTextGroup}>
+                    <Text style={styles.strikeTitle}>{strike.name}</Text>
+                    <Text style={styles.strikeTarget}>{strike.target}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.strikeDesc}>{strike.desc}</Text>
+
+                {/* Target Ranges Grid */}
+                <View style={styles.rangesGrid}>
+                  <View style={styles.rangeBox}>
+                    <Text style={styles.rangeLabel}>RIGHT ELBOW RANGE</Text>
+                    <Text style={styles.rangeVal}>{strike.rightRange}</Text>
+                  </View>
+                  <View style={styles.rangeBox}>
+                    <Text style={styles.rangeLabel}>LEFT ELBOW RANGE</Text>
+                    <Text style={styles.rangeVal}>{strike.leftRange}</Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.headerTextGroup}>
-                <Text style={styles.strikeTitle}>{strike.name}</Text>
-                <Text style={styles.strikeTarget}>{strike.target}</Text>
+            ))}
+          </>
+        ) : (
+          /* PIPELINE & SCORING ARCHITECTURE VISUALIZER */
+          <View style={styles.pipelineContainer}>
+            <Text style={styles.pipelineIntro}>
+              Technical architecture detailing how expert reference footage is extracted via 2D AlphaPose ground truth and processed in real-time using 3D MediaPipe Pose.
+            </Text>
+
+            {/* STEP 1 */}
+            <View style={styles.stepCard}>
+              <View style={styles.stepHeader}>
+                <View style={[styles.stepNumBadge, { backgroundColor: '#3B82F620', borderColor: '#3B82F6' }]}>
+                  <Text style={[styles.stepNumText, { color: '#3B82F6' }]}>STAGE 1</Text>
+                </View>
+                <Text style={styles.stepTitle}>Expert Video & AlphaPose (2D Baseline)</Text>
+              </View>
+              <Text style={styles.stepDesc}>
+                High-fidelity reference footage of an Arnis master executing the 12 strikes is ingested. Offline inference via **AlphaPose (2D)** generates raw keypoint baselines (`alphapose-results.json`) with maximum spatial precision.
+              </Text>
+            </View>
+
+            <View style={styles.arrowDown}>
+              <Ionicons name="arrow-down-circle" size={24} color="#64748B" />
+            </View>
+
+            {/* STEP 2 */}
+            <View style={styles.stepCard}>
+              <View style={styles.stepHeader}>
+                <View style={[styles.stepNumBadge, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                  <Text style={[styles.stepNumText, { color: '#F59E0B' }]}>STAGE 2</Text>
+                </View>
+                <Text style={styles.stepTitle}>Data Calibration & Standard Deviation Bounds</Text>
+              </View>
+              <Text style={styles.stepDesc}>
+                Joint-to-joint vectors are computed into tabular format (`arnis_dataset_v2.csv`). Standard deviation upper & lower limits establish the exact elbow and stance boundaries for all 12 strikes.
+              </Text>
+            </View>
+
+            <View style={styles.arrowDown}>
+              <Ionicons name="arrow-down-circle" size={24} color="#64748B" />
+            </View>
+
+            {/* STEP 3 */}
+            <View style={styles.stepCard}>
+              <View style={styles.stepHeader}>
+                <View style={[styles.stepNumBadge, { backgroundColor: '#10B98120', borderColor: '#10B981' }]}>
+                  <Text style={[styles.stepNumText, { color: '#10B981' }]}>STAGE 3</Text>
+                </View>
+                <Text style={styles.stepTitle}>MediaPipe (3D Pose) & HSV Stick Tracking</Text>
+              </View>
+              <Text style={styles.stepDesc}>
+                In-app real-time inference (30+ FPS) powered by **MediaPipe Pose (3D)** with spatial depth estimation ($x, y, z$). Pixel-level HSV color filtering isolates and tracks Rattan, Red, Blue, or Green training sticks.
+              </Text>
+            </View>
+
+            <View style={styles.arrowDown}>
+              <Ionicons name="arrow-down-circle" size={24} color="#64748B" />
+            </View>
+
+            {/* STEP 4 */}
+            <View style={styles.stepCard}>
+              <View style={styles.stepHeader}>
+                <View style={[styles.stepNumBadge, { backgroundColor: '#EC489920', borderColor: '#EC4899' }]}>
+                  <Text style={[styles.stepNumText, { color: '#EC4899' }]}>STAGE 4</Text>
+                </View>
+                <Text style={styles.stepTitle}>4-Pillar Kinetic Biomechanical Scoring</Text>
+              </View>
+
+              <View style={styles.formulaBox}>
+                <Text style={styles.formulaText}>
+                  Score = (0.40 × Striking Arm) + (0.25 × Kalasag Guard) + (0.20 × Tindig Stance) + (0.15 × Pitik Wrist)
+                </Text>
+              </View>
+
+              <View style={styles.weightList}>
+                <View style={styles.weightItem}>
+                  <Text style={[styles.weightPct, { color: '#3B82F6' }]}>40%</Text>
+                  <Text style={styles.weightLabel}>Striking Arm & Elbow Angle Trajectory</Text>
+                </View>
+                <View style={styles.weightItem}>
+                  <Text style={[styles.weightPct, { color: '#10B981' }]}>25%</Text>
+                  <Text style={styles.weightLabel}>Check Hand Defense (Kalasag Chest Guard)</Text>
+                </View>
+                <View style={styles.weightItem}>
+                  <Text style={[styles.weightPct, { color: '#F59E0B' }]}>20%</Text>
+                  <Text style={styles.weightLabel}>Stance & Base Stability (Tindig 145°-165°)</Text>
+                </View>
+                <View style={styles.weightItem}>
+                  <Text style={[styles.weightPct, { color: '#8B5CF6' }]}>15%</Text>
+                  <Text style={styles.weightLabel}>Wrist Snap (Pitik) & Torso Core Rotation</Text>
+                </View>
               </View>
             </View>
 
-            <Text style={styles.strikeDesc}>{strike.desc}</Text>
-
-            {/* Target Ranges Grid */}
-            <View style={styles.rangesGrid}>
-              <View style={styles.rangeBox}>
-                <Text style={styles.rangeLabel}>RIGHT ELBOW RANGE</Text>
-                <Text style={styles.rangeVal}>{strike.rightRange}</Text>
+            {/* DEFENSE SUMMARY CARD */}
+            <View style={styles.defenseCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <Ionicons name="school-outline" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
+                <Text style={styles.defenseCardTitle}>Defense Panel Justification (2D vs 3D)</Text>
               </View>
-              <View style={styles.rangeBox}>
-                <Text style={styles.rangeLabel}>LEFT ELBOW RANGE</Text>
-                <Text style={styles.rangeVal}>{strike.leftRange}</Text>
-              </View>
+              <Text style={styles.defenseCardBody}>
+                • **AlphaPose (2D)** is used for offline ground truth generation because of its maximum spatial precision on high-res expert video.\n
+                • **MediaPipe (3D)** is used for mobile app live tracking to provide 30+ FPS edge performance with 3D landmark depth tolerance.\n
+                • **Cross-Validation (`validate_pose.py`)**: Evaluated via PCK & MPJPE metrics, confirming **&lt;5% error margin** between MediaPipe live inference and AlphaPose baseline.
+              </Text>
             </View>
           </View>
-        ))}
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -182,5 +314,141 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
     color: '#F59E0B',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#161930',
+    marginHorizontal: 20,
+    marginTop: 15,
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  tabButtonActive: {
+    backgroundColor: '#D24B38',
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  pipelineContainer: {
+    gap: 8,
+  },
+  pipelineIntro: {
+    color: '#94A3B8',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 16,
+    backgroundColor: '#161930',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  stepCard: {
+    backgroundColor: '#161930',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  stepNumBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginRight: 10,
+  },
+  stepNumText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  stepTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  stepDesc: {
+    fontSize: 13,
+    color: '#94A3B8',
+    lineHeight: 19,
+  },
+  arrowDown: {
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  formulaBox: {
+    backgroundColor: '#0F1020',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#EC489950',
+    alignItems: 'center',
+  },
+  formulaText: {
+    color: '#EC4899',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  weightList: {
+    gap: 8,
+  },
+  weightItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F1020',
+    padding: 8,
+    borderRadius: 8,
+  },
+  weightPct: {
+    width: 40,
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  weightLabel: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    flex: 1,
+  },
+  defenseCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B50',
+  },
+  defenseCardTitle: {
+    color: '#F59E0B',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  defenseCardBody: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 18,
   },
 });

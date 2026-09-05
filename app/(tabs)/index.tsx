@@ -1,23 +1,47 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { StrikeRadarChart } from '@/components/StrikeRadarChart';
+import { AppTutorialModal } from '@/components/AppTutorialModal';
+import { getHistory, getStrikeMasteryStats, MasteryStats, SessionItem } from '@/constants/historyStore';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getHistory, SessionItem } from '@/constants/historyStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
+const TUTORIAL_STORAGE_KEY = '@arnis_tutorial_seen_v1';
 
 export default function HomeDashboardScreen() {
   const router = useRouter();
   const [lastSession, setLastSession] = useState<SessionItem | null>(null);
+  const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
+  const [showTutorialModal, setShowTutorialModal] = useState(false);
 
-  // Fetch the latest session when the dashboard comes into focus
+  // Check if first-time user to automatically prompt the interactive tutorial
+  useEffect(() => {
+    AsyncStorage.getItem(TUTORIAL_STORAGE_KEY).then((seen) => {
+      if (!seen) {
+        // Small delay to ensure smooth layout render before popping tutorial
+        const timer = setTimeout(() => {
+          setShowTutorialModal(true);
+        }, 600);
+        return () => clearTimeout(timer);
+      }
+    });
+  }, []);
+
+  // Fetch the latest session and mastery stats when the dashboard comes into focus
   useFocusEffect(
     React.useCallback(() => {
       let isMounted = true;
       getHistory().then((history) => {
-        if (isMounted && history && history.length > 0) {
-          setLastSession(history[0]);
+        if (isMounted && history) {
+          if (history.length > 0) {
+            setLastSession(history[0]);
+          } else {
+            setLastSession(null);
+          }
+          setMasteryStats(getStrikeMasteryStats(history));
         }
       });
       return () => {
@@ -39,13 +63,27 @@ export default function HomeDashboardScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <View style={styles.logoContainer}>
-            <MaterialCommunityIcons name="sword-cross" size={20} color="#FFFFFF" />
+            <Image
+              source={require('@/assets/images/favicon.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
           <View>
             <Text style={styles.headerTitle}>POSEFIX-ARNIS</Text>
             <Text style={styles.headerSubtitle}>Real-time Arnis Evaluation</Text>
           </View>
         </View>
+
+        {/* Tutorial / Help Demo Trigger Button */}
+        <TouchableOpacity
+          style={styles.headerTutorialBtn}
+          activeOpacity={0.8}
+          onPress={() => setShowTutorialModal(true)}
+        >
+          <Ionicons name="help-circle" size={16} color="#F59E0B" style={{ marginRight: 5 }} />
+          <Text style={styles.headerTutorialBtnText}>Tutorial Demo</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -56,7 +94,7 @@ export default function HomeDashboardScreen() {
           <Text style={styles.welcomeSubtitle}>Real-time 12 Strikes Evaluation</Text>
 
           <View style={styles.welcomeButtonsContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.primaryButton}
               activeOpacity={0.8}
               onPress={() => router.push('/evaluate')}
@@ -65,7 +103,7 @@ export default function HomeDashboardScreen() {
               <Text style={styles.primaryButtonText}>Start Camera</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.secondaryButton}
               activeOpacity={0.8}
               onPress={() => router.push('/explore')}
@@ -76,13 +114,42 @@ export default function HomeDashboardScreen() {
           </View>
         </View>
 
+        {/* Interactive App Demo Tutorial Banner */}
+        <TouchableOpacity
+          style={styles.demoTourCard}
+          activeOpacity={0.85}
+          onPress={() => setShowTutorialModal(true)}
+        >
+          <View style={styles.demoTourLeft}>
+            <View style={styles.demoTourIconBox}>
+              <Ionicons name="sparkles" size={20} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.demoTourTagRow}>
+                <Text style={styles.demoTourTag}>GUIDED WALKTHROUGH</Text>
+              </View>
+              <Text style={styles.demoTourTitle}>App Demo & Practice Guide</Text>
+              <Text style={styles.demoTourSub}>
+                Learn Practice Mode, score formulas & live visual cues
+              </Text>
+            </View>
+          </View>
+          <View style={styles.demoTourBtn}>
+            <Text style={styles.demoTourBtnText}>Take Tour</Text>
+            <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+
+        {/* 12 Strikes Mastery Radar Chart */}
+        <StrikeRadarChart masteryStats={masteryStats} />
+
         {/* Last Session Section */}
         <Text style={styles.sectionHeading}>LAST SESSION</Text>
         {lastSession ? (
           <View style={styles.lastSessionCard}>
-            <View 
+            <View
               style={[
-                styles.scoreCircle, 
+                styles.scoreCircle,
                 { borderColor: getScoreColor(lastSession.score) }
               ]}
             >
@@ -112,8 +179,8 @@ export default function HomeDashboardScreen() {
         {/* Quick Access Section */}
         <Text style={styles.sectionHeading}>QUICK ACCESS</Text>
         <View style={styles.grid}>
-          <TouchableOpacity 
-            style={styles.gridItem} 
+          <TouchableOpacity
+            style={styles.gridItem}
             activeOpacity={0.7}
             onPress={() => router.push('/history')}
           >
@@ -121,8 +188,8 @@ export default function HomeDashboardScreen() {
             <Text style={styles.gridText}>Progress History</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.gridItem} 
+          <TouchableOpacity
+            style={styles.gridItem}
             activeOpacity={0.7}
             onPress={() => router.push('/chat')}
           >
@@ -130,8 +197,8 @@ export default function HomeDashboardScreen() {
             <Text style={styles.gridText}>Coach Assistant</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.gridItem} 
+          <TouchableOpacity
+            style={styles.gridItem}
             activeOpacity={0.7}
             onPress={() => router.push('/explore')}
           >
@@ -139,8 +206,8 @@ export default function HomeDashboardScreen() {
             <Text style={styles.gridText}>12 Strikes Lessons</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.gridItem} 
+          <TouchableOpacity
+            style={styles.gridItem}
             activeOpacity={0.7}
             onPress={() => router.push('/evaluate')}
           >
@@ -149,6 +216,18 @@ export default function HomeDashboardScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Interactive App Demo Tutorial Walkthrough Modal */}
+      <AppTutorialModal
+        visible={showTutorialModal}
+        onClose={() => setShowTutorialModal(false)}
+        onNavigateToPractice={(strikeId) => {
+          router.push({
+            pathname: '/evaluate',
+            params: { strikeId: strikeId || 'strike_1' },
+          });
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -163,19 +242,46 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#161930',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  headerTutorialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  headerTutorialBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F59E0B',
+    letterSpacing: 0.4,
+  },
   logoContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#D24B38',
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
   },
   headerTitle: {
     fontSize: 16,
@@ -196,15 +302,81 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#161930', // Card background from storyboard
     padding: 24,
-    marginBottom: 25,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#1E293B',
-    // Gradient mock
     shadowColor: '#D24B38',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 3,
+  },
+  demoTourCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#13162D',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 25,
+    borderWidth: 1,
+    borderColor: '#2A3352',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  demoTourLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  demoTourIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F59E0B20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B40',
+  },
+  demoTourTagRow: {
+    marginBottom: 2,
+  },
+  demoTourTag: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#F59E0B',
+    letterSpacing: 1,
+  },
+  demoTourTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  demoTourSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    lineHeight: 15,
+  },
+  demoTourBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D24B38',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 4,
+  },
+  demoTourBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   welcomeLabel: {
     fontSize: 11,
@@ -361,3 +533,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
