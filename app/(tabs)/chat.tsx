@@ -74,9 +74,14 @@ function generateSemanticCoachResponse(query: string, userSessions: SessionItem[
   }
 
   // 2. Lowest / Weakest Strike Diagnosis Intent
-  if (q.includes("lowest") || q.includes("fix my") || q.includes("weakest") || q.includes("struggling") || q.includes("worst")) {
+  if (q.includes("lowest") || q.includes("fix my") || q.includes("weakest") || q.includes("struggling") || q.includes("worst") || q.includes("low score") || q.includes("why did i fail")) {
     if (userSessions.length === 0) {
-      return "Complete at least 1 evaluation test so I can diagnose your lowest-scoring technique with genuine sensor data!";
+      return "📉 **WHY LOW SCORES HAPPEN & HOW TO FIX THEM**\n\n" +
+        "1. **Did you freeze?** The system evaluates dynamic strikes! Freezing in place triggers the *STATIC_HOLD* penalty.\n" +
+        "2. **Check Hand Dropping?** 25% of your score comes from *Kalasag* (check hand). Keep your non-striking fist pinned to your solar plexus.\n" +
+        "3. **Stiff Knees?** Standing upright reduces *Tindig* (stance) points. Bend your lead knee into an active forward stance.\n" +
+        "4. **Camera Framing:** Make sure your entire body (head to toes) is visible in the frame (stand 2 to 2.5m back).\n\n" +
+        "Complete a test in the Evaluate tab to see your exact 4-pillar breakdown!";
     }
     const strikeScores: Record<string, number[]> = {};
     userSessions.forEach(item => {
@@ -100,6 +105,38 @@ function generateSemanticCoachResponse(query: string, userSessions: SessionItem[
       `2. **Kalasag Guard:** Keep your non-striking hand locked at solar plexus level throughout the stroke.\n` +
       `3. **Pitik Snap at Apex:** Accelerate through the target arc and snap the wrist firmly upon reaching the apex impact zone.\n\n` +
       `💡 Avoid standing still—the system requires dynamic acceleration to register apex impact!`;
+  }
+
+  // 2b. How to hold the stick / grip
+  if (q.includes("hold") || q.includes("grip") || q.includes("punyo") || q.includes("hand position")) {
+    return `🎋 **HOW TO HOLD THE ARNIS STICK (HAWAK & PUNYO)**\n\n` +
+      `• **The 4-Finger Wrap:** Wrap your four fingers firmly around the baston, locking your thumb securely over your index finger.\n` +
+      `• **Leave 1–2 Inches (The Punyo):** Leave 1 to 2 inches of stick butt extending beneath your pinky. This is the *Punyo*, used for close-range butt strikes, hooking, and disarming!\n` +
+      `• **Grip Tension:** Hold with moderate firmness (like holding a bird—neither crushing it nor letting it drop). Relax until the moment of impact, then tighten and snap (*Pitik*)!`;
+  }
+
+  // 2c. Difference between Strike 1 and Strike 2
+  if (q.includes("difference") && (q.includes("1") || q.includes("2") || q.includes("temple"))) {
+    return `⚔️ **STRIKE 1 VS. STRIKE 2: FOREHAND VS. BACKHAND**\n\n` +
+      `• **Strike 1 (Forehand Temple Cut):**\n` +
+      `  - Starts at your right ear/shoulder chamber.\n` +
+      `  - Slices diagonally downward to the opponent's left temple.\n` +
+      `  - Uses powerful chest and core rotation.\n\n` +
+      `• **Strike 2 (Backhand Temple Cut):**\n` +
+      `  - Starts crossed over at your left shoulder chamber.\n` +
+      `  - Slices diagonally downward to the opponent's right temple.\n` +
+      `  - Driven by triceps extension, hip opening, and backhand wrist snap.\n\n` +
+      `🛡️ **Both Require:** Kalasag check hand firmly shielding your chest!`;
+  }
+
+  // 2d. Explain like a beginner
+  if (q.includes("beginner") || q.includes("simple") || q.includes("explain this like") || q.includes("start")) {
+    return `🥋 **ARNIS IN 3 SIMPLE RULES FOR BEGINNERS**\n\n` +
+      `Welcome to Arnis (Philippine National Martial Art)! Here is all you need to remember:\n\n` +
+      `1. **The Stick is Your Arm's Extension:** Don't swing like a baseball bat. Rotate your hips and lead with your elbow.\n` +
+      `2. **Guard Your Core (Kalasag):** Your empty hand is your shield! Keep it pinned to your solar plexus. If it drops, you get hit in combat.\n` +
+      `3. **The 3-Beat Rhythm:** Kasa (cock weapon by ear) ➔ Tudla (accelerate and slice through target) ➔ Bawi (recover right back to defensive guard).\n\n` +
+      `Check out **Level 0 (Orientation)** and **Level 1 (Fundamentals)** in the Learn tab!`;
   }
 
   // 3. Individual Strike Specific Inquiries (Strike 1 to 12)
@@ -291,14 +328,16 @@ export default function CoachChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([
+    "🎯 What does Strike 3 target?",
+    "📉 Why am I getting a low score?",
+    "🎋 How do I hold the stick?",
+    "⚔️ Difference between Strike 1 and Strike 2?",
+    "🐣 Explain this like I'm a beginner",
     "📊 Analyze my performance history",
-    "🎯 How do I fix my lowest strike?",
     "🛡️ Why is Kalasag guard so important?",
     "⚡ Explain Kasa, Tudla, and Bawi",
     "🦵 What is proper Tindig stance?",
-    "⚡ How do I execute Pitik wrist snap?",
     "🔬 Why AlphaPose vs MediaPipe?",
-    "🇵🇭 Tell me about Republic Act 9850"
   ]);
 
   const formatTime = () => {
@@ -374,13 +413,14 @@ export default function CoachChatScreen() {
 
           setSuggestions([
             `🎯 How do I fix my ${lowestStrike || 'Strike 3'}?`,
+            "📉 Why am I getting a low score?",
+            "🎋 How do I hold the stick?",
+            "⚔️ Difference between Strike 1 and Strike 2?",
+            "🐣 Explain this like I'm a beginner",
             "📊 Analyze my performance history",
             "🛡️ Why is Kalasag guard so important?",
             "⚡ Explain Kasa, Tudla, and Bawi",
             "🦵 What is proper Tindig stance?",
-            "⚡ How do I execute Pitik wrist snap?",
-            "🔬 Why AlphaPose vs MediaPipe?",
-            "🇵🇭 Tell me about Republic Act 9850"
           ]);
         }
 
@@ -454,9 +494,22 @@ export default function CoachChatScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.headerTitle}>AI Grandmaster Guro</Text>
-            <Text style={styles.headerSubtitle}>Kinematic Telemetry & Form Guidance</Text>
+          <TouchableOpacity
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.push('/');
+              }
+            }}
+            style={styles.backBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>🥋 Ask Coach</Text>
+            <Text style={styles.headerSubtitle}>Virtual Arnis Mentor & Kinematics</Text>
           </View>
           <TouchableOpacity
             style={styles.refreshBtn}
@@ -601,6 +654,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  backBtn: {
+    marginRight: 10,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 19,

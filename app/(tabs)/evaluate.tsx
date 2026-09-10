@@ -9,6 +9,9 @@ import {
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
 import { StrikeVideoModal } from '@/components/StrikeVideoModal';
+import { WhyFailedModal } from '@/components/WhyFailedModal';
+import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
@@ -105,7 +108,7 @@ interface PersonData {
 
 export default function EvaluateScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ strikeId?: string }>();
+  const params = useLocalSearchParams<{ strikeId?: string; mode?: 'follow' | 'guided' | 'test' }>();
   const webViewRef = useRef<WebView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -114,11 +117,36 @@ export default function EvaluateScreen() {
   const [practiceType, setPracticeType] = useState<'single' | 'anyo'>('single');
   const [selectedStrikeId, setSelectedStrikeId] = useState<string>('strike_1');
   const [evaluationMode, setEvaluationMode] = useState<'coach' | 'practice' | 'freeflow' | 'evaluate'>('coach');
+  const [progressiveMode, setProgressiveMode] = useState<'follow' | 'guided' | 'test'>('guided');
+  const [showWhyModal, setShowWhyModal] = useState<boolean>(false);
   const [stickColor, setStickColor] = useState<string>('rattan');
   const [motionRibbonEnabled, setMotionRibbonEnabled] = useState<boolean>(true);
   const [ribbonTheme, setRibbonTheme] = useState<'fire' | 'neon' | 'cyan'>('fire');
   const [ghostGuideEnabled, setGhostGuideEnabled] = useState<boolean>(true);
   const [trajectoryGuideEnabled, setTrajectoryGuideEnabled] = useState<boolean>(true);
+
+  // Video player for Mode 1: Follow Me
+  const followVideoSource = LOCAL_STRIKE_VIDEOS[selectedStrikeId] || LOCAL_STRIKE_VIDEOS.strike_1;
+  const followPlayer = useVideoPlayer(followVideoSource, (p) => {
+    p.loop = true;
+    p.playbackRate = 0.75;
+    if (screenState === 'live' && progressiveMode === 'follow') {
+      p.play();
+    }
+  });
+
+  useEffect(() => {
+    if (followPlayer && followVideoSource) {
+      if (typeof followPlayer.replaceAsync === 'function') {
+        followPlayer.replaceAsync(followVideoSource).then(() => {
+          if (screenState === 'live' && progressiveMode === 'follow') followPlayer.play();
+        }).catch(() => {});
+      } else {
+        followPlayer.replace(followVideoSource);
+        if (screenState === 'live' && progressiveMode === 'follow') followPlayer.play();
+      }
+    }
+  }, [selectedStrikeId, followVideoSource, followPlayer, screenState, progressiveMode]);
 
   // Video Demonstration Guide Modal States
   const [videoModalVisible, setVideoModalVisible] = useState(false);
@@ -159,12 +187,22 @@ export default function EvaluateScreen() {
   const isAdvancingStepRef = useRef<boolean>(false);
   const routineIntervalRef = useRef<any>(null);
 
-  // Handle incoming strikeId parameter from Radar Chart / external navigation
+  // Handle incoming strikeId and mode parameters from external navigation
   useEffect(() => {
     if (params.strikeId && STRIKE_RULES[params.strikeId]) {
       setSelectedStrikeId(params.strikeId);
     }
-  }, [params.strikeId]);
+    if (params.mode === 'follow' || params.mode === 'guided' || params.mode === 'test') {
+      setProgressiveMode(params.mode);
+      if (params.mode === 'test') {
+        setEvaluationMode('evaluate');
+      } else if (params.mode === 'guided') {
+        setEvaluationMode('coach');
+      } else {
+        setEvaluationMode('practice');
+      }
+    }
+  }, [params.strikeId, params.mode]);
 
   // MediaPipe Live Tracking States
   const [webReady, setWebReady] = useState(false);
@@ -1571,6 +1609,60 @@ export default function EvaluateScreen() {
           </View>
         </View>
 
+        {/* 3 PROGRESSIVE TRAINING MODES SELECTOR */}
+        <View style={styles.progressiveModeSelector}>
+          <TouchableOpacity
+            style={[
+              styles.progModeBtn,
+              progressiveMode === 'follow' && styles.progModeBtnActiveFollow,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setProgressiveMode('follow');
+              setEvaluationMode('practice');
+            }}
+          >
+            <Ionicons name="eye" size={12} color={progressiveMode === 'follow' ? '#FFFFFF' : '#10B981'} style={{ marginRight: 4 }} />
+            <Text style={[styles.progModeText, progressiveMode === 'follow' && styles.progModeTextActive]}>
+              Follow Me
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.progModeBtn,
+              progressiveMode === 'guided' && styles.progModeBtnActiveGuided,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setProgressiveMode('guided');
+              setEvaluationMode('coach');
+            }}
+          >
+            <Ionicons name="mic" size={12} color={progressiveMode === 'guided' ? '#FFFFFF' : '#F59E0B'} style={{ marginRight: 4 }} />
+            <Text style={[styles.progModeText, progressiveMode === 'guided' && styles.progModeTextActive]}>
+              Guided
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.progModeBtn,
+              progressiveMode === 'test' && styles.progModeBtnActiveTest,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setProgressiveMode('test');
+              setEvaluationMode('evaluate');
+            }}
+          >
+            <MaterialCommunityIcons name="target" size={13} color={progressiveMode === 'test' ? '#FFFFFF' : '#EF4444'} style={{ marginRight: 4 }} />
+            <Text style={[styles.progModeText, progressiveMode === 'test' && styles.progModeTextActive]}>
+              Test AI
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* WebView Camera Viewport */}
         <View style={styles.viewportContainer}>
           <WebView
@@ -1826,6 +1918,68 @@ export default function EvaluateScreen() {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* Mode 1: Synchronized Follow Me Video Overlay */}
+          {progressiveMode === 'follow' && (
+            <View style={styles.followMeVideoContainer}>
+              <View style={styles.followMeVideoHeader}>
+                <Ionicons name="eye" size={12} color="#10B981" style={{ marginRight: 4 }} />
+                <Text style={styles.followMeVideoTitle}>INSTRUCTOR DEMO (MIRROR THIS)</Text>
+              </View>
+              <VideoView
+                player={followPlayer}
+                style={styles.followMeVideo}
+                allowsFullscreen={false}
+                allowsPictureInPicture={false}
+              />
+            </View>
+          )}
+
+          {/* Mode 2: Real-time Coach Checkmarks HUD */}
+          {progressiveMode === 'guided' && webReady && (
+            <View style={styles.guidedCheckmarksHUD}>
+              <View style={styles.guidedCheckRow}>
+                <Ionicons
+                  name={rtStanceScore >= 75 ? "checkmark-circle" : "alert-circle"}
+                  size={13}
+                  color={rtStanceScore >= 75 ? "#10B981" : "#F59E0B"}
+                />
+                <Text style={styles.guidedCheckLabel}>
+                  {rtStanceScore >= 75 ? "Good Stance (Tindig)" : "Bend Knees Deeper"}
+                </Text>
+              </View>
+              <View style={styles.guidedCheckRow}>
+                <Ionicons
+                  name={rtElbowScore >= 75 ? "checkmark-circle" : "alert-circle"}
+                  size={13}
+                  color={rtElbowScore >= 75 ? "#10B981" : "#F59E0B"}
+                />
+                <Text style={styles.guidedCheckLabel}>
+                  {rtElbowScore >= 75 ? "Correct Arm Extension" : "Adjust Striking Angle"}
+                </Text>
+              </View>
+              <View style={styles.guidedCheckRow}>
+                <Ionicons
+                  name={rtGuardScore >= 75 ? "checkmark-circle" : "close-circle"}
+                  size={13}
+                  color={rtGuardScore >= 75 ? "#10B981" : "#EF4444"}
+                />
+                <Text style={styles.guidedCheckLabel}>
+                  {rtGuardScore >= 75 ? "Guard Hand Up" : "Raise Check Hand (Kalasag)"}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Floating Ask Coach Button */}
+          <TouchableOpacity
+            style={styles.floatingCoachBtn}
+            activeOpacity={0.85}
+            onPress={() => router.push('/chat')}
+          >
+            <MaterialCommunityIcons name="chat-question" size={17} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.floatingCoachBtnText}>Ask Coach</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Scrollable controls and analysis below camera */}
@@ -2083,20 +2237,73 @@ export default function EvaluateScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Score Card */}
-        <View style={styles.resultCard}>
-          <Text style={styles.resultMeta}>SESSION COMPLETE · SAVED TO HISTORY</Text>
-          <Text style={styles.resultTitle}>{currentRule.name} — {currentRule.desc}</Text>
-
-          <View style={[styles.resultCircle, { borderColor: getScoreColor(finalSessionStats?.score || 0) }]}>
-            <Text style={styles.resultScoreText}>{finalSessionStats?.score ?? 0}</Text>
-          </View>
-
-          <View style={[styles.resultGradePill, { backgroundColor: getScoreColor(finalSessionStats?.score || 0) + '20' }]}>
-            <Text style={[styles.resultGradeText, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
-              {finalSessionStats?.grade || 'Grade F'}
+        {/* Human Coach Result Hero Card */}
+        <View style={styles.coachResultHero}>
+          <Text style={styles.coachResultSubtitle}>YOUR RESULT</Text>
+          <View style={styles.coachScoreRow}>
+            <Text style={[styles.coachBigScore, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
+              {finalSessionStats?.score ?? 0}%
             </Text>
+            <View style={[styles.coachGradeBadge, { backgroundColor: getScoreColor(finalSessionStats?.score || 0) + '25' }]}>
+              <Text style={[styles.coachGradeBadgeText, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
+                {finalSessionStats?.grade || 'Grade F'}
+              </Text>
+            </View>
           </View>
+
+          <Text style={styles.coachFeedbackGreeting}>
+            {(finalSessionStats?.score || 0) >= 85
+              ? '🎉 EXCELLENT EXECUTION!'
+              : (finalSessionStats?.score || 0) >= 70
+              ? '👍 GOOD JOB!'
+              : '🥋 NICE ATTEMPT!'}
+          </Text>
+          <Text style={styles.coachFeedbackSummary}>
+            {(finalSessionStats?.score || 0) >= 85
+              ? 'Your strike trajectory and guard hand were locked in. Great martial discipline!'
+              : (finalSessionStats?.score || 0) >= 70
+              ? 'Your strike direction is solid, but your elbow is opening slightly too much. Try keeping your arm more controlled.'
+              : 'Arnis takes practice! Let’s focus on bending your knees and keeping your check hand high.'}
+          </Text>
+
+          {/* Actionable Form Checklist */}
+          <View style={styles.actionChecklist}>
+            <View style={styles.actionCheckItem}>
+              <Ionicons
+                name={(finalSessionStats?.stance?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
+                size={16}
+                color={(finalSessionStats?.stance?.score || 0) >= 75 ? "#10B981" : "#F59E0B"}
+              />
+              <Text style={styles.actionCheckLabel}>Stance (Tindig): {finalSessionStats?.stance?.score ?? 0}%</Text>
+            </View>
+            <View style={styles.actionCheckItem}>
+              <Ionicons
+                name={(finalSessionStats?.elbow?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
+                size={16}
+                color={(finalSessionStats?.elbow?.score || 0) >= 75 ? "#10B981" : "#F59E0B"}
+              />
+              <Text style={styles.actionCheckLabel}>Strike Direction: {finalSessionStats?.elbow?.score ?? 0}%</Text>
+            </View>
+            <View style={styles.actionCheckItem}>
+              <Ionicons
+                name={(finalSessionStats?.guard?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
+                size={16}
+                color={(finalSessionStats?.guard?.score || 0) >= 75 ? "#10B981" : "#EF4444"}
+              />
+              <Text style={styles.actionCheckLabel}>Return Guard (Kalasag): {finalSessionStats?.guard?.score ?? 0}%</Text>
+            </View>
+          </View>
+
+          {/* "WHY DID I GET X%?" Deep Dive Button */}
+          <TouchableOpacity
+            style={styles.whyBigButton}
+            activeOpacity={0.85}
+            onPress={() => setShowWhyModal(true)}
+          >
+            <Ionicons name="help-circle" size={18} color="#38BDF8" style={{ marginRight: 6 }} />
+            <Text style={styles.whyBigButtonText}>Why Did I Get {finalSessionStats?.score ?? 0}%?</Text>
+            <Ionicons name="chevron-forward" size={16} color="#38BDF8" style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
         </View>
 
         {/* 4-Pillar Kinetic Breakdown Card */}
@@ -2203,15 +2410,46 @@ export default function EvaluateScreen() {
           </View>
         )}
 
-        {/* Done Button */}
-        <TouchableOpacity
-          style={styles.doneButton}
-          activeOpacity={0.8}
-          onPress={handleBackToSelection}
-        >
-          <Text style={styles.doneButtonText}>Done</Text>
-        </TouchableOpacity>
+        {/* Action Buttons: Try Again & Done */}
+        <View style={styles.resultActionsRow}>
+          <TouchableOpacity
+            style={styles.tryAgainButton}
+            activeOpacity={0.85}
+            onPress={() => handleStartEvaluation(selectedStrikeId)}
+          >
+            <Ionicons name="refresh" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.tryAgainButtonText}>TRY AGAIN</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.doneButton}
+            activeOpacity={0.8}
+            onPress={handleBackToSelection}
+          >
+            <Text style={styles.doneButtonText}>Done</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      {/* WHY DID I GET X%? MODAL */}
+      <WhyFailedModal
+        visible={showWhyModal}
+        onClose={() => setShowWhyModal(false)}
+        overallScore={finalSessionStats?.score || 0}
+        grade={finalSessionStats?.grade || 'Unranked'}
+        strikeName={currentRule.name}
+        strikeId={selectedStrikeId}
+        breakdown={{
+          elbowScore: finalSessionStats?.elbow.score,
+          bodyScore: finalSessionStats?.stance?.score,
+          guardScore: finalSessionStats?.guard?.score,
+          wristScore: finalSessionStats?.wrist.score,
+        }}
+        onPracticeLesson={(lessonId) => {
+          setShowWhyModal(false);
+          handleStartEvaluation(lessonId);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -3662,5 +3900,236 @@ const styles = StyleSheet.create({
   autoDetectedVideoBtn: {
     padding: 6,
     marginLeft: 4,
+  },
+
+  // PROGRESSIVE 3-MODE SELECTOR
+  progressiveModeSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#12162B',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A213D',
+  },
+  progModeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: '#181F3D',
+    borderWidth: 1,
+    borderColor: '#263158',
+  },
+  progModeBtnActiveFollow: {
+    backgroundColor: '#10B981',
+    borderColor: '#34D399',
+  },
+  progModeBtnActiveGuided: {
+    backgroundColor: '#F59E0B',
+    borderColor: '#FBBF24',
+  },
+  progModeBtnActiveTest: {
+    backgroundColor: '#EF4444',
+    borderColor: '#F87171',
+  },
+  progModeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  progModeTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+
+  // MODE 1: FOLLOW ME PIP VIDEO
+  followMeVideoContainer: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 130,
+    height: 140,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    backgroundColor: '#000000',
+    zIndex: 50,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  followMeVideoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  followMeVideoTitle: {
+    fontSize: 7.5,
+    fontWeight: '900',
+    color: '#10B981',
+    letterSpacing: 0.5,
+  },
+  followMeVideo: {
+    width: '100%',
+    height: '100%',
+  },
+
+  // MODE 2: GUIDED HUD CHECKMARKS
+  guidedCheckmarksHUD: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.90)',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 6,
+    zIndex: 40,
+  },
+  guidedCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  guidedCheckLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // FLOATING ASK COACH BUTTON
+  floatingCoachBtn: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0284C7',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 50,
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  floatingCoachBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // COACH RESULT HERO
+  coachResultHero: {
+    backgroundColor: '#161930',
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#262F52',
+    marginBottom: 16,
+  },
+  coachResultSubtitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1.2,
+  },
+  coachScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  coachBigScore: {
+    fontSize: 48,
+    fontWeight: '900',
+  },
+  coachGradeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  coachGradeBadgeText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  coachFeedbackGreeting: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  coachFeedbackSummary: {
+    fontSize: 12.5,
+    color: '#CBD5E1',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginBottom: 14,
+  },
+  actionChecklist: {
+    width: '100%',
+    backgroundColor: '#101428',
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginBottom: 14,
+  },
+  actionCheckItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionCheckLabel: {
+    fontSize: 12,
+    color: '#E2E8F0',
+    fontWeight: '600',
+  },
+  whyBigButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38BDF820',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#38BDF850',
+  },
+  whyBigButtonText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#38BDF8',
+  },
+  resultActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  tryAgainButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#D24B38',
+    borderRadius: 14,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tryAgainButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
 });

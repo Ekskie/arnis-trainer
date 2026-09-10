@@ -35,9 +35,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Learn',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="evaluate"
         options={{
-          title: 'Evaluate',
+          title: 'Train',
           tabBarIcon: ({ color, focused }) => (
             <MaterialCommunityIcons name={focused ? 'target' : 'target'} size={24} color={color} />
           ),
@@ -46,28 +55,16 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'History',
+          title: 'Progress',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'bar-chart' : 'bar-chart-outline'} size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Lessons',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'trending-up' : 'trending-up-outline'} size={22} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
-          title: 'Chat',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} size={22} color={color} />
-          ),
+          href: null, // Hidden from bottom tab bar, accessible from header / coach button
         }}
       />
     </Tabs>

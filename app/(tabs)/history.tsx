@@ -1,4 +1,5 @@
 import { StrikeRadarChart } from '@/components/StrikeRadarChart';
+import { WhyFailedModal } from '@/components/WhyFailedModal';
 import { clearHistory, getHistory, getStrikeMasteryStats, MasteryStats, SessionItem } from '@/constants/historyStore';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -16,6 +17,7 @@ export default function ProgressHistoryScreen() {
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
+  const [whySession, setWhySession] = useState<SessionItem | null>(null);
   const [selectedRadarStrikeId, setSelectedRadarStrikeId] = useState<string | null>(null);
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
   const [stats, setStats] = useState({
@@ -411,9 +413,22 @@ export default function ProgressHistoryScreen() {
                     </View>
                   </View>
 
-                  <Text style={[styles.logGrade, { color: getScoreColor(item.score) }]}>
-                    {item.grade.replace('Grade ', '')}
-                  </Text>
+                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                    <Text style={[styles.logGrade, { color: getScoreColor(item.score) }]}>
+                      {item.grade.replace('Grade ', '')}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.whySmallBtn}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setWhySession(item);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="help-circle" size={11} color="#38BDF8" style={{ marginRight: 2 }} />
+                      <Text style={styles.whySmallBtnText}>Why?</Text>
+                    </TouchableOpacity>
+                  </View>
                 </TouchableOpacity>
               ));
             })()}
@@ -609,6 +624,16 @@ export default function ProgressHistoryScreen() {
                   </Text>
                 </View>
               ) : null}
+
+              {/* Why Did I Get X%? Button */}
+              <TouchableOpacity
+                style={styles.whyModalBtn}
+                onPress={() => setWhySession(selectedSession)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="help-circle" size={16} color="#38BDF8" style={{ marginRight: 6 }} />
+                <Text style={styles.whyModalBtnText}>Why Did I Get {selectedSession?.score}%? (Diagnosis)</Text>
+              </TouchableOpacity>
             </ScrollView>
 
             <TouchableOpacity
@@ -620,6 +645,29 @@ export default function ProgressHistoryScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Why Did I Fail / Diagnostic Modal */}
+      {whySession && (
+        <WhyFailedModal
+          visible={!!whySession}
+          onClose={() => setWhySession(null)}
+          overallScore={whySession.score}
+          grade={whySession.grade}
+          strikeName={whySession.strikeName}
+          strikeId={whySession.strikeId}
+          breakdown={{
+            elbowScore: whySession.breakdown?.elbow?.score,
+            bodyScore: whySession.breakdown?.stance?.score || whySession.breakdown?.knee?.score,
+            guardScore: whySession.breakdown?.guard?.score,
+            wristScore: whySession.breakdown?.wrist?.score,
+          }}
+          onPracticeLesson={(lessonId) => {
+            setWhySession(null);
+            setSelectedSession(null);
+            router.push({ pathname: '/evaluate', params: { strikeId: lessonId } });
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1139,5 +1187,37 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 15,
+  },
+  whySmallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38BDF820',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#38BDF840',
+  },
+  whySmallBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#38BDF8',
+  },
+  whyModalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#38BDF820',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#38BDF850',
+    marginVertical: 10,
+  },
+  whyModalBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#38BDF8',
   },
 });
