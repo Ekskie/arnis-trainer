@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import Svg, { Circle, Defs, LinearGradient, Path, Stop, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
 
 import { MartialTheme } from '@/constants/theme';
@@ -29,9 +29,8 @@ import {
   getStrikeMasteryStats,
   MasteryStats,
   SessionItem,
-  STRIKES_CATALOG,
 } from '@/constants/historyStore';
-import { CURRICULUM_DATA, getCurriculumProgress, getStageSummary } from '@/constants/curriculumStore';
+import { getCurriculumProgress } from '@/constants/curriculumStore';
 
 const { width } = Dimensions.get('window');
 
@@ -43,8 +42,8 @@ export default function ProgressHistoryScreen() {
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
   const [selectedRadarStrikeId, setSelectedRadarStrikeId] = useState<string | null>(null);
-  const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
   const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
   const [stats, setStats] = useState({
     avgScore: 0,
     bestScore: 0,
@@ -274,7 +273,7 @@ export default function ProgressHistoryScreen() {
         <View style={styles.masterySummaryCard}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.progressSuperTag}>LOOK HOW FAR YOU'VE COME</Text>
+              <Text style={styles.progressSuperTag}>{"LOOK HOW FAR YOU'VE COME"}</Text>
               <Text style={styles.progressHeroText}>
                 {masteryStats.masteredCount} of 12 Techniques Mastered
               </Text>
@@ -338,8 +337,8 @@ export default function ProgressHistoryScreen() {
 
             {/* Coach Speech Bubble */}
             <View style={styles.focusCoachBubble}>
-              <Text style={styles.focusCoachBubbleLabel}>COACH'S ADVICE</Text>
-              <Text style={styles.focusCoachBubbleText}>"{coachFocusAdvice}"</Text>
+              <Text style={styles.focusCoachBubbleLabel}>{"COACH'S ADVICE"}</Text>
+              <Text style={styles.focusCoachBubbleText}>{`"${coachFocusAdvice}"`}</Text>
             </View>
 
             {/* Action Button */}

@@ -1,4 +1,6 @@
-export const getPoseEngineHtml = (modelUrl: string) => `
+import { STRIKE_RULES, StrikeRule } from '@/constants/strikeRules';
+
+export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, StrikeRule> = STRIKE_RULES) => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -104,20 +106,59 @@ export const getPoseEngineHtml = (modelUrl: string) => `
 
   <script>
 
-    const STRIKE_RULES = {
-      "strike_1": { id: "strike_1", name: "Strike 1: Left Temple", chamber_elb: 143.0, right_min: 110.9, right_max: 156.8, left_min: 25.7, left_max: 94.2, ideal_shoulder: 38.5, ideal_knee: 155.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Chest Guard (Kalasag)", ext_delta: 28.0 },
-      "strike_2": { id: "strike_2", name: "Strike 2: Right Temple", chamber_elb: 77.3, right_min: 132.3, right_max: 175.3, left_min: 21.8, left_max: 149.0, ideal_shoulder: 81.9, ideal_knee: 155.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Chest Guard (Kalasag)", ext_delta: 75.1 },
-      "strike_3": { id: "strike_3", name: "Strike 3: Left Torso", chamber_elb: 69.5, right_min: 87.2, right_max: 114.0, left_min: 3.7, left_max: 127.7, ideal_shoulder: 77.4, ideal_knee: 152.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Solar Plexus Guard", ext_delta: 83.4 },
-      "strike_4": { id: "strike_4", name: "Strike 4: Right Torso", chamber_elb: 81.6, right_min: 121.1, right_max: 165.8, left_min: 23.5, left_max: 84.2, ideal_shoulder: 75.3, ideal_knee: 152.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Solar Plexus Guard", ext_delta: 67.1 },
-      "strike_5": { id: "strike_5", name: "Strike 5: Abdomen Thrust", chamber_elb: 28.5, right_min: 151.1, right_max: 168.4, left_min: 22.0, left_max: 69.1, ideal_shoulder: 27.8, ideal_knee: 150.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "High Chest Guard", ext_delta: 145.8 },
-      "strike_6": { id: "strike_6", name: "Strike 6: Left Chest", chamber_elb: 164.2, right_min: 158.0, right_max: 178.8, left_min: 55.6, left_max: 100.2, ideal_shoulder: 32.6, ideal_knee: 152.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Face/Chin Guard", ext_delta: 14.7 },
-      "strike_7": { id: "strike_7", name: "Strike 7: Right Chest", chamber_elb: 168.5, right_min: 149.2, right_max: 172.1, left_min: 69.4, left_max: 172.3, ideal_shoulder: 21.3, ideal_knee: 152.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Face/Chin Guard", ext_delta: 97.9 },
-      "strike_8": { id: "strike_8", name: "Strike 8: Left Knee", chamber_elb: 99.5, right_min: 165.5, right_max: 178.0, left_min: 25.1, left_max: 97.8, ideal_shoulder: 17.4, ideal_knee: 145.0, knee_min: 130.0, knee_max: 160.0, guard_target: "chest", guard_label: "Upper Torso Guard", ext_delta: 98.6 },
-      "strike_9": { id: "strike_9", name: "Strike 9: Right Knee", chamber_elb: 105.2, right_min: 170.3, right_max: 176.3, left_min: 37.5, left_max: 66.8, ideal_shoulder: 11.2, ideal_knee: 145.0, knee_min: 130.0, knee_max: 160.0, guard_target: "chest", guard_label: "Upper Torso Guard", ext_delta: 94.5 },
-      "strike_10": { id: "strike_10", name: "Strike 10: Left Eye", chamber_elb: 170.4, right_min: 161.9, right_max: 179.1, left_min: 39.2, left_max: 84.2, ideal_shoulder: 18.3, ideal_knee: 154.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Throat/Chest Guard", ext_delta: 15.1 },
-      "strike_11": { id: "strike_11", name: "Strike 11: Right Eye", chamber_elb: 167.3, right_min: 151.9, right_max: 178.9, left_min: 88.2, left_max: 169.8, ideal_shoulder: 22.7, ideal_knee: 154.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Throat/Chest Guard", ext_delta: 113.0 },
-      "strike_12": { id: "strike_12", name: "Strike 12: Crown", chamber_elb: 114.4, right_min: 111.1, right_max: 135.0, left_min: 24.3, left_max: 118.3, ideal_shoulder: 87.1, ideal_knee: 155.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Center Chest Guard", ext_delta: 27.6 }
+    let STRIKE_RULES = ${JSON.stringify(strikeRules)};
+
+    // Centralized React Native message dispatcher
+    window.handleReactNativeMessage = function(raw) {
+      try {
+        var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!data || !data.type) return;
+        if (data.type === 'SET_SESSION' && data.config) {
+          if (data.config.strikeId && STRIKE_RULES[data.config.strikeId]) {
+            activeStrike = data.config.strikeId;
+          }
+          if (data.config.stickColor && window.setStickColor) {
+            window.setStickColor(data.config.stickColor);
+          }
+          if (data.config.motionRibbonEnabled !== undefined && window.setMotionRibbonEnabled) {
+            window.setMotionRibbonEnabled(data.config.motionRibbonEnabled);
+          }
+          if (data.config.ribbonTheme && window.setRibbonTheme) {
+            window.setRibbonTheme(data.config.ribbonTheme);
+          }
+          if (data.config.ghostGuideEnabled !== undefined && window.setGhostGuideEnabled) {
+            window.setGhostGuideEnabled(data.config.ghostGuideEnabled);
+          }
+          if (data.config.trajectoryGuideEnabled !== undefined && window.setTrajectoryGuideEnabled) {
+            window.setTrajectoryGuideEnabled(data.config.trajectoryGuideEnabled);
+          }
+          if (data.config.formCoachMode !== undefined && window.setFormCoachMode) {
+            window.setFormCoachMode(data.config.formCoachMode);
+          }
+          if (data.config.autoDetectMode !== undefined && window.setAutoDetectMode) {
+            window.setAutoDetectMode(data.config.autoDetectMode);
+          }
+        } else if (data.type === 'SET_TARGET_STRIKE') {
+          if (data.rule && data.strikeId) {
+            STRIKE_RULES[data.strikeId] = data.rule;
+          }
+          if (data.strikeId && window.setTargetStrike) {
+            window.setTargetStrike(data.strikeId);
+          }
+        } else if (data.type === 'START_RECORDING') {
+          if (window.startVideoRecording) window.startVideoRecording();
+        } else if (data.type === 'STOP_RECORDING') {
+          if (window.stopVideoRecording) window.stopVideoRecording();
+        } else if (data.type === 'SET_FORM_COACH_PHASE') {
+          if (window.setFormCoachPhase) window.setFormCoachPhase(data.phase);
+        }
+      } catch (err) {
+        console.error('Error handling RN message:', err);
+      }
     };
+    window.addEventListener('message', function(e) {
+      window.handleReactNativeMessage(e.data);
+    });
 
     // Motion history & Kinetic Chain buffer per person
     const personHistories = {};

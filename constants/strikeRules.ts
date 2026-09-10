@@ -1,0 +1,282 @@
+export interface StrikeRule {
+  id: string;
+  strikeNumber: number;
+  name: string;
+  target: string;
+  desc: string;
+  chamber_elb: number;
+  right_min: number;
+  right_max: number;
+  left_min: number;
+  left_max: number;
+  ideal_shoulder: number;
+  ideal_knee: number;
+  knee_min: number;
+  knee_max: number;
+  guard_target: string;
+  guard_label: string;
+  ext_delta: number;
+  coachTip: string;
+  commonMistake: string;
+}
+
+export const STRIKE_RULES: Record<string, StrikeRule> = {
+  strike_1: {
+    id: "strike_1",
+    strikeNumber: 1,
+    name: "Strike 1",
+    target: "Left Temple / Neck",
+    desc: "Diagonal downward strike to left temple/neck",
+    chamber_elb: 143.0,
+    right_min: 110.9,
+    right_max: 156.8,
+    left_min: 25.7,
+    left_max: 94.2,
+    ideal_shoulder: 38.5,
+    ideal_knee: 155.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Chest Guard (Kalasag)",
+    ext_delta: 28.0,
+    coachTip: "Chamber high near right ear, slice diagonally down at 45° while keeping left check hand pinned to your chest.",
+    commonMistake: "Dropping the left check hand or overswinging past the centerline."
+  },
+  strike_2: {
+    id: "strike_2",
+    strikeNumber: 2,
+    name: "Strike 2",
+    target: "Right Temple / Neck",
+    desc: "Diagonal downward strike to right temple/neck",
+    chamber_elb: 77.3,
+    right_min: 132.3,
+    right_max: 175.3,
+    left_min: 21.8,
+    left_max: 149.0,
+    ideal_shoulder: 81.9,
+    ideal_knee: 155.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Chest Guard (Kalasag)",
+    ext_delta: 75.1,
+    coachTip: "Chamber across to your left shoulder, slice back diagonally to target the right temple.",
+    commonMistake: "Failing to turn shoulders into the backhand slice."
+  },
+  strike_3: {
+    id: "strike_3",
+    strikeNumber: 3,
+    name: "Strike 3",
+    target: "Left Torso / Ribs",
+    desc: "Horizontal strike targeting the left ribs/torso",
+    chamber_elb: 69.5,
+    right_min: 87.2,
+    right_max: 114.0,
+    left_min: 3.7,
+    left_max: 127.7,
+    ideal_shoulder: 77.4,
+    ideal_knee: 152.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Solar Plexus Guard",
+    ext_delta: 83.4,
+    coachTip: "Deliver horizontally at midsection level. Rotate hips smoothly with the cut.",
+    commonMistake: "Swinging downward instead of maintaining a flat horizontal plane."
+  },
+  strike_4: {
+    id: "strike_4",
+    strikeNumber: 4,
+    name: "Strike 4",
+    target: "Right Torso / Ribs",
+    desc: "Horizontal strike targeting the right ribs/torso",
+    chamber_elb: 81.6,
+    right_min: 121.1,
+    right_max: 165.8,
+    left_min: 23.5,
+    left_max: 84.2,
+    ideal_shoulder: 75.3,
+    ideal_knee: 152.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Solar Plexus Guard",
+    ext_delta: 67.1,
+    coachTip: "Backhand horizontal strike across the right floating ribs. Keep your wrist locked.",
+    commonMistake: "Letting the elbow collapse inward during impact."
+  },
+  strike_5: {
+    id: "strike_5",
+    strikeNumber: 5,
+    name: "Strike 5",
+    target: "Solar Plexus / Abdomen",
+    desc: "Direct thrust to solar plexus/core",
+    chamber_elb: 28.5,
+    right_min: 151.1,
+    right_max: 168.4,
+    left_min: 22.0,
+    left_max: 69.1,
+    ideal_shoulder: 27.8,
+    ideal_knee: 150.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "High Chest Guard",
+    ext_delta: 145.8,
+    coachTip: "Direct linear thrust straight into the solar plexus. Palm oriented upward with full reach.",
+    commonMistake: "Telegraphing by pulling the elbow backward before thrusting."
+  },
+  strike_6: {
+    id: "strike_6",
+    strikeNumber: 6,
+    name: "Strike 6",
+    target: "Left Chest / Shoulder",
+    desc: "High thrust targeting the left chest/clavicle",
+    chamber_elb: 164.2,
+    right_min: 158.0,
+    right_max: 178.8,
+    left_min: 55.6,
+    left_max: 100.2,
+    ideal_shoulder: 32.6,
+    ideal_knee: 152.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Face/Chin Guard",
+    ext_delta: 14.7,
+    coachTip: "High upward linear thrust targeting the left clavicle zone.",
+    commonMistake: "Dropping your guard hand below chin level."
+  },
+  strike_7: {
+    id: "strike_7",
+    strikeNumber: 7,
+    name: "Strike 7",
+    target: "Right Chest / Shoulder",
+    desc: "High thrust targeting the right chest/clavicle",
+    chamber_elb: 168.5,
+    right_min: 149.2,
+    right_max: 172.1,
+    left_min: 69.4,
+    left_max: 172.3,
+    ideal_shoulder: 21.3,
+    ideal_knee: 152.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Face/Chin Guard",
+    ext_delta: 97.9,
+    coachTip: "High palm-down thrust targeting the right chest. Lock wrist at the apex.",
+    commonMistake: "Over-extending shoulder without maintaining athletic base."
+  },
+  strike_8: {
+    id: "strike_8",
+    strikeNumber: 8,
+    name: "Strike 8",
+    target: "Left Knee / Leg",
+    desc: "Downward diagonal strike targeting the left knee",
+    chamber_elb: 99.5,
+    right_min: 165.5,
+    right_max: 178.0,
+    left_min: 25.1,
+    left_max: 97.8,
+    ideal_shoulder: 17.4,
+    ideal_knee: 145.0,
+    knee_min: 130.0,
+    knee_max: 160.0,
+    guard_target: "chest",
+    guard_label: "Upper Torso Guard",
+    ext_delta: 98.6,
+    coachTip: "Low diagonal strike to the knee. Sink your stance by bending your lead knee, don't just bend your waist.",
+    commonMistake: "Bending forward at the spine instead of lowering your center of gravity."
+  },
+  strike_9: {
+    id: "strike_9",
+    strikeNumber: 9,
+    name: "Strike 9",
+    target: "Right Knee / Leg",
+    desc: "Downward diagonal strike targeting the right knee",
+    chamber_elb: 105.2,
+    right_min: 170.3,
+    right_max: 176.3,
+    left_min: 37.5,
+    left_max: 66.8,
+    ideal_shoulder: 11.2,
+    ideal_knee: 145.0,
+    knee_min: 130.0,
+    knee_max: 160.0,
+    guard_target: "chest",
+    guard_label: "Upper Torso Guard",
+    ext_delta: 94.5,
+    coachTip: "Low backhand diagonal strike targeting the right knee joint.",
+    commonMistake: "Allowing the weapon to hit the floor on follow-through."
+  },
+  strike_10: {
+    id: "strike_10",
+    strikeNumber: 10,
+    name: "Strike 10",
+    target: "Left Eye / Face",
+    desc: "Precise face thrust targeting the left eye",
+    chamber_elb: 170.4,
+    right_min: 161.9,
+    right_max: 179.1,
+    left_min: 39.2,
+    left_max: 84.2,
+    ideal_shoulder: 18.3,
+    ideal_knee: 154.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Throat/Chest Guard",
+    ext_delta: 15.1,
+    coachTip: "High precision thrust straight toward the left eye or face with forearm aligned.",
+    commonMistake: "Raising elbow above shoulder level."
+  },
+  strike_11: {
+    id: "strike_11",
+    strikeNumber: 11,
+    name: "Strike 11",
+    target: "Right Eye / Face",
+    desc: "Precise face thrust targeting the right eye",
+    chamber_elb: 167.3,
+    right_min: 151.9,
+    right_max: 178.9,
+    left_min: 88.2,
+    left_max: 169.8,
+    ideal_shoulder: 22.7,
+    ideal_knee: 154.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Throat/Chest Guard",
+    ext_delta: 113.0,
+    coachTip: "High backhand thrust targeting the right eye or temple.",
+    commonMistake: "Failing to recover stick back to defensive guard."
+  },
+  strike_12: {
+    id: "strike_12",
+    strikeNumber: 12,
+    name: "Strike 12",
+    target: "Crown of the Head",
+    desc: "Vertical overhead downward strike to the skull",
+    chamber_elb: 114.4,
+    right_min: 111.1,
+    right_max: 135.0,
+    left_min: 24.3,
+    left_max: 118.3,
+    ideal_shoulder: 87.1,
+    ideal_knee: 155.0,
+    knee_min: 135.0,
+    knee_max: 165.0,
+    guard_target: "chest",
+    guard_label: "Center Chest Guard",
+    ext_delta: 27.6,
+    coachTip: "Vertical overhead downward strike directly down the center line onto the crown of the head.",
+    commonMistake: "Letting the stick tilt off vertical or overswinging between your own knees."
+  }
+};
+
+export const STRIKES_CATALOG: StrikeRule[] = Object.values(STRIKE_RULES);
+
+export function getStrikeRule(strikeId: string): StrikeRule {
+  return STRIKE_RULES[strikeId] || STRIKE_RULES.strike_1;
+}

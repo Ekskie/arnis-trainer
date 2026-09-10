@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,7 +16,6 @@ import { MartialTheme } from '@/constants/theme';
 import {
   ALL_CURRICULUM_LESSONS,
   CurriculumLesson,
-  getCurriculumProgress,
   markLessonCompleted,
 } from '@/constants/curriculumStore';
 import { addXpAndStreak } from '@/constants/gamificationStore';
@@ -25,8 +23,6 @@ import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { LessonProgressBar } from '@/components/ui/LessonProgressBar';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type LessonStepType = 'concept' | 'visual' | 'remember' | 'interactive_check' | 'celebration';
 
@@ -95,6 +91,7 @@ export default function LessonScreen() {
         strikeId: lesson.id,
         lessonId: lesson.id,
         mode,
+        source: 'lesson',
       },
     });
   };
@@ -241,7 +238,7 @@ export default function LessonScreen() {
               <CoachCharacter pose="thinking" size={90} />
               <View style={styles.speechBubble}>
                 <Text style={styles.speechBubbleText}>
-                  "That's all you need to remember for your practice!"
+                  {"\"That's all you need to remember for your practice!\""}
                 </Text>
               </View>
             </View>

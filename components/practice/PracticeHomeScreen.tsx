@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,11 +18,8 @@ import {
   getStrikeMasteryStats,
   MasteryStats,
   SessionItem,
-  STRIKES_CATALOG,
 } from '@/constants/historyStore';
 import { getGamificationStats } from '@/constants/gamificationStore';
-
-const { width } = Dimensions.get('window');
 
 export interface PracticeHomeScreenProps {
   onStartStrike: (strikeId: string, mode?: 'follow' | 'guided' | 'test') => void;
@@ -205,7 +201,7 @@ export function PracticeHomeScreen({
           </View>
           <View style={styles.coachBubbleTextWrap}>
             <Text style={styles.coachBubbleLabel}>COACH SAYS</Text>
-            <Text style={styles.coachBubbleText}>"{recommendedStrike.coachTip}"</Text>
+            <Text style={styles.coachBubbleText}>{`"${recommendedStrike.coachTip}"`}</Text>
           </View>
         </View>
 

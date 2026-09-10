@@ -127,20 +127,8 @@ export interface MasteryStats {
   rankTitle: string;
 }
 
-export const STRIKES_CATALOG = [
-  { id: "strike_1", number: 1, name: "Strike 1", target: "Left Temple / Neck", desc: "Diagonal downward strike to left temple/neck" },
-  { id: "strike_2", number: 2, name: "Strike 2", target: "Right Temple / Neck", desc: "Diagonal downward strike to right temple/neck" },
-  { id: "strike_3", number: 3, name: "Strike 3", target: "Left Torso / Ribs", desc: "Horizontal strike targeting the left ribs/torso" },
-  { id: "strike_4", number: 4, name: "Strike 4", target: "Right Torso / Ribs", desc: "Horizontal strike targeting the right ribs/torso" },
-  { id: "strike_5", number: 5, name: "Strike 5", target: "Solar Plexus / Abdomen", desc: "Direct thrust to solar plexus/core" },
-  { id: "strike_6", number: 6, name: "Strike 6", target: "Left Chest / Shoulder", desc: "High thrust targeting the left chest/clavicle" },
-  { id: "strike_7", number: 7, name: "Strike 7", target: "Right Chest / Shoulder", desc: "High thrust targeting the right chest/clavicle" },
-  { id: "strike_8", number: 8, name: "Strike 8", target: "Left Knee / Leg", desc: "Downward diagonal strike targeting the left knee" },
-  { id: "strike_9", number: 9, name: "Strike 9", target: "Right Knee / Leg", desc: "Downward diagonal strike targeting the right knee" },
-  { id: "strike_10", number: 10, name: "Strike 10", target: "Left Eye / Face", desc: "Precise face thrust targeting the left eye" },
-  { id: "strike_11", number: 11, name: "Strike 11", target: "Right Eye / Face", desc: "Precise face thrust targeting the right eye" },
-  { id: "strike_12", number: 12, name: "Strike 12", target: "Crown of the Head", desc: "Vertical overhead downward strike to the skull" }
-];
+import { STRIKES_CATALOG, StrikeRule } from '@/constants/strikeRules';
+export { STRIKES_CATALOG, StrikeRule };
 
 const STORAGE_KEY = '@arnis_pose_sessions';
 
@@ -188,7 +176,7 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
 
     return {
       id: cat.id,
-      strikeNumber: cat.number,
+      strikeNumber: cat.strikeNumber,
       name: cat.name,
       target: cat.target,
       description: cat.desc,
