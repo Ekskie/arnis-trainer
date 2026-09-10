@@ -21,7 +21,7 @@ import {
   CurriculumProgress,
   getCurriculumProgress,
   isLessonUnlocked,
-  markLessonCompleted,
+  getLessonStatus,
 } from '@/constants/curriculumStore';
 import {
   getHistory,
@@ -32,7 +32,16 @@ import {
 export default function LearnCurriculumScreen() {
   const router = useRouter();
 
+  const [viewMode, setViewMode] = useState<'path' | 'all'>('path');
   const [activeLevelFilter, setActiveLevelFilter] = useState<string>('all');
+  const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({
+    level_0: true,
+    level_1: false,
+    level_2: false,
+    level_3: false,
+    level_4: false,
+  });
+
   const [curriculumProgress, setCurriculumProgress] = useState<CurriculumProgress>({
     completedLessonIds: [],
     currentLessonId: 'les_0_1',
@@ -54,7 +63,17 @@ export default function LearnCurriculumScreen() {
       let isMounted = true;
 
       getCurriculumProgress().then((prog) => {
-        if (isMounted) setCurriculumProgress(prog);
+        if (isMounted) {
+          setCurriculumProgress(prog);
+          // Auto-expand the level containing the current active lesson
+          const currentLesson = ALL_CURRICULUM_LESSONS.find(l => l.id === prog.currentLessonId);
+          if (currentLesson) {
+            setExpandedLevels(prev => ({
+              ...prev,
+              [currentLesson.levelId]: true,
+            }));
+          }
+        }
       });
 
       getHistory().then((history) => {
@@ -67,11 +86,8 @@ export default function LearnCurriculumScreen() {
     }, [])
   );
 
-  const handleSelectLesson = (lesson: CurriculumLesson, isUnlocked: boolean) => {
-    if (!isUnlocked) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
+  // Open any lesson immediately for reading — zero gatekeeping on knowledge!
+  const handleSelectLesson = (lesson: CurriculumLesson) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedLesson(lesson);
     setShowLessonModal(true);
@@ -79,25 +95,35 @@ export default function LearnCurriculumScreen() {
 
   const handleStartMode = (mode: 'follow' | 'guided' | 'test', strikeId: string) => {
     setShowLessonModal(false);
-    // Also mark lesson completed if it was an orientation/fundamental, or let AI score complete it
     router.push({
       pathname: '/evaluate',
       params: { strikeId, mode },
     });
   };
 
+  const toggleLevelExpansion = (levelId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setExpandedLevels(prev => ({
+      ...prev,
+      [levelId]: !prev[levelId],
+    }));
+  };
+
   // Filter levels or show all
   const displayedLevels: CurriculumLevel[] = useMemo(() => {
+    if (viewMode === 'path') {
+      return CURRICULUM_DATA;
+    }
     if (activeLevelFilter === 'all') return CURRICULUM_DATA;
     return CURRICULUM_DATA.filter(lvl => lvl.id === activeLevelFilter);
-  }, [activeLevelFilter]);
+  }, [viewMode, activeLevelFilter]);
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerSub}>ARNIS CURRICULUM</Text>
+          <Text style={styles.headerSub}>ACADEMY CURRICULUM</Text>
           <Text style={styles.headerTitle}>Beginner Learning Path</Text>
         </View>
 
@@ -148,50 +174,108 @@ export default function LearnCurriculumScreen() {
           </View>
         </View>
 
-        {/* HORIZONTAL LEVEL FILTER CHIPS */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.levelFilterScroll}
-        >
+        {/* VIEW MODE SEGMENTED CONTROL: YOUR PATH VS ALL LESSONS */}
+        <View style={styles.viewModeSwitcher}>
           <TouchableOpacity
-            style={[styles.filterChip, activeLevelFilter === 'all' && styles.filterChipActive]}
+            style={[styles.viewModeBtn, viewMode === 'path' && styles.viewModeBtnActive]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setActiveLevelFilter('all');
+              setViewMode('path');
             }}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.filterChipText, activeLevelFilter === 'all' && styles.filterChipTextActive]}>
-              All Levels (27)
+            <Ionicons
+              name="navigate-circle"
+              size={16}
+              color={viewMode === 'path' ? '#FFFFFF' : '#64748B'}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.viewModeBtnText, viewMode === 'path' && styles.viewModeBtnTextActive]}>
+              Your Guided Path
             </Text>
           </TouchableOpacity>
 
-          {CURRICULUM_DATA.map((lvl) => {
-            const isActive = activeLevelFilter === lvl.id;
-            return (
-              <TouchableOpacity
-                key={lvl.id}
-                style={[styles.filterChip, isActive && styles.filterChipActive]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveLevelFilter(lvl.id);
-                }}
-              >
-                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                  L{lvl.levelNumber}: {lvl.name.split('—')[1]?.trim() || lvl.name} ({lvl.lessons.length})
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+          <TouchableOpacity
+            style={[styles.viewModeBtn, viewMode === 'all' && styles.viewModeBtnActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setViewMode('all');
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={15}
+              color={viewMode === 'all' ? '#FFFFFF' : '#64748B'}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.viewModeBtnText, viewMode === 'all' && styles.viewModeBtnTextActive]}>
+              All Lessons (27)
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* HORIZONTAL LEVEL FILTER CHIPS (Visible in 'all' mode) */}
+        {viewMode === 'all' && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.levelFilterScroll}
+          >
+            <TouchableOpacity
+              style={[styles.filterChip, activeLevelFilter === 'all' && styles.filterChipActive]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveLevelFilter('all');
+              }}
+            >
+              <Text style={[styles.filterChipText, activeLevelFilter === 'all' && styles.filterChipTextActive]}>
+                All (27)
+              </Text>
+            </TouchableOpacity>
+
+            {CURRICULUM_DATA.map((lvl) => {
+              const isActive = activeLevelFilter === lvl.id;
+              return (
+                <TouchableOpacity
+                  key={lvl.id}
+                  style={[styles.filterChip, isActive && styles.filterChipActive]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setActiveLevelFilter(lvl.id);
+                  }}
+                >
+                  <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                    L{lvl.levelNumber}: {lvl.name.split('—')[1]?.trim() || lvl.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* Open Reading Philosophy Callout */}
+        <View style={styles.openReadingTip}>
+          <Ionicons name="sparkles" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
+          <Text style={styles.openReadingTipText}>
+            Tap any lesson anytime to read instructions and watch video demos!
+          </Text>
+        </View>
 
         {/* CURRICULUM LEVELS LIST */}
         {displayedLevels.map((lvl) => {
           const completedInLevel = lvl.lessons.filter(l => curriculumProgress.completedLessonIds.includes(l.id)).length;
+          const isLevelExpanded = viewMode === 'all' || expandedLevels[lvl.id] !== false;
+          const isAllCompleted = completedInLevel === lvl.lessons.length && lvl.lessons.length > 0;
+
           return (
             <View key={lvl.id} style={styles.levelSection}>
               {/* Level Section Header */}
-              <View style={styles.levelHeader}>
+              <TouchableOpacity
+                style={styles.levelHeader}
+                onPress={() => toggleLevelExpansion(lvl.id)}
+                activeOpacity={0.8}
+              >
                 <View style={[styles.levelBadge, { backgroundColor: lvl.badgeColor + '20', borderColor: lvl.badgeColor + '50' }]}>
                   <Text style={[styles.levelBadgeText, { color: lvl.badgeColor }]}>{lvl.badge}</Text>
                 </View>
@@ -201,108 +285,109 @@ export default function LearnCurriculumScreen() {
                   <Text style={styles.levelTagline}>{lvl.tagline}</Text>
                 </View>
 
-                <Text style={styles.levelProgressCount}>
-                  {completedInLevel}/{lvl.lessons.length}
-                </Text>
-              </View>
+                <View style={styles.levelHeaderRight}>
+                  <Text style={[styles.levelProgressCount, isAllCompleted && { color: '#10B981', fontWeight: 'bold' }]}>
+                    {completedInLevel}/{lvl.lessons.length}
+                  </Text>
+                  <Ionicons
+                    name={isLevelExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color="#64748B"
+                    style={{ marginLeft: 6 }}
+                  />
+                </View>
+              </TouchableOpacity>
 
-              {/* Lessons in this level */}
-              <View style={styles.lessonsList}>
-                {lvl.lessons.map((lesson) => {
-                  const isCompleted = curriculumProgress.completedLessonIds.includes(lesson.id);
-                  const isUnlocked = isLessonUnlocked(lesson.id, curriculumProgress.completedLessonIds);
+              {/* Lessons in this level (Collapsible in Guided Path) */}
+              {isLevelExpanded && (
+                <View style={styles.lessonsList}>
+                  {lvl.lessons.map((lesson) => {
+                    const isCompleted = curriculumProgress.completedLessonIds.includes(lesson.id);
+                    const strikeStat = lesson.strikeKey
+                      ? masteryStats.strikes.find(s => s.id === lesson.strikeKey)
+                      : null;
+                    const isMastered = isCompleted || (strikeStat && strikeStat.isMastered);
+                    const hasAttempts = strikeStat && strikeStat.attempts > 0;
 
-                  // If strike, check AI mastery score
-                  const strikeStat = lesson.strikeKey
-                    ? masteryStats.strikes.find(s => s.id === lesson.strikeKey)
-                    : null;
-                  const isMastered = isCompleted || (strikeStat && strikeStat.isMastered);
-                  const hasAttempts = strikeStat && strikeStat.attempts > 0;
-
-                  return (
-                    <TouchableOpacity
-                      key={lesson.id}
-                      style={[
-                        styles.lessonCard,
-                        !isUnlocked && styles.lessonCardLocked,
-                        isMastered && styles.lessonCardMastered,
-                      ]}
-                      activeOpacity={isUnlocked ? 0.75 : 1}
-                      onPress={() => handleSelectLesson(lesson, isUnlocked)}
-                    >
-                      {/* Left Status Icon */}
-                      <View
+                    return (
+                      <TouchableOpacity
+                        key={lesson.id}
                         style={[
-                          styles.statusIconCircle,
-                          isMastered && styles.statusMastered,
-                          !isMastered && isUnlocked && styles.statusUnlocked,
-                          !isUnlocked && styles.statusLocked,
+                          styles.lessonCard,
+                          isMastered && styles.lessonCardMastered,
                         ]}
+                        activeOpacity={0.75}
+                        onPress={() => handleSelectLesson(lesson)}
                       >
-                        {isMastered ? (
-                          <Ionicons name="checkmark" size={16} color="#10B981" />
-                        ) : isUnlocked ? (
-                          <MaterialCommunityIcons name="lock-open-variant" size={14} color="#F59E0B" />
-                        ) : (
-                          <Ionicons name="lock-closed" size={13} color="#64748B" />
-                        )}
-                      </View>
-
-                      {/* Lesson Details */}
-                      <View style={{ flex: 1, marginRight: 10 }}>
-                        <View style={styles.lessonMetaRow}>
-                          <Text style={styles.lessonNumTag}>
-                            {lesson.isStrike ? `STRIKE ${lesson.lessonNumber}` : `LESSON ${lesson.lessonNumber}`}
-                          </Text>
-                          {lesson.target && (
-                            <Text style={styles.targetPill} numberOfLines={1}>
-                              {lesson.target.split('/')[0].trim()}
-                            </Text>
+                        {/* Status Icon */}
+                        <View
+                          style={[
+                            styles.statusIconCircle,
+                            isMastered && styles.statusMastered,
+                            !isMastered && styles.statusUnlocked,
+                          ]}
+                        >
+                          {isMastered ? (
+                            <Ionicons name="checkmark" size={14} color="#10B981" />
+                          ) : (
+                            <Text style={styles.lessonOrderNum}>{lesson.lessonNumber}</Text>
                           )}
                         </View>
 
-                        <Text style={[styles.lessonTitle, !isUnlocked && styles.textMuted]} numberOfLines={1}>
-                          {lesson.title}
-                        </Text>
-                        <Text style={styles.lessonSubtitle} numberOfLines={1}>
-                          {lesson.filipinoTitle || lesson.subtitle}
-                        </Text>
-                      </View>
-
-                      {/* Right Status Pill */}
-                      <View style={{ alignItems: 'flex-end' }}>
-                        {isMastered ? (
-                          <View style={styles.pillMastered}>
-                            <Text style={styles.pillMasteredText}>Mastered</Text>
-                          </View>
-                        ) : isUnlocked ? (
-                          <View style={styles.pillPractice}>
-                            <Text style={styles.pillPracticeText}>
-                              {hasAttempts ? `${strikeStat?.bestScore}%` : 'Practice'}
+                        {/* Lesson Details */}
+                        <View style={styles.lessonInfoWrap}>
+                          <View style={styles.lessonTitleRow}>
+                            <Text style={styles.lessonTitleText} numberOfLines={1}>
+                              {lesson.title}
                             </Text>
+                            {isMastered && (
+                              <View style={styles.masteredBadge}>
+                                <Text style={styles.masteredBadgeText}>MASTERED</Text>
+                              </View>
+                            )}
                           </View>
-                        ) : (
-                          <View style={styles.pillLocked}>
-                            <Text style={styles.pillLockedText}>Locked</Text>
+
+                          <Text style={styles.lessonSubtitleText} numberOfLines={1}>
+                            {lesson.beginnerSummary || lesson.subtitle}
+                          </Text>
+
+                          {/* Pills: Target & Duration */}
+                          <View style={styles.lessonPillsRow}>
+                            <View style={styles.targetPill}>
+                              <Ionicons name="locate" size={10} color="#38BDF8" style={{ marginRight: 3 }} />
+                              <Text style={styles.targetPillText}>
+                                {lesson.trainingTarget || lesson.target || 'Fundamentals'}
+                              </Text>
+                            </View>
+
+                            <View style={styles.durationPill}>
+                              <Ionicons name="time-outline" size={10} color="#94A3B8" style={{ marginRight: 3 }} />
+                              <Text style={styles.durationPillText}>{lesson.durationMinutes} min</Text>
+                            </View>
+
+                            {hasAttempts && strikeStat && (
+                              <View style={styles.scorePill}>
+                                <Text style={styles.scorePillText}>Best: {strikeStat.bestScore}%</Text>
+                              </View>
+                            )}
                           </View>
-                        )}
-                        <Ionicons
-                          name="chevron-forward"
-                          size={16}
-                          color={isUnlocked ? '#94A3B8' : '#475569'}
-                          style={{ marginTop: 4 }}
-                        />
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        </View>
+
+                        {/* Right Arrow Action */}
+                        <View style={styles.lessonActionArrow}>
+                          <Ionicons name="chevron-forward" size={16} color="#64748B" />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           );
         })}
       </ScrollView>
 
-      {/* TECHNIQUE LESSON PEDAGOGY MODAL */}
+      {/* Technique Lesson Modal (Sequential 4-Step Wizard) */}
       <TechniqueLessonModal
         visible={showLessonModal}
         lesson={selectedLesson}
@@ -316,18 +401,11 @@ export default function LearnCurriculumScreen() {
         }
       />
 
-      {/* VIDEO DEMONSTRATION CATALOG MODAL */}
+      {/* Video Demonstration Modal */}
       <StrikeVideoModal
         visible={showVideoCatalogModal}
         initialStrikeId={catalogStrikeId}
         onClose={() => setShowVideoCatalogModal(false)}
-        onPracticeStrike={(strikeId) => {
-          setShowVideoCatalogModal(false);
-          router.push({
-            pathname: '/evaluate',
-            params: { strikeId },
-          });
-        }}
       />
     </SafeAreaView>
   );
@@ -336,7 +414,7 @@ export default function LearnCurriculumScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0C16',
+    backgroundColor: '#0F1020',
   },
   header: {
     paddingHorizontal: 18,
@@ -346,7 +424,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#0A0C16',
+    backgroundColor: '#0F1020',
   },
   headerSub: {
     fontSize: 10,
@@ -355,39 +433,39 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   headerTitle: {
-    fontSize: 19,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
+    marginTop: 2,
   },
   headerVideoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F59E0B20',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
+    backgroundColor: '#F59E0B15',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#F59E0B50',
+    borderColor: '#F59E0B40',
   },
   headerVideoBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
     color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
   },
 
-  // PROGRESS CARD
+  // Progress Banner Card
   progressCard: {
-    backgroundColor: '#131830',
-    borderRadius: 18,
+    backgroundColor: '#161930',
+    borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: '#20284A',
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
   },
   progressTopRow: {
     flexDirection: 'row',
@@ -396,88 +474,144 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   progressCardTitle: {
-    fontSize: 15,
-    fontWeight: '900',
     color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
   progressCardSub: {
-    fontSize: 12,
     color: '#94A3B8',
+    fontSize: 12,
     marginTop: 2,
   },
   percentageBadge: {
-    backgroundColor: '#D24B38',
+    backgroundColor: '#38BDF820',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#38BDF850',
   },
   percentageBadgeText: {
+    color: '#38BDF8',
     fontSize: 13,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
   progressBarTrack: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#0C1022',
+    backgroundColor: '#0F1020',
     overflow: 'hidden',
     marginBottom: 10,
   },
   progressBarFill: {
     height: '100%',
     borderRadius: 4,
-    backgroundColor: '#D24B38',
+    backgroundColor: '#10B981',
   },
   progressBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   rankText: {
-    fontSize: 11,
     color: '#94A3B8',
+    fontSize: 12,
   },
 
-  // LEVEL FILTER CHIPS
+  // View Mode Switcher
+  viewModeSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#161930',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  viewModeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  viewModeBtnActive: {
+    backgroundColor: '#D24B38',
+  },
+  viewModeBtnText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  viewModeBtnTextActive: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+
+  // Level Filters
   levelFilterScroll: {
+    paddingBottom: 10,
     gap: 8,
-    paddingBottom: 16,
   },
   filterChip: {
-    backgroundColor: '#161B36',
-    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#161930',
     borderWidth: 1,
-    borderColor: '#222B52',
+    borderColor: '#1E293B',
   },
   filterChipActive: {
-    backgroundColor: '#D24B38',
-    borderColor: '#FF6B57',
+    backgroundColor: '#D24B3825',
+    borderColor: '#D24B38',
   },
   filterChipText: {
-    fontSize: 11.5,
-    fontWeight: '700',
     color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
   },
   filterChipTextActive: {
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontWeight: 'bold',
   },
 
-  // LEVEL SECTION
+  // Open Reading Callout
+  openReadingTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38BDF810',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#38BDF825',
+  },
+  openReadingTipText: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    flex: 1,
+  },
+
+  // Level Sections
   levelSection: {
-    marginBottom: 22,
+    marginBottom: 16,
   },
   levelHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-    paddingHorizontal: 2,
+    backgroundColor: '#161930',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    marginBottom: 8,
   },
   levelBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
   },
   levelBadgeText: {
@@ -486,128 +620,141 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   levelTitle: {
-    fontSize: 14,
-    fontWeight: '900',
     color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   levelTagline: {
-    fontSize: 10.5,
-    color: '#94A3B8',
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  levelHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   levelProgressCount: {
+    color: '#94A3B8',
     fontSize: 12,
-    fontWeight: '800',
-    color: '#64748B',
+    fontWeight: '700',
   },
 
-  // LESSONS LIST
+  // Lessons List
   lessonsList: {
     gap: 8,
+    paddingLeft: 4,
   },
   lessonCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#141A34',
-    borderRadius: 14,
+    backgroundColor: '#121426',
+    borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#212A50',
-  },
-  lessonCardLocked: {
-    backgroundColor: '#0F1326',
-    borderColor: '#19203C',
-    opacity: 0.65,
+    borderColor: '#1E2540',
   },
   lessonCardMastered: {
     borderColor: '#10B98140',
+    backgroundColor: '#10B98108',
   },
   statusIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1E293B',
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 10,
   },
   statusMastered: {
     backgroundColor: '#10B98125',
+    borderWidth: 1,
+    borderColor: '#10B981',
   },
   statusUnlocked: {
-    backgroundColor: '#F59E0B20',
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
   },
-  statusLocked: {
-    backgroundColor: '#1E2544',
+  lessonOrderNum: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
-  lessonMetaRow: {
+  lessonInfoWrap: {
+    flex: 1,
+  },
+  lessonTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  lessonTitleText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  masteredBadge: {
+    backgroundColor: '#10B98120',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  masteredBadgeText: {
+    color: '#10B981',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+  lessonSubtitleText: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    marginBottom: 6,
+  },
+  lessonPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 2,
-  },
-  lessonNumTag: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#D24B38',
-    letterSpacing: 0.5,
+    flexWrap: 'wrap',
   },
   targetPill: {
-    fontSize: 9.5,
-    color: '#64748B',
-    backgroundColor: '#1A213D',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38BDF815',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 4,
   },
-  lessonTitle: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#FFFFFF',
+  targetPillText: {
+    color: '#38BDF8',
+    fontSize: 10,
+    fontWeight: '600',
   },
-  lessonSubtitle: {
-    fontSize: 11,
+  durationPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  durationPillText: {
     color: '#94A3B8',
-    marginTop: 1,
-  },
-  textMuted: {
-    color: '#64748B',
-  },
-
-  // RIGHT STATUS PILLS
-  pillMastered: {
-    backgroundColor: '#10B98120',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#10B98150',
-  },
-  pillMasteredText: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#10B981',
   },
-  pillPractice: {
-    backgroundColor: '#F59E0B20',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#F59E0B50',
+  scorePill: {
+    backgroundColor: '#F59E0B15',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  pillPracticeText: {
-    fontSize: 10,
-    fontWeight: '800',
+  scorePillText: {
     color: '#F59E0B',
-  },
-  pillLocked: {
-    backgroundColor: '#1E2544',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  pillLockedText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#64748B',
+  },
+  lessonActionArrow: {
+    paddingLeft: 8,
   },
 });

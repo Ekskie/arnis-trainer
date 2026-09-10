@@ -13,7 +13,7 @@ const { width } = Dimensions.get('window');
 
 export default function ProgressHistoryScreen() {
   const router = useRouter();
-  const [viewTab, setViewTab] = useState<'radar' | 'timeline'>('radar');
+  const [viewTab, setViewTab] = useState<'breakdown' | 'radar' | 'timeline'>('breakdown');
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
@@ -25,6 +25,32 @@ export default function ProgressHistoryScreen() {
     bestScore: 0,
     sessionsCount: 0
   });
+
+  // Calculate 4-pillar averages across all recorded sessions
+  const pillarAverages = React.useMemo(() => {
+    if (historyList.length === 0) {
+      return { stance: 82, elbow: 85, guard: 88, wrist: 86 };
+    }
+    let totalStance = 0;
+    let totalElbow = 0;
+    let totalGuard = 0;
+    let totalWrist = 0;
+    const count = historyList.length;
+
+    historyList.forEach((s) => {
+      totalStance += s.breakdown?.stance?.score ?? s.breakdown?.knee?.score ?? 80;
+      totalElbow += s.breakdown?.elbow?.score ?? s.score;
+      totalGuard += s.breakdown?.guard?.score ?? 80;
+      totalWrist += s.breakdown?.wrist?.score ?? 85;
+    });
+
+    return {
+      stance: Math.round(totalStance / count),
+      elbow: Math.round(totalElbow / count),
+      guard: Math.round(totalGuard / count),
+      wrist: Math.round(totalWrist / count),
+    };
+  }, [historyList]);
 
   // Load history when screen is focused
   useFocusEffect(
@@ -168,8 +194,24 @@ export default function ProgressHistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Segmented View Switcher */}
+      {/* Segmented View Switcher: Technique Breakdown / 12-Radar / Timeline */}
       <View style={styles.viewTabContainer}>
+        <TouchableOpacity
+          style={[styles.viewTabButton, viewTab === 'breakdown' && styles.viewTabButtonActive]}
+          onPress={() => setViewTab('breakdown')}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons
+            name="chart-bar"
+            size={16}
+            color={viewTab === 'breakdown' ? '#FFFFFF' : '#64748B'}
+            style={{ marginRight: 5 }}
+          />
+          <Text style={[styles.viewTabText, viewTab === 'breakdown' && styles.viewTabTextActive]}>
+            Technique
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.viewTabButton, viewTab === 'radar' && styles.viewTabButtonActive]}
           onPress={() => setViewTab('radar')}
@@ -179,10 +221,10 @@ export default function ProgressHistoryScreen() {
             name="spider-web"
             size={16}
             color={viewTab === 'radar' ? '#FFFFFF' : '#64748B'}
-            style={{ marginRight: 6 }}
+            style={{ marginRight: 5 }}
           />
           <Text style={[styles.viewTabText, viewTab === 'radar' && styles.viewTabTextActive]}>
-            12-Strikes Radar
+            12-Radar
           </Text>
         </TouchableOpacity>
 
@@ -195,10 +237,10 @@ export default function ProgressHistoryScreen() {
             name="time-outline"
             size={16}
             color={viewTab === 'timeline' ? '#FFFFFF' : '#64748B'}
-            style={{ marginRight: 6 }}
+            style={{ marginRight: 5 }}
           />
           <Text style={[styles.viewTabText, viewTab === 'timeline' && styles.viewTabTextActive]}>
-            Timeline & Sessions
+            Timeline
           </Text>
         </TouchableOpacity>
       </View>
@@ -245,7 +287,97 @@ export default function ProgressHistoryScreen() {
           </View>
         </View>
 
-        {viewTab === 'radar' ? (
+        {viewTab === 'breakdown' ? (
+          /* 1. TECHNIQUE BREAKDOWN (BEGINNER-FRIENDLY 4 PILLARS) */
+          <View style={styles.breakdownViewContainer}>
+            <Text style={styles.breakdownSectionHeading}>TECHNIQUE BREAKDOWN</Text>
+            <Text style={styles.breakdownSectionSub}>
+              Average kinetic consistency across all your recorded practice sessions
+            </Text>
+
+            {/* Stance Bar */}
+            <View style={styles.pillarCard}>
+              <View style={styles.pillarHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="human-male-height" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Text style={styles.pillarTitle}>Stance & Base Stability (Tindig)</Text>
+                </View>
+                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.stance) }]}>
+                  {pillarAverages.stance}%
+                </Text>
+              </View>
+              <View style={styles.pillarProgressBarTrack}>
+                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.stance}%`, backgroundColor: getScoreColor(pillarAverages.stance) }]} />
+              </View>
+              <Text style={styles.pillarDesc}>Lead knee flexion (135°-165°) and balanced center of gravity</Text>
+            </View>
+
+            {/* Trajectory / Arm Bar */}
+            <View style={styles.pillarCard}>
+              <View style={styles.pillarHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="sword" size={18} color="#3B82F6" style={{ marginRight: 8 }} />
+                  <Text style={styles.pillarTitle}>Striking Arm Trajectory</Text>
+                </View>
+                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.elbow) }]}>
+                  {pillarAverages.elbow}%
+                </Text>
+              </View>
+              <View style={styles.pillarProgressBarTrack}>
+                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.elbow}%`, backgroundColor: getScoreColor(pillarAverages.elbow) }]} />
+              </View>
+              <Text style={styles.pillarDesc}>Controlled extension without over-swinging or collapsing inward</Text>
+            </View>
+
+            {/* Guard Hand Bar */}
+            <View style={styles.pillarCard}>
+              <View style={styles.pillarHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="shield-check" size={18} color="#10B981" style={{ marginRight: 8 }} />
+                  <Text style={styles.pillarTitle}>Check Hand Defense (Kalasag)</Text>
+                </View>
+                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.guard) }]}>
+                  {pillarAverages.guard}%
+                </Text>
+              </View>
+              <View style={styles.pillarProgressBarTrack}>
+                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.guard}%`, backgroundColor: getScoreColor(pillarAverages.guard) }]} />
+              </View>
+              <Text style={styles.pillarDesc}>Shield hand pinned to chest/solar plexus to guard against counter-strikes</Text>
+            </View>
+
+            {/* Wrist Snap Bar */}
+            <View style={styles.pillarCard}>
+              <View style={styles.pillarHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="flash" size={18} color="#8B5CF6" style={{ marginRight: 8 }} />
+                  <Text style={styles.pillarTitle}>Wrist Snap & Alignment (Pitik)</Text>
+                </View>
+                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.wrist) }]}>
+                  {pillarAverages.wrist}%
+                </Text>
+              </View>
+              <View style={styles.pillarProgressBarTrack}>
+                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.wrist}%`, backgroundColor: getScoreColor(pillarAverages.wrist) }]} />
+              </View>
+              <Text style={styles.pillarDesc}>Sharp wrist snap at the impact zone with straight alignment (≤ 15°)</Text>
+            </View>
+
+            {/* Advanced Radar Jump Prompt */}
+            <TouchableOpacity
+              style={styles.advancedRadarPrompt}
+              onPress={() => setViewTab('radar')}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="spider-web" size={18} color="#D24B38" style={{ marginRight: 8 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.advancedRadarTitle}>Looking for the 12-Axis Radar?</Text>
+                <Text style={styles.advancedRadarSub}>Tap here to view the full strike-by-strike polygon chart</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={16} color="#D24B38" />
+            </TouchableOpacity>
+          </View>
+        ) : viewTab === 'radar' ? (
           /* RADAR & 12 STRIKES MATRIX VIEW */
           <View>
             <StrikeRadarChart
@@ -1219,5 +1351,83 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#38BDF8',
+  },
+
+  // Technique Breakdown Styles
+  breakdownViewContainer: {
+    paddingBottom: 20,
+  },
+  breakdownSectionHeading: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  breakdownSectionSub: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  pillarCard: {
+    backgroundColor: '#161930',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  pillarHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  pillarTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pillarScoreText: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  pillarProgressBarTrack: {
+    height: 8,
+    backgroundColor: '#0F1020',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  pillarProgressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  pillarDesc: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  advancedRadarPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D24B3815',
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D24B3840',
+  },
+  advancedRadarTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  advancedRadarSub: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    marginTop: 2,
   },
 });

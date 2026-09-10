@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   ScrollView,
@@ -39,54 +39,62 @@ export function WhyFailedModal({
   breakdown,
   onPracticeLesson,
 }: WhyFailedModalProps) {
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
   const direction = breakdown?.directionScore ?? Math.min(100, Math.round(overallScore * 1.05));
   const elbow = breakdown?.elbowScore ?? Math.max(40, Math.round(overallScore * 0.9));
   const body = breakdown?.bodyScore ?? Math.max(50, Math.round(overallScore * 0.95));
   const guard = breakdown?.guardScore ?? Math.max(45, Math.round(overallScore * 0.88));
 
-  // Determine weakest pillar to recommend relevant lesson
-  let recommendedLesson = {
-    id: 'les_1_3',
-    title: 'Proper Guard Position (Kalasag)',
-    desc: 'Learn to keep your non-striking hand locked to your solar plexus to protect your core.',
-    reason: 'Your check hand dropped below hip level during swings.',
+  // Determine ONE thing to fix first (the single lowest scoring component)
+  const minScore = Math.min(direction, elbow, body, guard);
+
+  let oneThingToFix = {
+    title: 'Keep your check hand higher near your chest',
+    explanation: 'Your left hand dropped below your solar plexus. In Arnis, keeping your shield up protects your heart and earns 25% of your score.',
+    actionLessonId: 'les_1_3',
+    actionTitle: 'Practice Check Hand Guard',
   };
 
-  const minScore = Math.min(direction, elbow, body, guard);
-  if (minScore === elbow) {
-    recommendedLesson = {
-      id: strikeId || 'strike_1',
-      title: `${strikeName} Technique`,
-      desc: 'Master the proper chamber angle and full arm extension arc without overextending.',
-      reason: 'Striking arm elbow angle deviated from the ideal cutting window.',
+  if (minScore === body) {
+    oneThingToFix = {
+      title: 'Bend your knees into a solid athletic stance',
+      explanation: 'Standing too upright reduces your power and balance. Sink your hips slightly and bend both knees (135°-165°).',
+      actionLessonId: 'les_1_1',
+      actionTitle: 'Practice Proper Stance (Tindig)',
     };
-  } else if (minScore === body) {
-    recommendedLesson = {
-      id: 'les_1_1',
-      title: 'Proper Stance (Tindig)',
-      desc: 'Lower your center of gravity by bending knees (135°-165°) for power and stability.',
-      reason: 'Standing too upright reduces strike leverage and kinetic balance.',
+  } else if (minScore === elbow) {
+    oneThingToFix = {
+      title: 'Control your striking arm extension',
+      explanation: 'Avoid overextending into a wide baseball swing. Keep your elbow slightly flexed at the apex to absorb recoil.',
+      actionLessonId: strikeId || 'strike_1',
+      actionTitle: `Review ${strikeName} Motion`,
     };
   } else if (minScore === direction) {
-    recommendedLesson = {
-      id: strikeId || 'strike_1',
-      title: `${strikeName} Trajectory`,
-      desc: 'Practice tracing the exact cutting line from chamber through target to recovery.',
-      reason: 'Weapon trajectory plane deviated from the canonical target line.',
+    oneThingToFix = {
+      title: 'Follow the canonical cutting line',
+      explanation: 'Your weapon trajectory deviated from the intended line. Focus on tracing the path from chamber through target to recovery.',
+      actionLessonId: strikeId || 'strike_1',
+      actionTitle: `Practice ${strikeName} Direction`,
     };
   }
 
-  const getStatus = (score: number) => {
-    if (score >= 85) return { color: '#10B981', label: 'Great', icon: 'checkmark-circle' };
-    if (score >= 65) return { color: '#F59E0B', label: 'Needs Practice', icon: 'alert-circle' };
-    return { color: '#EF4444', label: 'Needs Improvement', icon: 'close-circle' };
-  };
+  // Compile "What you did well" (components with scores >= 70%)
+  const whatYouDidWell: string[] = [];
+  if (direction >= 70) whatYouDidWell.push('Correct strike trajectory and direction');
+  if (body >= 70) whatYouDidWell.push('Good athletic stance with bent knees');
+  if (guard >= 70) whatYouDidWell.push('Kalasag check hand stayed locked on chest');
+  if (elbow >= 70) whatYouDidWell.push('Controlled striking arm extension');
+
+  if (whatYouDidWell.length === 0) {
+    whatYouDidWell.push('Good effort! Motor learning takes consistent repetition.');
+  }
 
   const handlePracticePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onClose();
     if (onPracticeLesson) {
-      onPracticeLesson(recommendedLesson.id);
+      onPracticeLesson(oneThingToFix.actionLessonId);
     }
   };
 
@@ -99,145 +107,152 @@ export function WhyFailedModal({
     >
       <View style={styles.overlay}>
         <View style={styles.sheet}>
-          {/* Handle bar */}
+          {/* Drag Handle */}
           <View style={styles.dragBar} />
 
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.headerSub}>PERFORMANCE DIAGNOSIS</Text>
-              <Text style={styles.headerTitle}>WHY YOU GOT {overallScore}%</Text>
+              <Text style={styles.headerSub}>COACH DIAGNOSIS</Text>
+              <Text style={styles.headerTitle}>HOW CAN I IMPROVE?</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
               style={styles.closeBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="close" size={20} color="#94A3B8" />
+              <Ionicons name="close" size={22} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            {/* Quick overview pill */}
-            <View style={styles.gradeStrip}>
-              <View style={styles.gradeBadge}>
-                <Text style={styles.gradeText}>{grade}</Text>
+            {/* Score Strip */}
+            <View style={styles.scoreStrip}>
+              <View style={styles.scoreCircle}>
+                <Text style={styles.scoreNumber}>{overallScore}</Text>
+                <Text style={styles.scoreUnit}>%</Text>
               </View>
-              <Text style={styles.gradeMessage}>
-                {overallScore >= 85
-                  ? 'Strong martial execution! Minor adjustments will achieve total mastery.'
-                  : overallScore >= 70
-                  ? 'Solid foundation! Focus on the highlighted area below to boost your score.'
-                  : 'Good effort! Arnis takes repetition. Address the red flags below.'}
-              </Text>
+              <View style={{ flex: 1, marginLeft: 14 }}>
+                <Text style={styles.scoreGradeText}>{grade}</Text>
+                <Text style={styles.scoreEncouragement}>
+                  {overallScore >= 85
+                    ? 'Excellent martial control! Minor refinements will achieve perfection.'
+                    : overallScore >= 70
+                    ? 'Solid start! Let’s focus on one adjustment to boost your score.'
+                    : 'Good attempt! Don’t worry about the score—focus on fixing one thing.'}
+                </Text>
+              </View>
             </View>
 
-            {/* Pillar Breakdown Cards */}
-            <Text style={styles.sectionLabel}>4-PILLAR BIOMECHANICAL BREAKDOWN</Text>
+            {/* SECTION 1: WHAT YOU DID WELL */}
+            <View style={styles.sectionBox}>
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionHeadingSuccess}>WHAT YOU DID WELL</Text>
+              </View>
+              <View style={styles.checklist}>
+                {whatYouDidWell.map((item, idx) => (
+                  <View key={idx} style={styles.checklistItem}>
+                    <Ionicons name="checkmark" size={15} color="#10B981" style={{ marginRight: 8, marginTop: 1 }} />
+                    <Text style={styles.checklistItemText}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
 
-            {/* 1. Strike Direction */}
-            {(() => {
-              const status = getStatus(direction);
-              return (
-                <View style={styles.metricCard}>
-                  <View style={styles.metricRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name={status.icon as any} size={18} color={status.color} style={{ marginRight: 8 }} />
-                      <Text style={styles.metricName}>Strike Direction & Trajectory</Text>
-                    </View>
-                    <Text style={[styles.metricScore, { color: status.color }]}>{direction}%</Text>
-                  </View>
-                  <View style={styles.metricProgressTrack}>
-                    <View style={[styles.metricProgressFill, { width: `${direction}%`, backgroundColor: status.color }]} />
-                  </View>
-                  <Text style={styles.metricSub}>{status.label} · Follows intended diagonal or linear path</Text>
-                </View>
-              );
-            })()}
-
-            {/* 2. Body Position & Stance */}
-            {(() => {
-              const status = getStatus(body);
-              return (
-                <View style={styles.metricCard}>
-                  <View style={styles.metricRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name={status.icon as any} size={18} color={status.color} style={{ marginRight: 8 }} />
-                      <Text style={styles.metricName}>Body Position & Stance (Tindig)</Text>
-                    </View>
-                    <Text style={[styles.metricScore, { color: status.color }]}>{body}%</Text>
-                  </View>
-                  <View style={styles.metricProgressTrack}>
-                    <View style={[styles.metricProgressFill, { width: `${body}%`, backgroundColor: status.color }]} />
-                  </View>
-                  <Text style={styles.metricSub}>{status.label} · Lead knee flexion & athletic balance</Text>
-                </View>
-              );
-            })()}
-
-            {/* 3. Elbow Position */}
-            {(() => {
-              const status = getStatus(elbow);
-              return (
-                <View style={styles.metricCard}>
-                  <View style={styles.metricRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name={status.icon as any} size={18} color={status.color} style={{ marginRight: 8 }} />
-                      <Text style={styles.metricName}>Elbow Position & Extension</Text>
-                    </View>
-                    <Text style={[styles.metricScore, { color: status.color }]}>{elbow}%</Text>
-                  </View>
-                  <View style={styles.metricProgressTrack}>
-                    <View style={[styles.metricProgressFill, { width: `${elbow}%`, backgroundColor: status.color }]} />
-                  </View>
-                  <Text style={styles.metricSub}>{status.label} · Extension angle at apex of strike</Text>
-                </View>
-              );
-            })()}
-
-            {/* 4. Return to Guard */}
-            {(() => {
-              const status = getStatus(guard);
-              return (
-                <View style={styles.metricCard}>
-                  <View style={styles.metricRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name={status.icon as any} size={18} color={status.color} style={{ marginRight: 8 }} />
-                      <Text style={styles.metricName}>Check Hand & Return Guard (Kalasag)</Text>
-                    </View>
-                    <Text style={[styles.metricScore, { color: status.color }]}>{guard}%</Text>
-                  </View>
-                  <View style={styles.metricProgressTrack}>
-                    <View style={[styles.metricProgressFill, { width: `${guard}%`, backgroundColor: status.color }]} />
-                  </View>
-                  <Text style={styles.metricSub}>{status.label} · Non-striking hand protecting chest</Text>
-                </View>
-              );
-            })()}
-
-            {/* RECOMMENDED LESSON BOX */}
-            <View style={styles.recommendBox}>
-              <View style={styles.recommendBadgeRow}>
-                <View style={styles.recommendBadge}>
-                  <MaterialCommunityIcons name="school" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                  <Text style={styles.recommendBadgeText}>RECOMMENDED LESSON</Text>
-                </View>
+            {/* SECTION 2: ONE THING TO FIX FIRST */}
+            <View style={[styles.sectionBox, styles.fixBox]}>
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="alert-circle" size={18} color="#F59E0B" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionHeadingWarning}>ONE THING TO FIX FIRST</Text>
               </View>
 
-              <Text style={styles.recommendTitle}>{recommendedLesson.title}</Text>
-              <Text style={styles.recommendReason}>{recommendedLesson.reason}</Text>
-              <Text style={styles.recommendDesc}>{recommendedLesson.desc}</Text>
+              <Text style={styles.fixTitle}>{oneThingToFix.title}</Text>
+              <Text style={styles.fixExplanation}>{oneThingToFix.explanation}</Text>
 
               <TouchableOpacity
-                style={styles.practiceCtaBtn}
+                style={styles.practiceBtn}
                 onPress={handlePracticePress}
                 activeOpacity={0.85}
               >
-                <MaterialCommunityIcons name="sword-cross" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.practiceCtaText}>PRACTICE THIS LESSON</Text>
-                <Ionicons name="arrow-forward" size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                <MaterialCommunityIcons name="karate" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.practiceBtnText}>{oneThingToFix.actionTitle.toUpperCase()}</Text>
+                <Ionicons name="arrow-forward" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
               </TouchableOpacity>
             </View>
+
+            {/* Primary Action Row: Try Again & Dismiss */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.tryAgainBtn}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.tryAgainBtnText}>TRY AGAIN NOW</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Collapsible Technical Breakdown for Advanced Telemetry */}
+            <TouchableOpacity
+              style={styles.techToggleBtn}
+              onPress={() => setShowTechnicalDetails(!showTechnicalDetails)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.techToggleText}>
+                {showTechnicalDetails ? 'Hide Technical Telemetry ▲' : 'Show 4-Pillar Telemetry Breakdown ▼'}
+              </Text>
+            </TouchableOpacity>
+
+            {showTechnicalDetails && (
+              <View style={styles.techDetailsCard}>
+                <Text style={styles.techCardHeading}>4-PILLAR BIOMECHANICAL SCORES</Text>
+
+                {/* Stance */}
+                <View style={styles.techItem}>
+                  <View style={styles.techTextRow}>
+                    <Text style={styles.techLabel}>1. Stance Stability (Tindig)</Text>
+                    <Text style={[styles.techScore, { color: body >= 70 ? '#10B981' : '#F59E0B' }]}>{body}%</Text>
+                  </View>
+                  <View style={styles.techTrack}>
+                    <View style={[styles.techFill, { width: `${body}%`, backgroundColor: body >= 70 ? '#10B981' : '#F59E0B' }]} />
+                  </View>
+                </View>
+
+                {/* Trajectory */}
+                <View style={styles.techItem}>
+                  <View style={styles.techTextRow}>
+                    <Text style={styles.techLabel}>2. Strike Trajectory</Text>
+                    <Text style={[styles.techScore, { color: direction >= 70 ? '#10B981' : '#F59E0B' }]}>{direction}%</Text>
+                  </View>
+                  <View style={styles.techTrack}>
+                    <View style={[styles.techFill, { width: `${direction}%`, backgroundColor: direction >= 70 ? '#10B981' : '#F59E0B' }]} />
+                  </View>
+                </View>
+
+                {/* Check Hand */}
+                <View style={styles.techItem}>
+                  <View style={styles.techTextRow}>
+                    <Text style={styles.techLabel}>3. Kalasag Shield Guard</Text>
+                    <Text style={[styles.techScore, { color: guard >= 70 ? '#10B981' : '#EF4444' }]}>{guard}%</Text>
+                  </View>
+                  <View style={styles.techTrack}>
+                    <View style={[styles.techFill, { width: `${guard}%`, backgroundColor: guard >= 70 ? '#10B981' : '#EF4444' }]} />
+                  </View>
+                </View>
+
+                {/* Elbow */}
+                <View style={styles.techItem}>
+                  <View style={styles.techTextRow}>
+                    <Text style={styles.techLabel}>4. Arm Extension & Arc</Text>
+                    <Text style={[styles.techScore, { color: elbow >= 70 ? '#10B981' : '#F59E0B' }]}>{elbow}%</Text>
+                  </View>
+                  <View style={styles.techTrack}>
+                    <View style={[styles.techFill, { width: `${elbow}%`, backgroundColor: elbow >= 70 ? '#10B981' : '#F59E0B' }]} />
+                  </View>
+                </View>
+              </View>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -248,194 +263,239 @@ export function WhyFailedModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(5, 7, 15, 0.75)',
+    backgroundColor: '#00000088',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#12162B',
+    backgroundColor: '#161930',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 32,
-    maxHeight: '85%',
+    maxHeight: '90%',
     borderWidth: 1,
-    borderColor: '#232A4A',
+    borderColor: '#1E293B',
+    paddingBottom: 24,
   },
   dragBar: {
-    width: 38,
+    width: 44,
     height: 4,
     borderRadius: 2,
     backgroundColor: '#334155',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginTop: 10,
+    marginBottom: 4,
   },
   header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
   },
   headerSub: {
+    color: '#38BDF8',
     fontSize: 10,
-    fontWeight: '800',
-    color: '#D24B38',
-    letterSpacing: 1.2,
-    marginBottom: 3,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
+    fontSize: 17,
+    fontWeight: 'bold',
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1A213D',
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 4,
   },
   scrollContent: {
-    paddingBottom: 20,
+    padding: 18,
+    paddingBottom: 30,
   },
-  gradeStrip: {
+  scoreStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#171C35',
+    backgroundColor: '#0F1020',
     borderRadius: 14,
-    padding: 12,
-    marginBottom: 18,
+    padding: 14,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#242C50',
+    borderColor: '#1E293B',
   },
-  gradeBadge: {
-    backgroundColor: '#D24B38',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  gradeText: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  gradeMessage: {
-    flex: 1,
-    fontSize: 12,
-    color: '#CBD5E1',
-    lineHeight: 16,
-  },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 1.2,
-    marginBottom: 10,
-  },
-  metricCard: {
-    backgroundColor: '#181E38',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#262F52',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  metricName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  metricScore: {
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  metricProgressTrack: {
-    height: 6,
-    backgroundColor: '#0F1326',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  metricProgressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  metricSub: {
-    fontSize: 11,
-    color: '#94A3B8',
-  },
-  recommendBox: {
-    marginTop: 14,
-    backgroundColor: '#1A2342',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#F59E0B60',
-  },
-  recommendBadgeRow: {
-    marginBottom: 8,
-  },
-  recommendBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F59E0B25',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F59E0B40',
-  },
-  recommendBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#F59E0B',
-    letterSpacing: 0.8,
-  },
-  recommendTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  recommendReason: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#F87171',
-    marginBottom: 6,
-  },
-  recommendDesc: {
-    fontSize: 12,
-    color: '#CBD5E1',
-    lineHeight: 16,
-    marginBottom: 14,
-  },
-  practiceCtaBtn: {
-    flexDirection: 'row',
-    backgroundColor: '#D24B38',
-    borderRadius: 12,
-    height: 44,
+  scoreCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2.5,
+    borderColor: '#38BDF8',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#D24B38',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
   },
-  practiceCtaText: {
-    fontSize: 13,
-    fontWeight: '800',
+  scoreNumber: {
     color: '#FFFFFF',
-    letterSpacing: 0.4,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  scoreUnit: {
+    color: '#38BDF8',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  scoreGradeText: {
+    color: '#38BDF8',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  scoreEncouragement: {
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+  // Section Box
+  sectionBox: {
+    backgroundColor: '#0F1020',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#10B98140',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionHeadingSuccess: {
+    color: '#10B981',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  checklist: {
+    gap: 6,
+  },
+  checklistItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  checklistItemText: {
+    flex: 1,
+    color: '#E2E8F0',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  // Fix Box
+  fixBox: {
+    borderColor: '#F59E0B50',
+    backgroundColor: '#F59E0B08',
+  },
+  sectionHeadingWarning: {
+    color: '#F59E0B',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  fixTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  fixExplanation: {
+    color: '#CBD5E1',
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  practiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D24B38',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  practiceBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+
+  // Action Row
+  actionRow: {
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  tryAgainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  tryAgainBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+
+  // Technical Breakdown Toggle
+  techToggleBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  techToggleText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  techDetailsCard: {
+    backgroundColor: '#0F1020',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  techCardHeading: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  techItem: {
+    marginBottom: 10,
+  },
+  techTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  techLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  techScore: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  techTrack: {
+    height: 5,
+    backgroundColor: '#1E293B',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  techFill: {
+    height: '100%',
+    borderRadius: 3,
   },
 });

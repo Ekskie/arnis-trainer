@@ -2294,14 +2294,14 @@ export default function EvaluateScreen() {
             </View>
           </View>
 
-          {/* "WHY DID I GET X%?" Deep Dive Button */}
+          {/* "HOW CAN I IMPROVE?" Deep Dive Button */}
           <TouchableOpacity
             style={styles.whyBigButton}
             activeOpacity={0.85}
             onPress={() => setShowWhyModal(true)}
           >
             <Ionicons name="help-circle" size={18} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.whyBigButtonText}>Why Did I Get {finalSessionStats?.score ?? 0}%?</Text>
+            <Text style={styles.whyBigButtonText}>How Can I Improve? (Coach Diagnosis)</Text>
             <Ionicons name="chevron-forward" size={16} color="#38BDF8" style={{ marginLeft: 4 }} />
           </TouchableOpacity>
         </View>

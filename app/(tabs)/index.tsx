@@ -205,20 +205,20 @@ export default function HomeDashboardScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* PERSONALIZED GREETING */}
+        {/* PERSONALIZED GREETING & WHAT SHOULD I DO NOW? */}
         <View style={styles.greetingContainer}>
           <Text style={styles.greetingText}>{greeting}, Dennrick!</Text>
           <Text style={styles.greetingSub}>
-            Ready to train? The next step in your curriculum is queued up.
+            Here is your next lesson in the curriculum.
           </Text>
         </View>
 
-        {/* HERO CARD: CONTINUE TRAINING */}
+        {/* TOP HERO: WHAT SHOULD I DO NOW? */}
         <View style={styles.heroCard}>
           <View style={styles.heroHeaderRow}>
             <View style={styles.trainingTag}>
-              <MaterialCommunityIcons name="book-open-page-variant" size={13} color="#D24B38" style={{ marginRight: 4 }} />
-              <Text style={styles.trainingTagText}>YOUR TRAINING PATH</Text>
+              <MaterialCommunityIcons name="compass" size={13} color="#D24B38" style={{ marginRight: 4 }} />
+              <Text style={styles.trainingTagText}>WHAT SHOULD I DO NOW?</Text>
             </View>
 
             <View style={styles.progressPill}>
@@ -226,6 +226,24 @@ export default function HomeDashboardScreen() {
                 {curriculumProgress.progressPercentage}% Complete
               </Text>
             </View>
+          </View>
+
+          {/* Current Level & Lesson Number */}
+          <View style={styles.currentLevelInfo}>
+            <Text style={styles.currentLevelName}>
+              {continueLesson.levelNumber === 0
+                ? 'LEVEL 0 — ORIENTATION'
+                : continueLesson.levelNumber === 1
+                ? 'LEVEL 1 — FUNDAMENTALS'
+                : continueLesson.levelNumber === 2
+                ? 'LEVEL 2 — THE 12 STRIKES'
+                : continueLesson.levelNumber === 3
+                ? 'LEVEL 3 — COMBINATIONS & DRILLS'
+                : 'LEVEL 4 — ASSESSMENT'}
+            </Text>
+            <Text style={styles.currentLessonNumber}>
+              Lesson {currentLessonIndex} of {curriculumProgress.totalLessons} · {continueLesson.durationMinutes} min
+            </Text>
           </View>
 
           {/* Progress Bar */}
@@ -238,17 +256,9 @@ export default function HomeDashboardScreen() {
                 ]}
               />
             </View>
-            <View style={styles.progressLabelRow}>
-              <Text style={styles.progressLessonCount}>
-                Lesson {currentLessonIndex} of {curriculumProgress.totalLessons}
-              </Text>
-              <Text style={styles.progressRankLabel}>
-                {masteryStats.rankTitle}
-              </Text>
-            </View>
           </View>
 
-          {/* Prominent CONTINUE TRAINING Button */}
+          {/* Prominent START / CONTINUE LESSON Button */}
           <TouchableOpacity
             style={styles.continueTrainingBtn}
             activeOpacity={0.85}
@@ -256,20 +266,33 @@ export default function HomeDashboardScreen() {
           >
             <View style={styles.continueBtnLeft}>
               <View style={styles.playIconBox}>
-                <Ionicons name="play" size={20} color="#FFFFFF" />
+                <Ionicons name="play" size={22} color="#FFFFFF" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.continueBtnLabel}>CONTINUE TRAINING</Text>
+                <Text style={styles.continueBtnLabel}>
+                  {curriculumProgress.completedLessonIds.includes(continueLesson.id)
+                    ? 'REVIEW LESSON'
+                    : 'CONTINUE LESSON'}
+                </Text>
                 <Text style={styles.continueBtnLessonTitle} numberOfLines={1}>
                   {continueLesson.title}
                 </Text>
                 <Text style={styles.continueBtnSubtitle} numberOfLines={1}>
-                  {continueLesson.subtitle}
+                  {continueLesson.beginnerSummary || continueLesson.subtitle}
                 </Text>
               </View>
             </View>
-            <Ionicons name="arrow-forward-circle" size={26} color="#FFFFFF" style={{ marginLeft: 8 }} />
+            <Ionicons name="arrow-forward-circle" size={28} color="#FFFFFF" style={{ marginLeft: 8 }} />
           </TouchableOpacity>
+
+          {/* Today's Goal Row */}
+          <View style={styles.heroGoalRow}>
+            <Ionicons name="flag-outline" size={14} color="#F59E0B" style={{ marginRight: 6 }} />
+            <Text style={styles.heroGoalText} numberOfLines={1}>
+              <Text style={{ fontWeight: 'bold', color: '#F59E0B' }}>Today&apos;s Goal: </Text>
+              {continueLesson.purpose || continueLesson.beginnerSummary || continueLesson.title}
+            </Text>
+          </View>
         </View>
 
         {/* 4 CORE NAVIGATION ACTION LAUNCHERS */}
@@ -536,14 +559,14 @@ export default function HomeDashboardScreen() {
             })}
           </View>
 
-          {/* Bottom Link to Spider Radar in Progress */}
+          {/* Bottom Link to Progress */}
           <TouchableOpacity
             style={styles.viewRadarBtn}
             activeOpacity={0.8}
             onPress={() => router.push('/history')}
           >
-            <MaterialCommunityIcons name="spider-web" size={16} color="#D24B38" style={{ marginRight: 6 }} />
-            <Text style={styles.viewRadarBtnText}>Open 12-Axis Spider Radar in Progress</Text>
+            <MaterialCommunityIcons name="chart-bell-curve-cumulative" size={16} color="#D24B38" style={{ marginRight: 6 }} />
+            <Text style={styles.viewRadarBtnText}>See My Progress & Technique Breakdown</Text>
             <Ionicons name="arrow-forward" size={14} color="#D24B38" style={{ marginLeft: 4 }} />
           </TouchableOpacity>
         </View>
@@ -770,8 +793,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#38BDF8',
   },
+  currentLevelInfo: {
+    marginBottom: 8,
+  },
+  currentLevelName: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  currentLessonNumber: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   progressBarWrapper: {
-    marginBottom: 16,
+    marginBottom: 14,
+    marginTop: 4,
   },
   progressBarTrack: {
     height: 8,
@@ -846,6 +885,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255, 255, 255, 0.8)',
     marginTop: 1,
+  },
+  heroGoalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F1020',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  heroGoalText: {
+    flex: 1,
+    color: '#CBD5E1',
+    fontSize: 11.5,
   },
 
   // 4 NAVIGATION CARDS
