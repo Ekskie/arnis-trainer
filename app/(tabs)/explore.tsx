@@ -8,39 +8,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import { TechniqueLessonModal } from '@/components/TechniqueLessonModal';
-import { StrikeVideoModal } from '@/components/StrikeVideoModal';
+import { MartialTheme } from '@/constants/theme';
 import {
   ALL_CURRICULUM_LESSONS,
   CURRICULUM_DATA,
-  CurriculumLesson,
-  CurriculumLevel,
   CurriculumProgress,
   getCurriculumProgress,
-  isLessonUnlocked,
-  getLessonStatus,
+  getStageSummary,
 } from '@/constants/curriculumStore';
-import {
-  getHistory,
-  getStrikeMasteryStats,
-  MasteryStats,
-} from '@/constants/historyStore';
+import { JourneyNode, NodeStatus } from '@/components/journey/JourneyNode';
+import { JourneyConnector } from '@/components/journey/JourneyConnector';
+import { TactileButton } from '@/components/ui/TactileButton';
+import { CoachCharacter } from '@/components/ui/CoachCharacter';
 
 export default function LearnCurriculumScreen() {
   const router = useRouter();
-
-  const [viewMode, setViewMode] = useState<'path' | 'all'>('path');
-  const [activeLevelFilter, setActiveLevelFilter] = useState<string>('all');
-  const [expandedLevels, setExpandedLevels] = useState<Record<string, boolean>>({
-    level_0: true,
-    level_1: false,
-    level_2: false,
-    level_3: false,
-    level_4: false,
-  });
 
   const [curriculumProgress, setCurriculumProgress] = useState<CurriculumProgress>({
     completedLessonIds: [],
@@ -49,712 +34,430 @@ export default function LearnCurriculumScreen() {
     completedCount: 0,
     progressPercentage: 0,
   });
-  const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
 
-  // Modal states
-  const [selectedLesson, setSelectedLesson] = useState<CurriculumLesson | null>(null);
-  const [showLessonModal, setShowLessonModal] = useState(false);
-  const [showVideoCatalogModal, setShowVideoCatalogModal] = useState(false);
-  const [catalogStrikeId, setCatalogStrikeId] = useState('strike_1');
+  const [selectedStageIndex, setSelectedStageIndex] = useState<number>(0);
 
-  // Load progress and mastery on screen focus
+  // Load progress when screen is focused
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
-
       getCurriculumProgress().then((prog) => {
         if (isMounted) {
           setCurriculumProgress(prog);
-          // Auto-expand the level containing the current active lesson
+          // Auto-select the stage of current lesson
           const currentLesson = ALL_CURRICULUM_LESSONS.find(l => l.id === prog.currentLessonId);
           if (currentLesson) {
-            setExpandedLevels(prev => ({
-              ...prev,
-              [currentLesson.levelId]: true,
-            }));
+            setSelectedStageIndex(currentLesson.levelNumber);
           }
         }
       });
-
-      getHistory().then((history) => {
-        if (isMounted) setMasteryStats(getStrikeMasteryStats(history || []));
-      });
-
       return () => {
         isMounted = false;
       };
     }, [])
   );
 
-  // Open any lesson immediately for reading — zero gatekeeping on knowledge!
-  const handleSelectLesson = (lesson: CurriculumLesson) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedLesson(lesson);
-    setShowLessonModal(true);
+  const currentStage = CURRICULUM_DATA[selectedStageIndex] || CURRICULUM_DATA[0];
+
+  const stageSummary = useMemo(() => {
+    return getStageSummary(currentStage.levelNumber, curriculumProgress.completedLessonIds);
+  }, [currentStage, curriculumProgress.completedLessonIds]);
+
+  const isStageComplete = stageSummary.completed === stageSummary.total && stageSummary.total > 0;
+
+  // Offsets layout pattern for Duolingo-style winding zigzag trail
+  const offsetPattern: Array<'center' | 'left' | 'center' | 'right'> = [
+    'center',
+    'left',
+    'center',
+    'right',
+    'center',
+    'left',
+    'center',
+    'right',
+  ];
+
+  const handleNodePress = (lessonId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push(`/lesson/${lessonId}` as any);
   };
 
-  const handleStartMode = (mode: 'follow' | 'guided' | 'test', strikeId: string) => {
-    setShowLessonModal(false);
-    router.push({
-      pathname: '/evaluate',
-      params: { strikeId, mode },
-    });
-  };
-
-  const toggleLevelExpansion = (levelId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setExpandedLevels(prev => ({
-      ...prev,
-      [levelId]: !prev[levelId],
-    }));
-  };
-
-  // Filter levels or show all
-  const displayedLevels: CurriculumLevel[] = useMemo(() => {
-    if (viewMode === 'path') {
-      return CURRICULUM_DATA;
+  const handleAdvanceToNextStage = () => {
+    if (selectedStageIndex < CURRICULUM_DATA.length - 1) {
+      setSelectedStageIndex(selectedStageIndex + 1);
     }
-    if (activeLevelFilter === 'all') return CURRICULUM_DATA;
-    return CURRICULUM_DATA.filter(lvl => lvl.id === activeLevelFilter);
-  }, [viewMode, activeLevelFilter]);
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Header */}
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      {/* --- HEADER --- */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerSub}>ACADEMY CURRICULUM</Text>
-          <Text style={styles.headerTitle}>Beginner Learning Path</Text>
+        <View style={styles.headerTitleRow}>
+          <Text style={styles.headerTag}>YOUR ARNIS JOURNEY</Text>
+          <Text style={styles.headerSubtitle}>Learn step by step</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.headerVideoBtn}
-          activeOpacity={0.8}
-          onPress={() => {
-            setCatalogStrikeId('strike_1');
-            setShowVideoCatalogModal(true);
-          }}
+        {/* Stage Tabs Switcher */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.stageTabsContainer}
         >
-          <MaterialCommunityIcons name="video-vintage" size={16} color="#F59E0B" style={{ marginRight: 4 }} />
-          <Text style={styles.headerVideoBtnText}>Videos</Text>
-        </TouchableOpacity>
-      </View>
+          {CURRICULUM_DATA.map((lvl, idx) => {
+            const isSelected = selectedStageIndex === idx;
+            const lvlSummary = getStageSummary(lvl.levelNumber, curriculumProgress.completedLessonIds);
+            const isFinished = lvlSummary.completed === lvlSummary.total && lvlSummary.total > 0;
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* COURSE PROGRESS BANNER */}
-        <View style={styles.progressCard}>
-          <View style={styles.progressTopRow}>
-            <View>
-              <Text style={styles.progressCardTitle}>Course Completion</Text>
-              <Text style={styles.progressCardSub}>
-                {curriculumProgress.completedCount} of {curriculumProgress.totalLessons} Lessons Completed
-              </Text>
-            </View>
-            <View style={styles.percentageBadge}>
-              <Text style={styles.percentageBadgeText}>
-                {curriculumProgress.progressPercentage}%
-              </Text>
-            </View>
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressBarTrack}>
-            <View
-              style={[
-                styles.progressBarFill,
-                { width: `${Math.max(4, curriculumProgress.progressPercentage)}%` },
-              ]}
-            />
-          </View>
-
-          <View style={styles.progressBottomRow}>
-            <Text style={styles.rankText}>
-              Current Belt / Sash: <Text style={{ color: '#F59E0B', fontWeight: '800' }}>{masteryStats.rankTitle}</Text>
-            </Text>
-          </View>
-        </View>
-
-        {/* VIEW MODE SEGMENTED CONTROL: YOUR PATH VS ALL LESSONS */}
-        <View style={styles.viewModeSwitcher}>
-          <TouchableOpacity
-            style={[styles.viewModeBtn, viewMode === 'path' && styles.viewModeBtnActive]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setViewMode('path');
-            }}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="navigate-circle"
-              size={16}
-              color={viewMode === 'path' ? '#FFFFFF' : '#64748B'}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={[styles.viewModeBtnText, viewMode === 'path' && styles.viewModeBtnTextActive]}>
-              Your Guided Path
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.viewModeBtn, viewMode === 'all' && styles.viewModeBtnActive]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setViewMode('all');
-            }}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="grid-outline"
-              size={15}
-              color={viewMode === 'all' ? '#FFFFFF' : '#64748B'}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={[styles.viewModeBtnText, viewMode === 'all' && styles.viewModeBtnTextActive]}>
-              All Lessons (27)
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* HORIZONTAL LEVEL FILTER CHIPS (Visible in 'all' mode) */}
-        {viewMode === 'all' && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.levelFilterScroll}
-          >
-            <TouchableOpacity
-              style={[styles.filterChip, activeLevelFilter === 'all' && styles.filterChipActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveLevelFilter('all');
-              }}
-            >
-              <Text style={[styles.filterChipText, activeLevelFilter === 'all' && styles.filterChipTextActive]}>
-                All (27)
-              </Text>
-            </TouchableOpacity>
-
-            {CURRICULUM_DATA.map((lvl) => {
-              const isActive = activeLevelFilter === lvl.id;
-              return (
-                <TouchableOpacity
-                  key={lvl.id}
-                  style={[styles.filterChip, isActive && styles.filterChipActive]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setActiveLevelFilter(lvl.id);
-                  }}
-                >
-                  <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                    L{lvl.levelNumber}: {lvl.name.split('—')[1]?.trim() || lvl.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        )}
-
-        {/* Open Reading Philosophy Callout */}
-        <View style={styles.openReadingTip}>
-          <Ionicons name="sparkles" size={14} color="#38BDF8" style={{ marginRight: 6 }} />
-          <Text style={styles.openReadingTipText}>
-            Tap any lesson anytime to read instructions and watch video demos!
-          </Text>
-        </View>
-
-        {/* CURRICULUM LEVELS LIST */}
-        {displayedLevels.map((lvl) => {
-          const completedInLevel = lvl.lessons.filter(l => curriculumProgress.completedLessonIds.includes(l.id)).length;
-          const isLevelExpanded = viewMode === 'all' || expandedLevels[lvl.id] !== false;
-          const isAllCompleted = completedInLevel === lvl.lessons.length && lvl.lessons.length > 0;
-
-          return (
-            <View key={lvl.id} style={styles.levelSection}>
-              {/* Level Section Header */}
+            return (
               <TouchableOpacity
-                style={styles.levelHeader}
-                onPress={() => toggleLevelExpansion(lvl.id)}
+                key={lvl.id}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedStageIndex(idx);
+                }}
+                style={[
+                  styles.stageTab,
+                  isSelected && styles.stageTabSelected,
+                ]}
                 activeOpacity={0.8}
               >
-                <View style={[styles.levelBadge, { backgroundColor: lvl.badgeColor + '20', borderColor: lvl.badgeColor + '50' }]}>
-                  <Text style={[styles.levelBadgeText, { color: lvl.badgeColor }]}>{lvl.badge}</Text>
-                </View>
-
-                <View style={{ flex: 1, marginHorizontal: 8 }}>
-                  <Text style={styles.levelTitle}>{lvl.name}</Text>
-                  <Text style={styles.levelTagline}>{lvl.tagline}</Text>
-                </View>
-
-                <View style={styles.levelHeaderRight}>
-                  <Text style={[styles.levelProgressCount, isAllCompleted && { color: '#10B981', fontWeight: 'bold' }]}>
-                    {completedInLevel}/{lvl.lessons.length}
-                  </Text>
+                <Text style={[styles.stageTabText, isSelected && styles.stageTabTextSelected]}>
+                  Stage {lvl.levelNumber + 1}
+                </Text>
+                {isFinished && (
                   <Ionicons
-                    name={isLevelExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={16}
-                    color="#64748B"
-                    style={{ marginLeft: 6 }}
+                    name="checkmark-circle"
+                    size={14}
+                    color={isSelected ? '#15803D' : '#16A34A'}
+                    style={{ marginLeft: 4 }}
                   />
-                </View>
+                )}
               </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-              {/* Lessons in this level (Collapsible in Guided Path) */}
-              {isLevelExpanded && (
-                <View style={styles.lessonsList}>
-                  {lvl.lessons.map((lesson) => {
-                    const isCompleted = curriculumProgress.completedLessonIds.includes(lesson.id);
-                    const strikeStat = lesson.strikeKey
-                      ? masteryStats.strikes.find(s => s.id === lesson.strikeKey)
-                      : null;
-                    const isMastered = isCompleted || (strikeStat && strikeStat.isMastered);
-                    const hasAttempts = strikeStat && strikeStat.attempts > 0;
+      {/* --- SCROLLING JOURNEY PATH --- */}
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Stage Hero Banner */}
+        <View style={styles.stageHeroBanner}>
+          <View style={styles.stageHeroContent}>
+            <Text style={styles.stageHeroTag}>STAGE {currentStage.levelNumber + 1}</Text>
+            <Text style={styles.stageHeroTitle}>{currentStage.name}</Text>
+            <Text style={styles.stageHeroTagline}>{currentStage.tagline}</Text>
 
-                    return (
-                      <TouchableOpacity
-                        key={lesson.id}
-                        style={[
-                          styles.lessonCard,
-                          isMastered && styles.lessonCardMastered,
-                        ]}
-                        activeOpacity={0.75}
-                        onPress={() => handleSelectLesson(lesson)}
-                      >
-                        {/* Status Icon */}
-                        <View
-                          style={[
-                            styles.statusIconCircle,
-                            isMastered && styles.statusMastered,
-                            !isMastered && styles.statusUnlocked,
-                          ]}
-                        >
-                          {isMastered ? (
-                            <Ionicons name="checkmark" size={14} color="#10B981" />
-                          ) : (
-                            <Text style={styles.lessonOrderNum}>{lesson.lessonNumber}</Text>
-                          )}
-                        </View>
-
-                        {/* Lesson Details */}
-                        <View style={styles.lessonInfoWrap}>
-                          <View style={styles.lessonTitleRow}>
-                            <Text style={styles.lessonTitleText} numberOfLines={1}>
-                              {lesson.title}
-                            </Text>
-                            {isMastered && (
-                              <View style={styles.masteredBadge}>
-                                <Text style={styles.masteredBadgeText}>MASTERED</Text>
-                              </View>
-                            )}
-                          </View>
-
-                          <Text style={styles.lessonSubtitleText} numberOfLines={1}>
-                            {lesson.beginnerSummary || lesson.subtitle}
-                          </Text>
-
-                          {/* Pills: Target & Duration */}
-                          <View style={styles.lessonPillsRow}>
-                            <View style={styles.targetPill}>
-                              <Ionicons name="locate" size={10} color="#38BDF8" style={{ marginRight: 3 }} />
-                              <Text style={styles.targetPillText}>
-                                {lesson.trainingTarget || lesson.target || 'Fundamentals'}
-                              </Text>
-                            </View>
-
-                            <View style={styles.durationPill}>
-                              <Ionicons name="time-outline" size={10} color="#94A3B8" style={{ marginRight: 3 }} />
-                              <Text style={styles.durationPillText}>{lesson.durationMinutes} min</Text>
-                            </View>
-
-                            {hasAttempts && strikeStat && (
-                              <View style={styles.scorePill}>
-                                <Text style={styles.scorePillText}>Best: {strikeStat.bestScore}%</Text>
-                              </View>
-                            )}
-                          </View>
-                        </View>
-
-                        {/* Right Arrow Action */}
-                        <View style={styles.lessonActionArrow}>
-                          <Ionicons name="chevron-forward" size={16} color="#64748B" />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
+            {/* Stage Progress Pill */}
+            <View style={styles.stageProgressRow}>
+              <View style={styles.stageProgressBarTrack}>
+                <View
+                  style={[
+                    styles.stageProgressBarFill,
+                    { width: `${stageSummary.percent}%` },
+                  ]}
+                />
+              </View>
+              <Text style={styles.stageProgressText}>
+                {stageSummary.completed} / {stageSummary.total} complete
+              </Text>
             </View>
-          );
-        })}
+          </View>
+
+          {/* Coach Mascot cheering at top of stage */}
+          <CoachCharacter
+            pose={isStageComplete ? 'celebrating' : 'waving'}
+            size={74}
+            style={styles.stageCoach}
+          />
+        </View>
+
+        {/* --- WINDING LESSON PATH NODES --- */}
+        <View style={styles.pathWrapper}>
+          {currentStage.lessons.map((lesson, index) => {
+            const isCompleted = curriculumProgress.completedLessonIds.includes(lesson.id);
+            const isCurrent = lesson.id === curriculumProgress.currentLessonId;
+            const isLocked = !isCompleted && !isCurrent;
+
+            let nodeStatus: NodeStatus = 'locked';
+            if (isCompleted) nodeStatus = 'completed';
+            else if (isCurrent) nodeStatus = 'current';
+
+            const alignOffset = offsetPattern[index % offsetPattern.length];
+            const nextOffset =
+              index < currentStage.lessons.length - 1
+                ? offsetPattern[(index + 1) % offsetPattern.length]
+                : 'center';
+
+            return (
+              <React.Fragment key={lesson.id}>
+                {/* Connector line from previous node if not first */}
+                {index > 0 && (
+                  <JourneyConnector
+                    startOffset={offsetPattern[(index - 1) % offsetPattern.length]}
+                    endOffset={alignOffset}
+                    isCompleted={curriculumProgress.completedLessonIds.includes(currentStage.lessons[index - 1].id)}
+                  />
+                )}
+
+                {/* Lesson Node */}
+                <JourneyNode
+                  id={lesson.id}
+                  number={lesson.lessonNumber}
+                  title={lesson.title}
+                  status={nodeStatus}
+                  durationMinutes={lesson.durationMinutes}
+                  alignOffset={alignOffset}
+                  onPress={() => handleNodePress(lesson.id)}
+                />
+              </React.Fragment>
+            );
+          })}
+
+          {/* Final Stage Milestone Connector */}
+          <JourneyConnector
+            startOffset={offsetPattern[(currentStage.lessons.length - 1) % offsetPattern.length]}
+            endOffset="center"
+            isCompleted={isStageComplete}
+          />
+
+          {/* Milestone Chest / Trophy Node */}
+          <JourneyNode
+            id={`milestone_${currentStage.id}`}
+            number={99}
+            title={isStageComplete ? 'Stage Mastered! 🏆' : 'Stage Milestone'}
+            status={isStageComplete ? 'completed' : 'milestone'}
+            isMilestone={true}
+            alignOffset="center"
+            onPress={() => {
+              if (isStageComplete && selectedStageIndex < CURRICULUM_DATA.length - 1) {
+                handleAdvanceToNextStage();
+              }
+            }}
+          />
+        </View>
+
+        {/* Stage Completion Celebration Card */}
+        {isStageComplete ? (
+          <View style={styles.stageCelebrationCard}>
+            <CoachCharacter pose="celebrating" size={88} />
+            <Text style={styles.stageCelebrationTitle}>🎉 STAGE COMPLETE!</Text>
+            <Text style={styles.stageCelebrationBody}>
+              You have mastered all lessons in {currentStage.name}!
+            </Text>
+            {selectedStageIndex < CURRICULUM_DATA.length - 1 ? (
+              <TactileButton
+                title={`UNLOCK STAGE ${selectedStageIndex + 2} →`}
+                variant="primary"
+                size="md"
+                onPress={handleAdvanceToNextStage}
+                style={{ marginTop: 14 }}
+              />
+            ) : (
+              <Text style={styles.allCompleteText}>
+                You have completed the entire Arnis Curriculum! Mabuhay ang Sining ng Arnis! 🇵🇭
+              </Text>
+            )}
+          </View>
+        ) : (
+          <View style={styles.keepGoingCard}>
+            <Ionicons name="sparkles" size={18} color="#D97706" style={{ marginRight: 8 }} />
+            <Text style={styles.keepGoingText}>
+              Complete {stageSummary.remaining} more lesson{stageSummary.remaining > 1 ? 's' : ''} to unlock the next stage!
+            </Text>
+          </View>
+        )}
       </ScrollView>
-
-      {/* Technique Lesson Modal (Sequential 4-Step Wizard) */}
-      <TechniqueLessonModal
-        visible={showLessonModal}
-        lesson={selectedLesson}
-        onClose={() => setShowLessonModal(false)}
-        onStartMode={handleStartMode}
-        bestScore={
-          masteryStats.strikes.find(s => s.id === selectedLesson?.strikeKey)?.bestScore || 0
-        }
-        grade={
-          masteryStats.strikes.find(s => s.id === selectedLesson?.strikeKey)?.grade || 'Unranked'
-        }
-      />
-
-      {/* Video Demonstration Modal */}
-      <StrikeVideoModal
-        visible={showVideoCatalogModal}
-        initialStrikeId={catalogStrikeId}
-        onClose={() => setShowVideoCatalogModal(false)}
-      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: MartialTheme.colors.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#0F1020',
   },
   header: {
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#161930',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#0F1020',
+    borderBottomColor: MartialTheme.colors.border,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-  headerSub: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#D24B38',
-    letterSpacing: 1.2,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 2,
-  },
-  headerVideoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F59E0B15',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#F59E0B40',
-  },
-  headerVideoBtnText: {
-    color: '#F59E0B',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-
-  // Progress Banner Card
-  progressCard: {
-    backgroundColor: '#161930',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  progressTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  progressCardTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  progressCardSub: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  percentageBadge: {
-    backgroundColor: '#38BDF820',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#38BDF850',
-  },
-  percentageBadgeText: {
-    color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  progressBarTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#0F1020',
-    overflow: 'hidden',
+  headerTitleRow: {
+    paddingHorizontal: 20,
     marginBottom: 10,
   },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-    backgroundColor: '#10B981',
+  headerTag: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    letterSpacing: -0.2,
   },
-  progressBottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  headerSubtitle: {
+    fontSize: 13,
+    color: MartialTheme.colors.textMuted,
+    fontWeight: '600',
+    marginTop: 2,
   },
-  rankText: {
-    color: '#94A3B8',
-    fontSize: 12,
-  },
-
-  // View Mode Switcher
-  viewModeSwitcher: {
-    flexDirection: 'row',
-    backgroundColor: '#161930',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  viewModeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderRadius: 8,
-  },
-  viewModeBtnActive: {
-    backgroundColor: '#D24B38',
-  },
-  viewModeBtnText: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  viewModeBtnTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-
-  // Level Filters
-  levelFilterScroll: {
-    paddingBottom: 10,
+  stageTabsContainer: {
+    paddingHorizontal: 16,
     gap: 8,
+    paddingBottom: 6,
   },
-  filterChip: {
-    paddingHorizontal: 12,
+  stageTab: {
+    paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#161930',
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  filterChipActive: {
-    backgroundColor: '#D24B3825',
-    borderColor: '#D24B38',
+  stageTabSelected: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#15803D',
   },
-  filterChipText: {
-    color: '#94A3B8',
+  stageTabText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
   },
-  filterChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+  stageTabTextSelected: {
+    color: '#15803D',
+    fontWeight: '800',
   },
-
-  // Open Reading Callout
-  openReadingTip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#38BDF810',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#38BDF825',
+  scrollContent: {
+    paddingBottom: 60,
   },
-  openReadingTipText: {
-    color: '#94A3B8',
-    fontSize: 11.5,
-    flex: 1,
-  },
-
-  // Level Sections
-  levelSection: {
-    marginBottom: 16,
-  },
-  levelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#161930',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1E293B',
+  stageHeroBanner: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 16,
     marginBottom: 8,
-  },
-  levelBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 4,
+    borderBottomColor: MartialTheme.colors.border3D,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  levelBadgeText: {
-    fontSize: 9,
+  stageHeroContent: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  stageHeroTag: {
+    fontSize: 11,
     fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
     letterSpacing: 0.8,
   },
-  levelTitle: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
+  stageHeroTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    marginTop: 2,
   },
-  levelTagline: {
-    color: '#64748B',
-    fontSize: 11,
-    marginTop: 1,
-  },
-  levelHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  levelProgressCount: {
-    color: '#94A3B8',
+  stageHeroTagline: {
     fontSize: 12,
-    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
+    marginTop: 4,
+    lineHeight: 16,
   },
-
-  // Lessons List
-  lessonsList: {
-    gap: 8,
-    paddingLeft: 4,
-  },
-  lessonCard: {
+  stageProgressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#121426',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#1E2540',
+    marginTop: 10,
+    gap: 10,
   },
-  lessonCardMastered: {
-    borderColor: '#10B98140',
-    backgroundColor: '#10B98108',
-  },
-  statusIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#1E293B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  statusMastered: {
-    backgroundColor: '#10B98125',
-    borderWidth: 1,
-    borderColor: '#10B981',
-  },
-  statusUnlocked: {
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  lessonOrderNum: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  lessonInfoWrap: {
+  stageProgressBarTrack: {
     flex: 1,
-  },
-  lessonTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  lessonTitleText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-    flex: 1,
-  },
-  masteredBadge: {
-    backgroundColor: '#10B98120',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    height: 8,
+    backgroundColor: '#E5E0D3',
     borderRadius: 4,
+    overflow: 'hidden',
+  },
+  stageProgressBarFill: {
+    height: '100%',
+    backgroundColor: MartialTheme.colors.primary,
+    borderRadius: 4,
+  },
+  stageProgressText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
+  },
+  stageCoach: {
     marginLeft: 6,
   },
-  masteredBadgeText: {
-    color: '#10B981',
-    fontSize: 8,
+  pathWrapper: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  stageCelebrationCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 22,
+    padding: 22,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#86EFAC',
+    borderBottomWidth: 5,
+    borderBottomColor: '#16A34A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  stageCelebrationTitle: {
+    fontSize: 20,
     fontWeight: '900',
+    color: '#15803D',
+    marginTop: 8,
   },
-  lessonSubtitleText: {
-    color: '#94A3B8',
-    fontSize: 11.5,
-    marginBottom: 6,
+  stageCelebrationBody: {
+    fontSize: 14,
+    color: MartialTheme.colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 20,
   },
-  lessonPillsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  targetPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#38BDF815',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  targetPillText: {
-    color: '#38BDF8',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  durationPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  durationPillText: {
-    color: '#94A3B8',
-    fontSize: 10,
-  },
-  scorePill: {
-    backgroundColor: '#F59E0B15',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  scorePillText: {
-    color: '#F59E0B',
-    fontSize: 10,
+  allCompleteText: {
+    fontSize: 13,
     fontWeight: '700',
+    color: '#15803D',
+    textAlign: 'center',
+    marginTop: 12,
   },
-  lessonActionArrow: {
-    paddingLeft: 8,
+  keepGoingCard: {
+    backgroundColor: '#FEF3C7',
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  keepGoingText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#92400E',
+    textAlign: 'center',
   },
 });

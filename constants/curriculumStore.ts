@@ -28,6 +28,7 @@ export interface CurriculumLesson {
   category: 'orientation' | 'fundamentals' | 'strikes' | 'drills' | 'assessment';
   
   // Beginner Pedagogical Breakdown
+  whatYouWillLearn?: string[];
   doThis?: string[];
   lookLikeThis?: string;
   feelThis?: string;
@@ -60,9 +61,9 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
   {
     id: 'level_0',
     levelNumber: 0,
-    name: 'Level 0 — Orientation',
-    tagline: 'Zero-Knowledge Welcome & Safety Protocols',
-    badge: 'ORIENTATION',
+    name: 'Getting Started',
+    tagline: 'Your first steps in the Filipino martial art',
+    badge: 'START HERE',
     badgeColor: '#6366F1',
     description: 'Learn the cultural legacy, your rattan equipment, safe practice boundaries, and core Arnis terminology.',
     lessons: [
@@ -80,6 +81,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'Arnis (also known as Eskrima or Kali) is the indigenous martial art of the Philippines, officially declared the National Sport by Republic Act 9850. It emphasizes weapon mastery first, which seamlessly translates into empty-hand self defense.',
         beginnerSummary: 'Arnis is the traditional Philippine martial art of stick and blade. You learn weapon movement first, which makes you fast, alert, and confident.',
         filipinoTermNote: 'Arnis / Eskrima / Kali = Different regional names for Filipino Martial Arts (FMA). Republic Act 9850 declared Arnis our National Sport in 2009.',
+        whatYouWillLearn: [
+          'Discover the national martial art of the Philippines',
+          'Understand the stick as an extension of your arm',
+          'Learn the core principles of flow, control, and respect',
+        ],
         doThis: [
           'Treat the stick as an extension of your arm, not a baseball bat.',
           'Focus on smooth, continuous flow rather than stiff brute strength.',
@@ -118,6 +124,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'The standard Arnis training weapon is a rattan cane (Olis / Yantok), typically 28 inches in length and 3/4 to 1 inch in diameter. Rattan fibers do not splinter into dangerous sharp shards like hardwood, making it the safest training medium.',
         beginnerSummary: 'The rattan stick (Baston) is lightweight and durable. Inspect it before practice and identify its 3 parts: Tip (Dulo), Shaft (Katawan), and Butt (Punyo).',
         filipinoTermNote: 'Baston = Stick. Yantok = Rattan vine. Punyo = The 1-2 inch base extending below your fist.',
+        whatYouWillLearn: [
+          'Inspect your cane for cracks and splinters before training',
+          'Identify the Tip (Dulo), Shaft (Katawan), and Butt (Punyo)',
+          'Leave 1-2 inches of stick butt exposed below your grip',
+        ],
         doThis: [
           'Inspect your cane for deep cracks before each session.',
           'Leave 1 to 2 inches of stick butt (Punyo) exposed beneath your pinky.',
@@ -147,15 +158,20 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         levelId: 'level_0',
         levelNumber: 0,
         lessonNumber: 3,
-        title: 'Safety Rules & Equipment',
+        title: 'Safety Rules & Space',
         filipinoTitle: 'Alituntunin sa Kaligtasan',
         subtitle: 'Essential Precautions for Safe Training',
         trainingTarget: '2-Meter Clear Training Radius',
         trajectory: 'Perimeter Clearance',
         purpose: 'Establish a safe training perimeter and protect your joints with dynamic warmups.',
         description: 'Martial practice demands strict safety etiquette. Always verify your training environment, maintain clear arm extension clearance, and warm up your wrists and shoulders before executing strikes.',
-        beginnerSummary: 'Always ensure 2 meters (6 feet) of clear space in every direction, warm up your wrists with gentle circles, and never swing near pets or bystanders.',
+        beginnerSummary: 'Before we learn techniques, let\'s learn how to train safely: clear 2 meters in every direction, warm up your wrists, and hold your weapon securely.',
         filipinoTermNote: 'Otso-otso = Figure-8 warmup wrist circles. Guro = Teacher/Instructor.',
+        whatYouWillLearn: [
+          'Prepare your 2-meter clear training space',
+          'Handle your rattan stick safely without losing grip',
+          'Warm up your wrists with circular rotations',
+        ],
         doThis: [
           'Clear a 2-meter radius of all furniture, people, and pets.',
           'Check ceiling clearance before practicing overhead strikes.',
@@ -194,6 +210,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'For PoseFix-Arnis to accurately track all 33 skeletal joints and your stick motion, your phone camera must see your entire body from head to toes with adequate lighting.',
         beginnerSummary: 'Set your phone at chest or waist height, step back 2.5 meters until your whole body from head to shoes is visible, and make sure lights are in front of you.',
         filipinoTermNote: 'Handa sa Camera = Ready on camera. Stand centered in the green bounding box.',
+        whatYouWillLearn: [
+          'Place your phone at waist or chest height on a stable shelf',
+          'Step back 2.5 to 3 meters so head to toes are visible',
+          'Face good room lighting for accurate AI pose tracking',
+        ],
         doThis: [
           'Set your phone on a shelf or tripod at waist to chest height.',
           'Step back 2.5 to 3 meters so your feet and stick tip stay on screen.',
@@ -232,6 +253,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'Every traditional Arnis training begins and ends with Pugay (Salute). Bring stick to left chest, bow head slightly, and return to ready stance.',
         beginnerSummary: 'Pugay is the bow of respect. Bring your stick across to touch your left chest, nod with respect, and return to ready stance.',
         filipinoTermNote: 'Pugay = Salute / Bow. PO = Respectful Filipino honorific. "Pugay Po" honors your art and training partner.',
+        whatYouWillLearn: [
+          'Learn the traditional Filipino bow of respect (Pugay)',
+          'Hold your stick across your chest with open hand check',
+          'Begin and end every session with focus and discipline',
+        ],
         doThis: [
           'Stand with heels together, feet in a V-shape.',
           'Hold your stick in your right hand, resting across your left chest.',
@@ -261,8 +287,8 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
   {
     id: 'level_1',
     levelNumber: 1,
-    name: 'Level 1 — Fundamentals',
-    tagline: 'The Core Building Blocks of Every Strike',
+    name: 'Build Your Fundamentals',
+    tagline: 'Stance, grip, and the live check hand',
     badge: 'FUNDAMENTALS',
     badgeColor: '#10B981',
     description: 'Master the 4-finger grip, ready stance, live check hand (Kalasag), footwork angles, and the kinetic chain.',
@@ -281,6 +307,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'An athletic ready stance with bent knees anchors your base and drives hip rotation. Never stand stiffly upright with locked knees.',
         beginnerSummary: 'Stand like an athlete: feet shoulder-width apart, one foot slightly forward, and both knees gently bent. This keeps you stable and ready to move.',
         filipinoTermNote: 'Tindig = Stance. Handa = Ready. Forward Stance is called Tindig Paharap.',
+        whatYouWillLearn: [
+          'Set feet shoulder-width in an athletic base',
+          'Bend both knees to stay balanced and absorb force',
+          'Keep your spine upright without leaning forward',
+        ],
         doThis: [
           'Place feet shoulder-width apart.',
           'Step your dominant foot forward about 1 to 1.5 footsteps.',
@@ -319,6 +350,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'The standard Arnis grip wraps four fingers around the rattan cane with the thumb locked over the index finger. Crucially, leave 1 to 2 inches of stick butt (Punyo) exposed below your fist.',
         beginnerSummary: 'Wrap your 4 fingers around the stick with your thumb over your index finger. Leave 1-2 inches of stick butt (Punyo) showing at the bottom. Hold it like a bird: firm, but not choking it.',
         filipinoTermNote: 'Hawak = Grip / Hold. Punyo = Butt end of stick used for close-range hooks and blocks.',
+        whatYouWillLearn: [
+          'Wrap your 4 fingers with thumb over index finger',
+          'Leave 1-2 inches of stick butt (Punyo) below your fist',
+          'Hold firmly without white-knuckle forearm tension',
+        ],
         doThis: [
           'Wrap your four fingers firmly around the baston.',
           'Lock your thumb securely over your index fingernail.',
@@ -357,6 +393,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'In Arnis, the non-weapon hand is called the "live hand" (Kalasag / Shield). It stays glued to your solar plexus/chest to deflect incoming strikes and prepare for disarms.',
         beginnerSummary: 'Your empty hand is your shield! Keep it pinned to your solar plexus or chest. When your right hand strikes, your left hand MUST protect your body. Never let it drop!',
         filipinoTermNote: 'Kalasag = Shield. Often referred to by grandmasters as the "Live Hand" because it never sleeps.',
+        whatYouWillLearn: [
+          'Keep your non-striking hand glued to your chest',
+          'Protect your vitals like a shield while attacking',
+          'Prevent your check hand from dropping to your hip',
+        ],
         doThis: [
           'Raise your left hand to your center chest (solar plexus).',
           'Keep the palm facing forward or slightly cupped.',
@@ -395,6 +436,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'Arnis practitioners do not step in straight predictable lines. We step along the points of an imaginary triangle on the floor, entering or evading strikes while maintaining counter angles.',
         beginnerSummary: 'Instead of stepping straight forward where strikes travel, step 45 degrees to the side along an imaginary triangle on the floor.',
         filipinoTermNote: 'Hakbang = Step. Tatsulok = Triangle. Stepping off the line is called Iwas.',
+        whatYouWillLearn: [
+          'Step along 45° floor triangle angles off attack lines',
+          'Plant your lead foot firmly before delivering a strike',
+          'Glide smoothly without crossing your feet over each other',
+        ],
         doThis: [
           'Imagine a triangle on the ground pointing forward.',
           'Step 45 degrees to the right, then slide your back foot.',
@@ -434,6 +480,11 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
         description: 'Every strike consists of 3 continuous phases: Kasa (Chambering/cocking the weapon), Tudla (Accelerating through the target), and Bawi (Instant recovery back to guard).',
         beginnerSummary: 'Every strike has 3 beats: 1. Kasa (cock stick near ear), 2. Tudla (accelerate and slice through target), 3. Bawi (pull right back to chest guard).',
         filipinoTermNote: 'Kasa = Cock / Load. Tudla = Aim & Deliver. Bawi = Recover / Rebound.',
+        whatYouWillLearn: [
+          'Chamber your stick beside your ear (Kasa)',
+          'Accelerate through target line with wrist snap (Tudla)',
+          'Return immediately to your chest guard (Bawi)',
+        ],
         doThis: [
           'Phase 1 (Kasa): Load the stick by your ear or hip before starting.',
           'Phase 2 (Tudla): Accelerate smoothly through the target line with a wrist snap.',
@@ -461,8 +512,8 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
   {
     id: 'level_2',
     levelNumber: 2,
-    name: 'Level 2 — The 12 Strikes',
-    tagline: 'Canonical Strikes 1 through 12',
+    name: 'Learn The 12 Strikes',
+    tagline: 'The canonical striking system of Arnis',
     badge: '12 STRIKES',
     badgeColor: '#D24B38',
     description: 'Master each canonical strike with step-by-step coaching: Understand, Watch, Remember, and Practice.',
@@ -975,9 +1026,9 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
   {
     id: 'level_3',
     levelNumber: 3,
-    name: 'Level 3 — Combinations & Drills',
-    tagline: 'Flow Drills, Transitions, and Anyo Forms',
-    badge: 'DRILLS & FLOW',
+    name: 'Build Your Skills',
+    tagline: 'Fluid combinations and weaving flow',
+    badge: 'SKILLS & FLOW',
     badgeColor: '#8B5CF6',
     description: 'Connect individual strikes into fluid combinations, high-low transitions, and canonical Anyo patterns.',
     lessons: [
@@ -1138,8 +1189,8 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
   {
     id: 'level_4',
     levelNumber: 4,
-    name: 'Level 4 — Assessment',
-    tagline: 'Formal 12-Strikes Proficiency Examination',
+    name: 'Final Assessment',
+    tagline: 'Formal 12-strikes proficiency evaluation',
     badge: 'ASSESSMENT',
     badgeColor: '#F59E0B',
     description: 'Put all 12 strikes together in sequential order. The AI evaluates your form and consistency across all 4 pillars.',
@@ -1191,6 +1242,124 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
 export const ALL_CURRICULUM_LESSONS: CurriculumLesson[] = CURRICULUM_DATA.flatMap(lvl => lvl.lessons);
 
 const STORAGE_KEY_PROGRESS = '@arnis_curriculum_progress_v2';
+const STORAGE_KEY_DETAILED = '@arnis_curriculum_detailed_v3';
+
+export interface DetailedLessonRecord {
+  status: LessonStatus;
+  lastScore?: number;
+  attempts: number;
+  lastTrainedDate?: string;
+}
+
+export async function getAllLessonDetailedStatuses(): Promise<Record<string, DetailedLessonRecord>> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY_DETAILED);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+    // Backward compatibility: migrate from completedLessonIds
+    const prog = await getCurriculumProgress();
+    const migrated: Record<string, DetailedLessonRecord> = {};
+    ALL_CURRICULUM_LESSONS.forEach((lesson, index) => {
+      if (prog.completedLessonIds.includes(lesson.id)) {
+        migrated[lesson.id] = { status: 'mastered', attempts: 1 };
+      } else if (index === 0 || prog.completedLessonIds.includes(ALL_CURRICULUM_LESSONS[index - 1]?.id)) {
+        migrated[lesson.id] = { status: 'learning', attempts: 0 };
+      } else {
+        migrated[lesson.id] = { status: 'not_started', attempts: 0 };
+      }
+    });
+    return migrated;
+  } catch (e) {
+    console.error('Failed to get detailed lesson statuses', e);
+    return {};
+  }
+}
+
+export async function setLessonPedagogicalStatus(
+  lessonId: string,
+  status: LessonStatus,
+  score?: number
+): Promise<void> {
+  try {
+    const current = await getAllLessonDetailedStatuses();
+    const existing = current[lessonId] || { status: 'not_started', attempts: 0 };
+    const updatedRecord: DetailedLessonRecord = {
+      status,
+      lastScore: score !== undefined ? score : existing.lastScore,
+      attempts: existing.attempts + 1,
+      lastTrainedDate: new Date().toISOString(),
+    };
+    current[lessonId] = updatedRecord;
+    await AsyncStorage.setItem(STORAGE_KEY_DETAILED, JSON.stringify(current));
+
+    // If marked assessed with high score or marked mastered, mark completed in base progress
+    if (status === 'mastered' || (score && score >= 85)) {
+      await markLessonCompleted(lessonId);
+    }
+  } catch (e) {
+    console.error('Failed to set lesson status', e);
+  }
+}
+
+export function getStageHumanName(levelNumber: number): string {
+  switch (levelNumber) {
+    case 0: return 'Getting Started';
+    case 1: return 'Build Your Fundamentals';
+    case 2: return 'Learn The 12 Strikes';
+    case 3: return 'Build Your Skills';
+    case 4: return 'Final Assessment';
+    default: return 'Getting Started';
+  }
+}
+
+export function getStageSummary(levelNumber: number, completedLessonIds: string[]) {
+  const level = CURRICULUM_DATA.find(l => l.levelNumber === levelNumber) || CURRICULUM_DATA[0];
+  const total = level.lessons.length;
+  const completed = level.lessons.filter(l => completedLessonIds.includes(l.id)).length;
+  const percent = Math.round((completed / Math.max(1, total)) * 100);
+  const remaining = Math.max(0, total - completed);
+
+  // Dots representation e.g. "● ● ○ ○ ○"
+  const dotsArray: string[] = [];
+  for (let i = 0; i < total; i++) {
+    dotsArray.push(i < completed ? '●' : '○');
+  }
+  const dots = dotsArray.join(' ');
+  const statusLabel = `${completed} of ${total} lessons complete`;
+
+  return {
+    total,
+    completed,
+    percent,
+    remaining,
+    name: level.name,
+    tagline: level.tagline,
+    dots,
+    statusLabel,
+  };
+}
+
+export function getLessonLearningPoints(lesson: CurriculumLesson): string[] {
+  if (lesson.whatYouWillLearn && lesson.whatYouWillLearn.length > 0) {
+    return lesson.whatYouWillLearn.slice(0, 3);
+  }
+  if (lesson.doThis && lesson.doThis.length >= 3) {
+    return lesson.doThis.slice(0, 3).map(s => s.replace(/\.$/, ''));
+  }
+  if (lesson.coachSteps && lesson.coachSteps.length >= 3) {
+    return lesson.coachSteps.slice(0, 3).map(s => s.replace(/^\d+\.\s*/, '').replace(/\.$/, ''));
+  }
+  return [
+    'Proper starting position and grip',
+    'Controlled execution along target angle',
+    'Safe recovery back to guard',
+  ];
+}
+
+export function getLevelSummary(levelNumber: number, completedLessonIds: string[]) {
+  return getStageSummary(levelNumber, completedLessonIds);
+}
 
 export async function getCurriculumProgress(): Promise<CurriculumProgress> {
   try {
@@ -1300,6 +1469,7 @@ export function getLessonStatus(
 export async function resetCurriculumProgress(): Promise<void> {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY_PROGRESS);
+    await AsyncStorage.removeItem(STORAGE_KEY_DETAILED);
   } catch (e) {
     console.error('Failed to reset curriculum progress', e);
   }

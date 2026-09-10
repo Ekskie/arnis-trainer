@@ -8,18 +8,24 @@ import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop, Text as SvgText } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
+import { MartialTheme } from '@/constants/theme';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { CoachCharacter } from '@/components/ui/CoachCharacter';
+import { CURRICULUM_DATA, getCurriculumProgress, getStageSummary } from '@/constants/curriculumStore';
 
 const { width } = Dimensions.get('window');
 
 export default function ProgressHistoryScreen() {
   const router = useRouter();
-  const [viewTab, setViewTab] = useState<'breakdown' | 'radar' | 'timeline'>('breakdown');
+  const [viewTab, setViewTab] = useState<'breakdown' | 'timeline'>('breakdown');
+  const [showDetailedRadar, setShowDetailedRadar] = useState(false);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
   const [selectedRadarStrikeId, setSelectedRadarStrikeId] = useState<string | null>(null);
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
   const [stats, setStats] = useState({
     avgScore: 0,
     bestScore: 0,
@@ -52,6 +58,71 @@ export default function ProgressHistoryScreen() {
     };
   }, [historyList]);
 
+  // Derive focus area based on lowest pillar average
+  const focusArea = React.useMemo(() => {
+    const pillars = [
+      {
+        key: 'guard',
+        name: 'Check Hand Defense (Kalasag)',
+        score: pillarAverages.guard,
+        icon: 'shield-check' as const,
+        color: '#10B981',
+        advice: 'Your check hand tends to drop during strikes. Keep your non-striking fist pinned to your chest.',
+        targetStrike: 'strike_1',
+      },
+      {
+        key: 'stance',
+        name: 'Stance Stability (Tindig)',
+        score: pillarAverages.stance,
+        icon: 'human-male-height' as const,
+        color: '#F59E0B',
+        advice: 'Maintain an athletic base with a 135°-165° lead knee bend to stabilize your power.',
+        targetStrike: 'strike_1',
+      },
+      {
+        key: 'elbow',
+        name: 'Strike Trajectory & Slicing Angle',
+        score: pillarAverages.elbow,
+        icon: 'sword' as const,
+        color: '#3B82F6',
+        advice: 'Keep your striking elbow along the 45° diagonal line without over-swinging or pulling back early.',
+        targetStrike: 'strike_1',
+      },
+      {
+        key: 'wrist',
+        name: 'Wrist Snap & Lock (Pitik)',
+        score: pillarAverages.wrist,
+        icon: 'flash' as const,
+        color: '#8B5CF6',
+        advice: 'Align your wrist firmly with the stick at the apex of impact to avoid power leaks.',
+        targetStrike: 'strike_1',
+      },
+    ];
+    pillars.sort((a, b) => a.score - b.score);
+    return pillars[0];
+  }, [pillarAverages]);
+
+  const attemptedCount = masteryStats.strikes.filter(s => s.attempts > 0).length;
+
+  const getStarCount = (bestScore: number) => {
+    if (bestScore >= 95) return 5;
+    if (bestScore >= 85) return 4;
+    if (bestScore >= 70) return 3;
+    if (bestScore >= 50) return 2;
+    if (bestScore > 0) return 1;
+    return 0;
+  };
+
+  const getRankSashColor = (rankTitle: string) => {
+    const lower = rankTitle.toLowerCase();
+    if (lower.includes('master') || lower.includes('black')) return '#D4AF37';
+    if (lower.includes('senior') || lower.includes('brown')) return '#A16207';
+    if (lower.includes('advanced') || lower.includes('blue')) return '#3B82F6';
+    if (lower.includes('intermediate') || lower.includes('green')) return '#10B981';
+    if (lower.includes('basic') || lower.includes('yellow')) return '#F59E0B';
+    return '#E2E8F0';
+  };
+
   // Load history when screen is focused
   useFocusEffect(
     React.useCallback(() => {
@@ -75,6 +146,13 @@ export default function ProgressHistoryScreen() {
           }
         }
       });
+
+      getCurriculumProgress().then((prog) => {
+        if (isMounted) {
+          setCompletedLessonIds(prog.completedLessonIds);
+        }
+      });
+
       return () => {
         isMounted = false;
       };
@@ -194,7 +272,7 @@ export default function ProgressHistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Segmented View Switcher: Technique Breakdown / 12-Radar / Timeline */}
+      {/* Segmented View Switcher: Mastery & Skills / Session History */}
       <View style={styles.viewTabContainer}>
         <TouchableOpacity
           style={[styles.viewTabButton, viewTab === 'breakdown' && styles.viewTabButtonActive]}
@@ -202,29 +280,13 @@ export default function ProgressHistoryScreen() {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons
-            name="chart-bar"
+            name="chart-timeline-variant-shimmer"
             size={16}
-            color={viewTab === 'breakdown' ? '#FFFFFF' : '#64748B'}
-            style={{ marginRight: 5 }}
+            color={viewTab === 'breakdown' ? '#090F0D' : '#64748B'}
+            style={{ marginRight: 6 }}
           />
           <Text style={[styles.viewTabText, viewTab === 'breakdown' && styles.viewTabTextActive]}>
-            Technique
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.viewTabButton, viewTab === 'radar' && styles.viewTabButtonActive]}
-          onPress={() => setViewTab('radar')}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons
-            name="spider-web"
-            size={16}
-            color={viewTab === 'radar' ? '#FFFFFF' : '#64748B'}
-            style={{ marginRight: 5 }}
-          />
-          <Text style={[styles.viewTabText, viewTab === 'radar' && styles.viewTabTextActive]}>
-            12-Radar
+            Mastery & Skills
           </Text>
         </TouchableOpacity>
 
@@ -236,167 +298,85 @@ export default function ProgressHistoryScreen() {
           <Ionicons
             name="time-outline"
             size={16}
-            color={viewTab === 'timeline' ? '#FFFFFF' : '#64748B'}
-            style={{ marginRight: 5 }}
+            color={viewTab === 'timeline' ? '#090F0D' : '#64748B'}
+            style={{ marginRight: 6 }}
           />
           <Text style={[styles.viewTabText, viewTab === 'timeline' && styles.viewTabTextActive]}>
-            Timeline
+            Session Logs ({historyList.length})
           </Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Practitioner Mastery & Stats Summary Card */}
-        <View style={styles.masterySummaryCard}>
-          <View style={styles.masteryHeaderRow}>
-            <View style={styles.rankPill}>
-              <MaterialCommunityIcons name="shield-check" size={14} color="#F59E0B" style={{ marginRight: 5 }} />
-              <Text style={styles.rankPillText} numberOfLines={1}>{masteryStats.rankTitle}</Text>
-            </View>
-            <View style={styles.masteredCountBadge}>
-              <Text style={styles.masteredCountText}>
-                <Text style={{ color: '#10B981', fontWeight: '800' }}>{masteryStats.masteredCount}</Text> / 12 Mastered
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.statsGrid}>
-            <View style={styles.statMetricItem}>
-              <Text style={styles.statMetricValue}>{stats.avgScore}%</Text>
-              <Text style={styles.statMetricLabel}>AVG SCORE</Text>
-            </View>
-            <View style={styles.statMetricDivider} />
-            <View style={styles.statMetricItem}>
-              <Text style={[styles.statMetricValue, { color: getScoreColor(stats.bestScore) }]}>
-                {stats.bestScore}%
-              </Text>
-              <Text style={styles.statMetricLabel}>BEST SCORE</Text>
-            </View>
-            <View style={styles.statMetricDivider} />
-            <View style={styles.statMetricItem}>
-              <Text style={styles.statMetricValue}>{stats.sessionsCount}</Text>
-              <Text style={styles.statMetricLabel}>SESSIONS</Text>
-            </View>
-            <View style={styles.statMetricDivider} />
-            <View style={styles.statMetricItem}>
-              <Text style={[styles.statMetricValue, { color: '#FF6B57' }]}>
-                {masteryStats.overallMastery}%
-              </Text>
-              <Text style={styles.statMetricLabel}>MASTERY</Text>
-            </View>
-          </View>
-        </View>
-
         {viewTab === 'breakdown' ? (
-          /* 1. TECHNIQUE BREAKDOWN (BEGINNER-FRIENDLY 4 PILLARS) */
-          <View style={styles.breakdownViewContainer}>
-            <Text style={styles.breakdownSectionHeading}>TECHNIQUE BREAKDOWN</Text>
-            <Text style={styles.breakdownSectionSub}>
-              Average kinetic consistency across all your recorded practice sessions
-            </Text>
-
-            {/* Stance Bar */}
-            <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="human-male-height" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Stance & Base Stability (Tindig)</Text>
-                </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.stance) }]}>
-                  {pillarAverages.stance}%
-                </Text>
-              </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.stance}%`, backgroundColor: getScoreColor(pillarAverages.stance) }]} />
-              </View>
-              <Text style={styles.pillarDesc}>Lead knee flexion (135°-165°) and balanced center of gravity</Text>
-            </View>
-
-            {/* Trajectory / Arm Bar */}
-            <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="sword" size={18} color="#3B82F6" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Striking Arm Trajectory</Text>
-                </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.elbow) }]}>
-                  {pillarAverages.elbow}%
-                </Text>
-              </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.elbow}%`, backgroundColor: getScoreColor(pillarAverages.elbow) }]} />
-              </View>
-              <Text style={styles.pillarDesc}>Controlled extension without over-swinging or collapsing inward</Text>
-            </View>
-
-            {/* Guard Hand Bar */}
-            <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="shield-check" size={18} color="#10B981" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Check Hand Defense (Kalasag)</Text>
-                </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.guard) }]}>
-                  {pillarAverages.guard}%
-                </Text>
-              </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.guard}%`, backgroundColor: getScoreColor(pillarAverages.guard) }]} />
-              </View>
-              <Text style={styles.pillarDesc}>Shield hand pinned to chest/solar plexus to guard against counter-strikes</Text>
-            </View>
-
-            {/* Wrist Snap Bar */}
-            <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="flash" size={18} color="#8B5CF6" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Wrist Snap & Alignment (Pitik)</Text>
-                </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.wrist) }]}>
-                  {pillarAverages.wrist}%
-                </Text>
-              </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.wrist}%`, backgroundColor: getScoreColor(pillarAverages.wrist) }]} />
-              </View>
-              <Text style={styles.pillarDesc}>Sharp wrist snap at the impact zone with straight alignment (≤ 15°)</Text>
-            </View>
-
-            {/* Advanced Radar Jump Prompt */}
-            <TouchableOpacity
-              style={styles.advancedRadarPrompt}
-              onPress={() => setViewTab('radar')}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons name="spider-web" size={18} color="#D24B38" style={{ marginRight: 8 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.advancedRadarTitle}>Looking for the 12-Axis Radar?</Text>
-                <Text style={styles.advancedRadarSub}>Tap here to view the full strike-by-strike polygon chart</Text>
-              </View>
-              <Ionicons name="arrow-forward" size={16} color="#D24B38" />
-            </TouchableOpacity>
-          </View>
-        ) : viewTab === 'radar' ? (
-          /* RADAR & 12 STRIKES MATRIX VIEW */
+          /* MASTERY & SKILLS TAB */
           <View>
-            <StrikeRadarChart
-              masteryStats={masteryStats}
-              onSelectStrike={(st) => setSelectedRadarStrikeId(st.id)}
-            />
+            {/* 1. TOP OVERVIEW: YOUR PROGRESS & RANK SASH */}
+            <View style={styles.masterySummaryCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.progressSuperTag}>YOUR PROGRESS</Text>
+                  <Text style={styles.progressHeroText}>
+                    🥋 {masteryStats.masteredCount} / 12 Techniques Learned
+                  </Text>
+                  <View style={[styles.rankPill, { marginTop: 6 }]}>
+                    <View style={[styles.sashColorDot, { backgroundColor: getRankSashColor(masteryStats.rankTitle) }]} />
+                    <Text style={styles.rankPillText} numberOfLines={1}>{masteryStats.rankTitle}</Text>
+                  </View>
+                </View>
+                <CoachCharacter pose="celebrating" size={80} />
+              </View>
 
-            {/* 12 Strikes Full Breakdown List */}
-            <Text style={styles.logHeading}>ALL 12 STRIKES BREAKDOWN</Text>
-            {masteryStats.strikes.map((st) => {
-              const isSelected = st.id === selectedRadarStrikeId;
-              return (
-                <View
-                  key={st.id}
-                  style={[
-                    styles.strikeBreakdownCard,
-                    isSelected && styles.strikeBreakdownCardSelected
-                  ]}
+              {/* Overall Mastery Progress Bar */}
+              <View style={{ marginTop: 12, marginBottom: 14 }}>
+                <ProgressBar
+                  progress={masteryStats.overallMastery}
+                  showPercentage={true}
+                  color={MartialTheme.colors.primary}
+                  height={10}
+                />
+              </View>
+
+              {/* Current Focus Highlight */}
+              <View style={styles.focusAreaCard}>
+                <View style={styles.focusAreaHeaderRow}>
+                  <View style={styles.focusAreaTagBox}>
+                    <Ionicons name="sparkles" size={13} color="#D4AF37" style={{ marginRight: 6 }} />
+                    <Text style={styles.focusAreaTagText}>CURRENT FOCUS</Text>
+                  </View>
+                  <View style={[styles.focusScoreBadge, { backgroundColor: focusArea.color + '20', borderColor: focusArea.color }]}>
+                    <Text style={[styles.focusScoreText, { color: focusArea.color }]}>{focusArea.score}%</Text>
+                  </View>
+                </View>
+
+                <View style={styles.focusTitleRow}>
+                  <MaterialCommunityIcons name={focusArea.icon} size={18} color={focusArea.color} style={{ marginRight: 8 }} />
+                  <Text style={styles.focusTitleText}>{focusArea.name}</Text>
+                </View>
+
+                <Text style={styles.focusAdviceText}>{focusArea.advice}</Text>
+
+                <TouchableOpacity
+                  style={styles.focusPracticeBtn}
+                  activeOpacity={0.85}
+                  onPress={() => router.push({ pathname: '/evaluate', params: { strikeId: focusArea.targetStrike } })}
                 >
+                  <Ionicons name="play" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.focusPracticeBtnText}>PRACTICE THIS FOCUS DRILL</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 2. SKILLS (TECHNIQUE STARS) */}
+            <View style={styles.strikesSectionHeader}>
+              <Text style={styles.strikesSectionTag}>SKILLS</Text>
+              <Text style={styles.strikesSectionTitle}>12 Canonical Strikes</Text>
+            </View>
+
+            {masteryStats.strikes.map((st) => {
+              const stars = getStarCount(st.bestScore);
+              return (
+                <View key={st.id} style={styles.strikeBreakdownCard}>
                   <View style={styles.strikeBreakdownLeft}>
                     <View
                       style={[
@@ -416,6 +396,16 @@ export default function ProgressHistoryScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.strikeBreakdownName}>{st.name}</Text>
                       <Text style={styles.strikeBreakdownTarget}>{st.target}</Text>
+                      <View style={{ flexDirection: 'row', gap: 3, marginTop: 3 }}>
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Ionicons
+                            key={s}
+                            name={s <= stars ? "star" : "star-outline"}
+                            size={12}
+                            color={s <= stars ? "#F59E0B" : "#D1D5DB"}
+                          />
+                        ))}
+                      </View>
                     </View>
                   </View>
 
@@ -430,7 +420,7 @@ export default function ProgressHistoryScreen() {
                         {st.bestScore > 0 ? `${st.bestScore}%` : 'Unranked'}
                       </Text>
                       <Text style={styles.strikeBreakdownReps}>
-                        {st.attempts > 0 ? `${st.attempts} session${st.attempts > 1 ? 's' : ''}` : 'No attempts'}
+                        {st.attempts > 0 ? `${st.attempts} session${st.attempts > 1 ? 's' : ''}` : 'No reps'}
                       </Text>
                     </View>
 
@@ -439,12 +429,178 @@ export default function ProgressHistoryScreen() {
                       onPress={() => router.push({ pathname: '/evaluate', params: { strikeId: st.id } })}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="play" size={12} color="#FFFFFF" />
+                      <Ionicons name="play" size={14} color="#FFFFFF" />
                     </TouchableOpacity>
                   </View>
                 </View>
               );
             })}
+
+            {/* 3. YOUR JOURNEY STAGES CHECKLIST */}
+            <View style={styles.journeyChecklistCard}>
+              <Text style={styles.journeyChecklistTag}>YOUR JOURNEY</Text>
+              <Text style={styles.journeyChecklistTitle}>Academy Curriculum Stages</Text>
+
+              <View style={{ gap: 10, marginTop: 12 }}>
+                {CURRICULUM_DATA.map((lvl) => {
+                  const lvlSummary = getStageSummary(lvl.levelNumber, completedLessonIds);
+                  const isFinished = lvlSummary.completed === lvlSummary.total && lvlSummary.total > 0;
+
+                  return (
+                    <View key={lvl.id} style={styles.journeyStageRow}>
+                      <View style={[styles.stageCheckCircle, isFinished && styles.stageCheckCircleComplete]}>
+                        {isFinished ? (
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.stageCheckNum}>{lvl.levelNumber + 1}</Text>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stageRowName}>{lvl.name}</Text>
+                        <Text style={styles.stageRowTagline}>{lvl.tagline}</Text>
+                      </View>
+                      <Text style={[styles.stageCountLabel, isFinished && { color: '#16A34A', fontWeight: '800' }]}>
+                        {isFinished ? 'Complete ✓' : `${lvlSummary.completed} / ${lvlSummary.total}`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* 4. Collapsible Accordion: DETAILED ANALYSIS */}
+            <TouchableOpacity
+              style={styles.accordionHeaderBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowDetailedRadar(!showDetailedRadar)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="chart-bell-curve-cumulative" size={18} color="#D4AF37" style={{ marginRight: 8 }} />
+                <View>
+                  <Text style={styles.accordionHeaderBtnText}>Detailed Analysis</Text>
+                  <Text style={styles.accordionHeaderSubText}>Kinetic Radar, Joint Angles & Motor Consistency</Text>
+                </View>
+              </View>
+              <Ionicons
+                name={showDetailedRadar ? "chevron-up" : "chevron-down"}
+                size={18}
+                color="#64748B"
+              />
+            </TouchableOpacity>
+
+            {showDetailedRadar && (
+              <View style={styles.detailedAccordionContent}>
+                {/* Historical Stats Grid */}
+                <View style={styles.statsGrid}>
+                  <View style={styles.statMetricItem}>
+                    <Text style={styles.statMetricValue}>{stats.avgScore}%</Text>
+                    <Text style={styles.statMetricLabel}>AVG SCORE</Text>
+                  </View>
+                  <View style={styles.statMetricDivider} />
+                  <View style={styles.statMetricItem}>
+                    <Text style={[styles.statMetricValue, { color: getScoreColor(stats.bestScore) }]}>
+                      {stats.bestScore}%
+                    </Text>
+                    <Text style={styles.statMetricLabel}>BEST SCORE</Text>
+                  </View>
+                  <View style={styles.statMetricDivider} />
+                  <View style={styles.statMetricItem}>
+                    <Text style={styles.statMetricValue}>{stats.sessionsCount}</Text>
+                    <Text style={styles.statMetricLabel}>SESSIONS</Text>
+                  </View>
+                  <View style={styles.statMetricDivider} />
+                  <View style={styles.statMetricItem}>
+                    <Text style={[styles.statMetricValue, { color: MartialTheme.colors.bamboo }]}>
+                      {attemptedCount}/12
+                    </Text>
+                    <Text style={styles.statMetricLabel}>ATTEMPTED</Text>
+                  </View>
+                </View>
+
+                {/* Score Trend Line Chart */}
+                {historyList.length > 0 && renderTrendChart()}
+
+                {/* 12-Axis Radar Chart */}
+                <StrikeRadarChart
+                  masteryStats={masteryStats}
+                  onSelectStrike={(st) => setSelectedRadarStrikeId(st.id)}
+                />
+
+                {/* 4-Pillar Kinetic Averages */}
+                <Text style={styles.breakdownSectionHeading}>4-PILLAR KINETIC AVERAGES</Text>
+                <Text style={styles.breakdownSectionSub}>
+                  Aggregate motor consistency measured across all recorded repetitions
+                </Text>
+
+                {/* Stance Bar */}
+                <View style={styles.pillarCard}>
+                  <View style={styles.pillarHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="human-male-height" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                      <Text style={styles.pillarTitle}>Stance & Base Stability (Tindig)</Text>
+                    </View>
+                    <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.stance) }]}>
+                      {pillarAverages.stance}%
+                    </Text>
+                  </View>
+                  <View style={styles.pillarProgressBarTrack}>
+                    <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.stance}%`, backgroundColor: getScoreColor(pillarAverages.stance) }]} />
+                  </View>
+                  <Text style={styles.pillarDesc}>Lead knee flexion (135°-165°) and balanced center of gravity</Text>
+                </View>
+
+                {/* Trajectory Bar */}
+                <View style={styles.pillarCard}>
+                  <View style={styles.pillarHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="sword" size={18} color="#3B82F6" style={{ marginRight: 8 }} />
+                      <Text style={styles.pillarTitle}>Striking Arm Trajectory</Text>
+                    </View>
+                    <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.elbow) }]}>
+                      {pillarAverages.elbow}%
+                    </Text>
+                  </View>
+                  <View style={styles.pillarProgressBarTrack}>
+                    <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.elbow}%`, backgroundColor: getScoreColor(pillarAverages.elbow) }]} />
+                  </View>
+                  <Text style={styles.pillarDesc}>Controlled extension without over-swinging or collapsing inward</Text>
+                </View>
+
+                {/* Guard Hand Bar */}
+                <View style={styles.pillarCard}>
+                  <View style={styles.pillarHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="shield-check" size={18} color="#10B981" style={{ marginRight: 8 }} />
+                      <Text style={styles.pillarTitle}>Check Hand Defense (Kalasag)</Text>
+                    </View>
+                    <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.guard) }]}>
+                      {pillarAverages.guard}%
+                    </Text>
+                  </View>
+                  <View style={styles.pillarProgressBarTrack}>
+                    <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.guard}%`, backgroundColor: getScoreColor(pillarAverages.guard) }]} />
+                  </View>
+                  <Text style={styles.pillarDesc}>Shield hand pinned to chest to guard against counter-strikes</Text>
+                </View>
+
+                {/* Wrist Snap Bar */}
+                <View style={styles.pillarCard}>
+                  <View style={styles.pillarHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="flash" size={18} color="#8B5CF6" style={{ marginRight: 8 }} />
+                      <Text style={styles.pillarTitle}>Wrist Snap & Alignment (Pitik)</Text>
+                    </View>
+                    <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.wrist) }]}>
+                      {pillarAverages.wrist}%
+                    </Text>
+                  </View>
+                  <View style={styles.pillarProgressBarTrack}>
+                    <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.wrist}%`, backgroundColor: getScoreColor(pillarAverages.wrist) }]} />
+                  </View>
+                  <Text style={styles.pillarDesc}>Sharp wrist snap at the impact zone with straight alignment (≤ 15°)</Text>
+                </View>
+              </View>
+            )}
           </View>
         ) : (
           /* TIMELINE & REPLAY LOG VIEW */
@@ -807,13 +963,14 @@ export default function ProgressHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F1020',
+    backgroundColor: MartialTheme.colors.background,
   },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#161930',
+    borderBottomColor: MartialTheme.colors.border,
+    backgroundColor: '#FFFFFF',
   },
   backButton: {
     flexDirection: 'row',
@@ -821,50 +978,57 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
     marginLeft: 8,
   },
   viewTabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#161930',
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
     marginHorizontal: 20,
     marginTop: 12,
     marginBottom: 4,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   viewTabButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
   },
   viewTabButtonActive: {
-    backgroundColor: '#D24B38',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
   },
   viewTabText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: '700',
+    color: MartialTheme.colors.textMuted,
   },
   viewTabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: MartialTheme.colors.primary,
+    fontWeight: '900',
   },
   strikeBreakdownCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#161930',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 12,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    padding: 14,
     marginBottom: 10,
   },
   strikeBreakdownLeft: {
@@ -886,13 +1050,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   strikeBreakdownName: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   strikeBreakdownTarget: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textSecondary,
     marginTop: 1,
   },
   strikeBreakdownRight: {
@@ -905,14 +1069,14 @@ const styles = StyleSheet.create({
   },
   strikeBreakdownReps: {
     fontSize: 10,
-    color: '#64748B',
+    color: MartialTheme.colors.textMuted,
     marginTop: 1,
   },
   strikeTrainBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#D24B38',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: MartialTheme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -921,12 +1085,33 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   masterySummaryCard: {
-    backgroundColor: '#161930',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 18,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 4,
+    borderBottomColor: MartialTheme.colors.border3D,
+  },
+  progressSuperTag: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
+  progressHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  progressHeroText: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    letterSpacing: -0.2,
   },
   masteryHeaderRow: {
     flexDirection: 'row',
@@ -937,43 +1122,42 @@ const styles = StyleSheet.create({
   rankPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E243D',
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#F59E0B40',
-    flexShrink: 1,
-    marginRight: 8,
+    borderColor: '#FDE68A',
+    alignSelf: 'flex-start',
   },
   rankPillText: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#F59E0B',
+    fontWeight: '800',
+    color: '#B45309',
     letterSpacing: 0.3,
   },
   masteredCountBadge: {
-    backgroundColor: '#10B98115',
+    backgroundColor: '#DCFCE7',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#10B98130',
+    borderColor: '#BBF7D0',
   },
   masteredCountText: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#E2E8F0',
+    fontWeight: '800',
+    color: '#15803D',
   },
   statsGrid: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#101222',
-    borderRadius: 12,
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
+    borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#1C213E',
+    borderColor: MartialTheme.colors.border,
   },
   statMetricItem: {
     flex: 1,
@@ -981,15 +1165,78 @@ const styles = StyleSheet.create({
   },
   statMetricValue: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
     marginBottom: 2,
   },
   statMetricLabel: {
     fontSize: 8.5,
     fontWeight: '800',
-    color: '#64748B',
+    color: MartialTheme.colors.textMuted,
     letterSpacing: 0.8,
+  },
+  journeyChecklistCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 4,
+    borderBottomColor: MartialTheme.colors.border3D,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  journeyChecklistTag: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 1,
+  },
+  journeyChecklistTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  journeyStageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: MartialTheme.colors.divider,
+    gap: 12,
+  },
+  stageCheckCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E5E0D3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stageCheckCircleComplete: {
+    backgroundColor: '#16A34A',
+  },
+  stageCheckNum: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6B7280',
+  },
+  stageRowName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  stageRowTagline: {
+    fontSize: 11,
+    color: MartialTheme.colors.textSecondary,
+    marginTop: 1,
+  },
+  stageCountLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: MartialTheme.colors.textMuted,
   },
   statMetricDivider: {
     width: 1,
@@ -1429,5 +1676,122 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
     fontSize: 11,
     marginTop: 2,
+  },
+  sashColorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  focusAreaCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderBottomWidth: 3,
+    borderBottomColor: '#F59E0B',
+    marginTop: 6,
+  },
+  focusAreaHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  focusAreaTagBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  focusAreaTagText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 1,
+  },
+  focusScoreBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  focusScoreText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  focusTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  focusTitleText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+  },
+  focusAdviceText: {
+    fontSize: 12.5,
+    color: MartialTheme.colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  focusPracticeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.primary,
+    borderRadius: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.primaryDark,
+  },
+  focusPracticeBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  strikesSectionHeader: {
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  strikesSectionTag: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 1,
+  },
+  strikesSectionTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+  },
+  accordionHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  accordionHeaderBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  accordionHeaderSubText: {
+    fontSize: 10.5,
+    color: MartialTheme.colors.textMuted,
+    marginTop: 2,
+  },
+  detailedAccordionContent: {
+    marginBottom: 24,
   },
 });

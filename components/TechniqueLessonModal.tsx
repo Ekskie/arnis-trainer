@@ -12,8 +12,14 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Defs, Line, LinearGradient, Marker, Path, Stop, Text as SvgText } from 'react-native-svg';
-import { CurriculumLesson } from '@/constants/curriculumStore';
+import {
+  CurriculumLesson,
+  markLessonCompleted,
+  setLessonPedagogicalStatus,
+} from '@/constants/curriculumStore';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
+import { MartialTheme } from '@/constants/theme';
+import { PrimaryButton } from '@/components/ui/PrimaryButton';
 
 const { width } = Dimensions.get('window');
 
@@ -36,14 +42,17 @@ export function TechniqueLessonModal({
 }: TechniqueLessonModalProps) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [showFilipinoTerm, setShowFilipinoTerm] = useState<boolean>(false);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
 
-  // Reset to step 1 when opening a new lesson
+  // Reset to step 1 and record 'learning' status when opening a new lesson
   useEffect(() => {
-    if (visible) {
+    if (visible && lesson) {
       setCurrentStep(1);
       setShowFilipinoTerm(false);
+      setShowTechnicalDetails(false);
+      setLessonPedagogicalStatus(lesson.id, 'learning').catch(() => {});
     }
   }, [visible, lesson?.id]);
 
@@ -112,10 +121,24 @@ export function TechniqueLessonModal({
   const goToStep = (step: 1 | 2 | 3 | 4) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCurrentStep(step);
+    if (step >= 2 && lesson) {
+      setLessonPedagogicalStatus(lesson.id, 'watched').catch(() => {});
+    }
+  };
+
+  const handleCompleteOrientationLesson = async () => {
+    if (!lesson) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await setLessonPedagogicalStatus(lesson.id, 'mastered');
+    await markLessonCompleted(lesson.id);
+    onClose();
   };
 
   const handleLaunchPractice = (mode: 'follow' | 'guided' | 'test') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (lesson) {
+      setLessonPedagogicalStatus(lesson.id, 'practicing').catch(() => {});
+    }
     onClose();
     onStartMode(mode, strikeKey);
   };
@@ -377,6 +400,50 @@ export function TechniqueLessonModal({
                 </View>
               )}
 
+              {/* Collapsible Technical Details for Advanced Users */}
+              {(lesson.target || lesson.trajectory || lesson.mnemonicFormula) && (
+                <View style={styles.technicalToggleBox}>
+                  <TouchableOpacity
+                    style={styles.technicalToggleBtn}
+                    onPress={() => setShowTechnicalDetails(!showTechnicalDetails)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="construct-outline" size={15} color={MartialTheme.colors.bamboo} style={{ marginRight: 6 }} />
+                      <Text style={styles.technicalToggleText}>Technical Details & Metrics</Text>
+                    </View>
+                    <Ionicons
+                      name={showTechnicalDetails ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={MartialTheme.colors.bamboo}
+                    />
+                  </TouchableOpacity>
+
+                  {showTechnicalDetails && (
+                    <View style={styles.technicalDetailsContent}>
+                      {lesson.target && (
+                        <Text style={styles.techLine}>
+                          <Text style={styles.techLabel}>Anatomical Reference: </Text>
+                          {lesson.target}
+                        </Text>
+                      )}
+                      {lesson.trajectory && (
+                        <Text style={styles.techLine}>
+                          <Text style={styles.techLabel}>Trajectory Mechanics: </Text>
+                          {lesson.trajectory}
+                        </Text>
+                      )}
+                      {lesson.mnemonicFormula && (
+                        <Text style={styles.techLine}>
+                          <Text style={styles.techLabel}>Movement Formula: </Text>
+                          {lesson.mnemonicFormula}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+
               {/* Step 1 Primary CTA */}
               <TouchableOpacity
                 style={styles.nextStepBtn}
@@ -615,79 +682,107 @@ export function TechniqueLessonModal({
 
               {bestScore > 0 && (
                 <View style={styles.pastScoreStrip}>
-                  <Ionicons name="ribbon" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
+                  <Ionicons name="ribbon" size={16} color={MartialTheme.colors.bamboo} style={{ marginRight: 8 }} />
                   <Text style={styles.pastScoreText}>
                     Personal Best: <Text style={{ fontWeight: '900', color: '#FFFFFF' }}>{bestScore}%</Text> ({grade})
                   </Text>
                 </View>
               )}
 
-              <Text style={styles.chooseModePrompt}>
-                Choose how you want to practice with the AI camera:
-              </Text>
-
-              {/* Mode 1: Follow Me (RECOMMENDED FOR FIRST TIME) */}
-              <TouchableOpacity
-                style={[styles.modeCard, styles.modeCardRecommended]}
-                onPress={() => handleLaunchPractice('follow')}
-                activeOpacity={0.85}
-              >
-                <View style={styles.modeCardHeader}>
-                  <View style={[styles.modeBadge, { backgroundColor: '#10B98125', borderColor: '#10B981' }]}>
-                    <Text style={[styles.modeBadgeText, { color: '#10B981' }]}>RECOMMENDED FIRST</Text>
-                  </View>
-                  <Ionicons name="arrow-forward-circle" size={24} color="#10B981" />
-                </View>
-
-                <View style={styles.modeCardBody}>
-                  <Text style={styles.modeCardTitle}>🟢 Mode 1 — Follow Me</Text>
-                  <Text style={styles.modeCardDesc}>
-                    Mirror the master instructor side-by-side with video overlay right on your camera. No scoring pressure!
+              {!lesson.isStrike ? (
+                <View style={styles.orientationCompleteCard}>
+                  <MaterialCommunityIcons name="check-decagram" size={54} color={MartialTheme.colors.bamboo} style={{ marginBottom: 12 }} />
+                  <Text style={styles.orientationCompleteTitle}>Lesson Concepts Understood!</Text>
+                  <Text style={styles.orientationCompleteDesc}>
+                    You have reviewed the foundational principles, equipment essentials, and terminology for this topic. Mark this lesson completed to advance your curriculum path.
                   </Text>
+                  <PrimaryButton
+                    label="COMPLETE LESSON & ADVANCE"
+                    onPress={handleCompleteOrientationLesson}
+                    variant="bamboo"
+                    size="lg"
+                    icon={<Ionicons name="checkmark-done" size={20} color="#2A1F02" />}
+                    style={{ width: '100%', marginBottom: 12 }}
+                  />
+                  <PrimaryButton
+                    label="PRACTICE STANCE ON CAMERA"
+                    onPress={() => handleLaunchPractice('guided')}
+                    variant="outline"
+                    size="md"
+                    icon={<MaterialCommunityIcons name="camera" size={16} color={MartialTheme.colors.bamboo} />}
+                    style={{ width: '100%' }}
+                  />
                 </View>
-              </TouchableOpacity>
-
-              {/* Mode 2: Guided Practice */}
-              <TouchableOpacity
-                style={styles.modeCard}
-                onPress={() => handleLaunchPractice('guided')}
-                activeOpacity={0.85}
-              >
-                <View style={styles.modeCardHeader}>
-                  <View style={[styles.modeBadge, { backgroundColor: '#F59E0B25', borderColor: '#F59E0B' }]}>
-                    <Text style={[styles.modeBadgeText, { color: '#F59E0B' }]}>ALREADY PRACTICED?</Text>
-                  </View>
-                  <Ionicons name="arrow-forward-circle" size={24} color="#F59E0B" />
-                </View>
-
-                <View style={styles.modeCardBody}>
-                  <Text style={styles.modeCardTitle}>🟡 Mode 2 — Guided Practice</Text>
-                  <Text style={styles.modeCardDesc}>
-                    Real-time spoken coaching & live visual checkmarks for your stance, elbow angle, and guard hand.
+              ) : (
+                <>
+                  <Text style={styles.chooseModePrompt}>
+                    Choose how you want to practice with the AI camera:
                   </Text>
-                </View>
-              </TouchableOpacity>
 
-              {/* Mode 3: Test Yourself */}
-              <TouchableOpacity
-                style={[styles.modeCard, styles.modeCardTest]}
-                onPress={() => handleLaunchPractice('test')}
-                activeOpacity={0.85}
-              >
-                <View style={styles.modeCardHeader}>
-                  <View style={[styles.modeBadge, { backgroundColor: '#EF444425', borderColor: '#EF4444' }]}>
-                    <Text style={[styles.modeBadgeText, { color: '#EF4444' }]}>READY TO TEST?</Text>
-                  </View>
-                  <Ionicons name="arrow-forward-circle" size={24} color="#EF4444" />
-                </View>
+                  {/* Mode 1: Follow Me (RECOMMENDED FOR FIRST TIME) */}
+                  <TouchableOpacity
+                    style={[styles.modeCard, styles.modeCardRecommended]}
+                    onPress={() => handleLaunchPractice('follow')}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.modeCardHeader}>
+                      <View style={[styles.modeBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: MartialTheme.colors.primary }]}>
+                        <Text style={[styles.modeBadgeText, { color: MartialTheme.colors.primary }]}>RECOMMENDED FIRST</Text>
+                      </View>
+                      <Ionicons name="arrow-forward-circle" size={24} color={MartialTheme.colors.primary} />
+                    </View>
 
-                <View style={styles.modeCardBody}>
-                  <Text style={[styles.modeCardTitle, { color: '#FFFFFF' }]}>🔴 Mode 3 — Test Yourself</Text>
-                  <Text style={styles.modeCardDesc}>
-                    Test your technique with a 3-2-1 countdown, dynamic apex capture, and 4-pillar scoring.
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                    <View style={styles.modeCardBody}>
+                      <Text style={styles.modeCardTitle}>🟢 Mode 1 — Follow Me</Text>
+                      <Text style={styles.modeCardDesc}>
+                        Mirror the master instructor side-by-side with video overlay right on your camera. No scoring pressure!
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Mode 2: Guided Practice */}
+                  <TouchableOpacity
+                    style={styles.modeCard}
+                    onPress={() => handleLaunchPractice('guided')}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.modeCardHeader}>
+                      <View style={[styles.modeBadge, { backgroundColor: 'rgba(212, 175, 55, 0.15)', borderColor: MartialTheme.colors.bamboo }]}>
+                        <Text style={[styles.modeBadgeText, { color: MartialTheme.colors.bamboo }]}>ALREADY PRACTICED?</Text>
+                      </View>
+                      <Ionicons name="arrow-forward-circle" size={24} color={MartialTheme.colors.bamboo} />
+                    </View>
+
+                    <View style={styles.modeCardBody}>
+                      <Text style={styles.modeCardTitle}>🟡 Mode 2 — Guided Practice</Text>
+                      <Text style={styles.modeCardDesc}>
+                        Real-time spoken coaching & live visual checkmarks for your stance, elbow angle, and guard hand.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Mode 3: Test Yourself */}
+                  <TouchableOpacity
+                    style={[styles.modeCard, styles.modeCardTest]}
+                    onPress={() => handleLaunchPractice('test')}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.modeCardHeader}>
+                      <View style={[styles.modeBadge, { backgroundColor: 'rgba(210, 75, 56, 0.15)', borderColor: MartialTheme.colors.crimson }]}>
+                        <Text style={[styles.modeBadgeText, { color: MartialTheme.colors.crimson }]}>READY TO TEST?</Text>
+                      </View>
+                      <Ionicons name="arrow-forward-circle" size={24} color={MartialTheme.colors.crimson} />
+                    </View>
+
+                    <View style={styles.modeCardBody}>
+                      <Text style={[styles.modeCardTitle, { color: '#FFFFFF' }]}>🔴 Mode 3 — Test Yourself</Text>
+                      <Text style={styles.modeCardDesc}>
+                        Test your technique with a 3-2-1 countdown, dynamic apex capture, and 4-pillar scoring.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              )}
 
               {/* Navigation Back */}
               <TouchableOpacity
@@ -1284,5 +1379,67 @@ const styles = StyleSheet.create({
     backgroundColor: '#D24B38',
     borderRadius: 12,
     paddingVertical: 14,
+  },
+
+  // Collapsible Technical Breakdown
+  technicalToggleBox: {
+    marginBottom: 16,
+    borderRadius: 10,
+    backgroundColor: '#1E293B40',
+    borderWidth: 1,
+    borderColor: '#33415550',
+    overflow: 'hidden',
+  },
+  technicalToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  technicalToggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: MartialTheme.colors.bamboo,
+  },
+  technicalDetailsContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    gap: 4,
+  },
+  techLine: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    lineHeight: 18,
+  },
+  techLabel: {
+    fontWeight: '700',
+    color: MartialTheme.colors.bamboo,
+  },
+
+  // Orientation Lesson Completion Card
+  orientationCompleteCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#131F1B',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#233730',
+    marginVertical: 12,
+  },
+  orientationCompleteTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  orientationCompleteDesc: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: 20,
   },
 });

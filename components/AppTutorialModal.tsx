@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { MartialTheme } from '@/constants/theme';
 import {
   Modal,
   View,
@@ -57,46 +58,48 @@ interface TutorialStep {
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'step_about',
-    category: 'OVERVIEW',
+    category: 'GETTING STARTED',
     title: 'Welcome to PoseFix-Arnis',
-    subtitle: 'Real-Time Philippine Martial Arts AI Form Evaluator',
-    badge: 'KALI / ARNIS / ESKRIMA',
-    badgeColor: '#D24B38',
+    subtitle: "We'll teach you step by step. No experience needed.",
+    badge: 'BEGINNER FIRST',
+    badgeColor: '#D4AF37',
     iconName: 'sword-cross',
     iconFamily: 'MaterialCommunityIcons',
     content: {
-      heading: 'Master the 12 Fundamental Strikes with AI',
+      heading: 'Learn Philippine Martial Arts with AI Coaching',
       summary:
-        'PoseFix-Arnis is an intelligent vision-based training assistant that evaluates your Arnis body posture, arm extensions, strike trajectories, and footwork in real-time right on your mobile camera.',
+        'PoseFix-Arnis is your digital martial arts companion. Even if you have zero prior experience, the app will teach you step-by-step: from your first courtesy bow to mastering the 12 canonical strikes.',
       highlights: [
         {
-          icon: 'body',
+          icon: 'school',
           iconFamily: 'Ionicons',
-          title: '33-Point MediaPipe & AlphaPose Kinematics',
-          description: 'Tracks shoulder, elbow, wrist, and knee joint angles with research-grade accuracy against master references.',
-          tag: 'AI Vision',
-          tagColor: '#3B82F6',
-        },
-        {
-          icon: 'volume-high',
-          iconFamily: 'Ionicons',
-          title: 'Real-Time Spoken Voice Coach',
-          description: 'Provides instant voice feedback while you strike (e.g. "Extend your elbow higher!", "Lower your stance").',
-          tag: 'Voice AI',
+          title: 'Structured Curriculum (Level 0 to 4)',
+          description: 'Start with Level 0: Stances, grip, and courtesy salute before swinging a weapon.',
+          tag: 'Beginner First',
           tagColor: '#10B981',
         },
         {
-          icon: 'flash',
+          icon: 'eye',
           iconFamily: 'Ionicons',
-          title: 'Weapon Motion Ribbon Trail',
-          description: 'Visualizes the dynamic path and slicing arc of your stick or weapon in glowing neon trails.',
-          tag: 'Motion FX',
-          tagColor: '#F59E0B',
+          title: 'Follow Me & Guided Modes',
+          description: 'Follow on-screen visual instructor videos and receive real-time spoken feedback from your AI coach.',
+          tag: 'Live Vision',
+          tagColor: '#3B82F6',
+        },
+        {
+          icon: 'shield-checkmark',
+          iconFamily: 'Ionicons',
+          title: 'Safe Indoor Practice',
+          description: 'Clear safety checklist and weapon tracking keep your practice controlled and safe at home.',
+          tag: 'Safety First',
+          tagColor: '#D4AF37',
         },
       ],
       demoSpotlight: {
-        title: 'Complete Martial Training Suite',
-        caption: 'Single strike drills, multi-strike Anyo routine flows, 12-axis spider radar mastery, and frame-by-frame snapshot replays.',
+        title: 'The Learning Path',
+        caption: 'Learn → Watch → Understand → Follow → Practice → Get Feedback → Improve → Test → Master',
+        buttonLabel: 'Start Learning (Level 0)',
+        buttonAction: 'lessons',
         type: 'overview',
       },
     },
@@ -395,7 +398,7 @@ export function AppTutorialModal({
 
   const handleNext = () => {
     if (isLastStep) {
-      handleCompleteTutorial();
+      handleCompleteTutorial(true);
     } else {
       setCurrentStepIndex((prev) => Math.min(prev + 1, TUTORIAL_STEPS.length - 1));
     }
@@ -409,13 +412,16 @@ export function AppTutorialModal({
     setCurrentStepIndex(index);
   };
 
-  const handleCompleteTutorial = async () => {
+  const handleCompleteTutorial = async (navigateToLearn: boolean = false) => {
     try {
       await AsyncStorage.setItem(TUTORIAL_STORAGE_KEY, 'true');
     } catch (e) {
       console.warn('Could not save tutorial preference', e);
     }
     onClose();
+    if (navigateToLearn) {
+      router.push('/explore');
+    }
   };
 
   const handleActionClick = (actionType?: string) => {
@@ -465,11 +471,11 @@ export function AppTutorialModal({
 
             <TouchableOpacity
               style={styles.closeIconButton}
-              onPress={handleCompleteTutorial}
+              onPress={() => handleCompleteTutorial(false)}
               activeOpacity={0.7}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="close" size={22} color="#94A3B8" />
+              <Ionicons name="close" size={22} color={MartialTheme.colors.text} />
             </TouchableOpacity>
           </View>
 
@@ -737,13 +743,13 @@ export function AppTutorialModal({
                   onPress={handlePrev}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 4 }} />
+                  <Ionicons name="arrow-back" size={16} color={MartialTheme.colors.text} style={{ marginRight: 4 }} />
                   <Text style={styles.backButtonText}>Back</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={styles.skipButton}
-                  onPress={handleCompleteTutorial}
+                  onPress={() => handleCompleteTutorial(false)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.skipButtonText}>Skip Tour</Text>
@@ -760,7 +766,7 @@ export function AppTutorialModal({
                 activeOpacity={0.8}
               >
                 <Text style={styles.nextButtonText}>
-                  {isLastStep ? 'Get Started' : 'Next Step'}
+                  {isLastStep ? 'Start Learning (Level 0)' : 'Next Step'}
                 </Text>
                 <Ionicons
                   name={isLastStep ? 'checkmark-circle' : 'arrow-forward'}
@@ -780,7 +786,7 @@ export function AppTutorialModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(5, 7, 15, 0.92)',
+    backgroundColor: 'rgba(28, 37, 33, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 14,
@@ -789,10 +795,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: Math.min(height * 0.84, 680),
     maxHeight: '92%',
-    backgroundColor: '#0F1020',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
     overflow: 'hidden',
     flexDirection: 'column',
     shadowColor: '#000',
@@ -809,8 +815,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#161930',
-    backgroundColor: '#0D0E1C',
+    borderBottomColor: MartialTheme.colors.border,
+    backgroundColor: '#FFFFFF',
   },
   headerTitleGroup: {
     flexDirection: 'row',
@@ -827,7 +833,7 @@ const styles = StyleSheet.create({
   headerAppTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     letterSpacing: 1.2,
   },
   headerStepCounter: {
@@ -839,14 +845,16 @@ const styles = StyleSheet.create({
   closeIconButton: {
     padding: 6,
     borderRadius: 20,
-    backgroundColor: '#161930',
+    backgroundColor: '#F3EFEA',
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
   },
   categoryTabsWrapper: {
     height: 46,
     flexShrink: 0,
-    backgroundColor: '#0A0C16',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#161930',
+    borderBottomColor: MartialTheme.colors.border,
   },
   categoryTabsContainer: {
     paddingHorizontal: 14,
@@ -858,14 +866,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: '#161930',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   categoryTabText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     letterSpacing: 0.5,
   },
   scrollArea: {
@@ -896,17 +904,17 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     marginBottom: 4,
   },
   stepSubtitle: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     lineHeight: 18,
   },
   summaryBox: {
     flexDirection: 'row',
-    backgroundColor: '#161930',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 14,
     marginBottom: 20,
@@ -916,21 +924,21 @@ const styles = StyleSheet.create({
   summaryHeading: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     marginBottom: 4,
   },
   summaryText: {
     fontSize: 12,
-    color: '#CBD5E1',
+    color: MartialTheme.colors.text,
     lineHeight: 18,
   },
   spotlightCard: {
-    backgroundColor: '#13162D',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#2A3352',
+    borderColor: MartialTheme.colors.border,
   },
   spotlightHeader: {
     marginBottom: 12,
@@ -954,25 +962,25 @@ const styles = StyleSheet.create({
   spotlightTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
   },
   mockPracticeContainer: {
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 12,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   mockInstructionText: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     marginBottom: 8,
     fontWeight: '500',
   },
   mockSegmentedControl: {
     flexDirection: 'row',
-    backgroundColor: '#161930',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 4,
     position: 'relative',
@@ -1001,7 +1009,7 @@ const styles = StyleSheet.create({
   mockOptionBtnTextActive: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
   },
   mockGlowingPulse: {
     position: 'absolute',
@@ -1033,7 +1041,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mockLegendContainer: {
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 12,
     gap: 8,
@@ -1057,7 +1065,7 @@ const styles = StyleSheet.create({
   },
   legendRowDesc: {
     fontSize: 12,
-    color: '#CBD5E1',
+    color: MartialTheme.colors.text,
     fontWeight: '500',
   },
   mockModesContainer: {
@@ -1067,17 +1075,17 @@ const styles = StyleSheet.create({
   },
   mockModeCard: {
     flex: 1,
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   mockModeCardTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     marginTop: 6,
     marginBottom: 2,
     textAlign: 'center',
@@ -1096,16 +1104,16 @@ const styles = StyleSheet.create({
   },
   mockVisualItem: {
     width: '48%',
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   mockVisualItemTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     marginTop: 4,
   },
   mockVisualItemSub: {
@@ -1116,17 +1124,17 @@ const styles = StyleSheet.create({
   mockRadarHighlight: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 12,
     marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   mockOverviewHighlight: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0B0D18',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 12,
     marginVertical: 8,
@@ -1136,17 +1144,17 @@ const styles = StyleSheet.create({
   mockRadarTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     marginBottom: 2,
   },
   mockRadarDesc: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     lineHeight: 16,
   },
   spotlightCaption: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     lineHeight: 17,
     marginTop: 8,
   },
@@ -1162,7 +1170,7 @@ const styles = StyleSheet.create({
   spotlightActionBtnText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
   },
   sectionHeader: {
     fontSize: 11,
@@ -1173,12 +1181,12 @@ const styles = StyleSheet.create({
   },
   highlightItem: {
     flexDirection: 'row',
-    backgroundColor: '#161930',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   highlightIconBox: {
     width: 34,
@@ -1202,7 +1210,7 @@ const styles = StyleSheet.create({
   highlightTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     flex: 1,
   },
   highlightTag: {
@@ -1217,14 +1225,14 @@ const styles = StyleSheet.create({
   },
   highlightDesc: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textMuted,
     lineHeight: 16,
   },
   footerBar: {
     flexShrink: 0,
     paddingHorizontal: 18,
     paddingVertical: 14,
-    backgroundColor: '#0D0E1C',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#161930',
   },
@@ -1268,11 +1276,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 8,
-    backgroundColor: '#161930',
+    backgroundColor: '#FFFFFF',
   },
   backButtonText: {
     fontSize: 13,
-    color: '#CBD5E1',
+    color: MartialTheme.colors.text,
     fontWeight: '600',
   },
   nextButton: {
@@ -1295,6 +1303,6 @@ const styles = StyleSheet.create({
   nextButtonText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
   },
 });

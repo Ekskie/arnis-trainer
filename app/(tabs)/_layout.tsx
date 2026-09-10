@@ -3,26 +3,33 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
+import { MartialTheme } from '@/constants/theme';
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#D24B38', // Accent orange-red
-        tabBarInactiveTintColor: '#6B7280',
+        tabBarActiveTintColor: MartialTheme.colors.primary,
+        tabBarInactiveTintColor: '#8E9A92',
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
-          backgroundColor: '#0A0C16', // Dark dashboard background
+          backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: '#161930',
-          height: Platform.OS === 'ios' ? 88 : 64,
+          borderTopColor: MartialTheme.colors.border,
+          height: Platform.OS === 'ios' ? 88 : 66,
           paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-          paddingTop: 10,
+          paddingTop: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 4,
+          elevation: 4,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '500',
+          fontWeight: '800',
+          letterSpacing: 0.2,
         },
       }}>
       <Tabs.Screen
@@ -30,25 +37,25 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={23} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Learn',
+          title: 'Journey',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'map' : 'map-outline'} size={23} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="evaluate"
         options={{
-          title: 'Train',
+          title: 'Practice',
           tabBarIcon: ({ color, focused }) => (
-            <MaterialCommunityIcons name={focused ? 'target' : 'target'} size={24} color={color} />
+            <MaterialCommunityIcons name={focused ? 'target' : 'target'} size={25} color={color} />
           ),
         }}
       />
@@ -57,14 +64,14 @@ export default function TabLayout() {
         options={{
           title: 'Progress',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'trending-up' : 'trending-up-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'trophy' : 'trophy-outline'} size={23} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
-          href: null, // Hidden from bottom tab bar, accessible from header / coach button
+          href: null, // Hidden from bottom tab bar, accessible from contextual coach buttons
         }}
       />
     </Tabs>

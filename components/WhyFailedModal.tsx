@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MartialTheme } from '@/constants/theme';
 import {
   Modal,
   ScrollView,
@@ -263,23 +264,23 @@ export function WhyFailedModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: '#00000088',
+    backgroundColor: 'rgba(28, 37, 33, 0.65)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#161930',
+    backgroundColor: MartialTheme.colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#1F2E27',
     paddingBottom: 24,
   },
   dragBar: {
     width: 44,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#334155',
+    backgroundColor: '#2A3C34',
     alignSelf: 'center',
     marginTop: 10,
     marginBottom: 4,
@@ -291,16 +292,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
+    borderBottomColor: '#1F2E27',
   },
   headerSub: {
-    color: '#38BDF8',
+    color: '#D4AF37',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1,
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 17,
     fontWeight: 'bold',
   },
@@ -314,35 +315,35 @@ const styles = StyleSheet.create({
   scoreStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F1020',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 14,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: '#1F2E27',
   },
   scoreCircle: {
     width: 52,
     height: 52,
     borderRadius: 26,
     borderWidth: 2.5,
-    borderColor: '#38BDF8',
+    borderColor: '#D4AF37',
     alignItems: 'center',
     justifyContent: 'center',
   },
   scoreNumber: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 18,
     fontWeight: '900',
     lineHeight: 20,
   },
   scoreUnit: {
-    color: '#38BDF8',
+    color: '#D4AF37',
     fontSize: 10,
     fontWeight: 'bold',
   },
   scoreGradeText: {
-    color: '#38BDF8',
+    color: '#D4AF37',
     fontSize: 15,
     fontWeight: 'bold',
     marginBottom: 2,
@@ -355,7 +356,7 @@ const styles = StyleSheet.create({
 
   // Section Box
   sectionBox: {
-    backgroundColor: '#0F1020',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 14,
     marginBottom: 14,
@@ -390,7 +391,7 @@ const styles = StyleSheet.create({
   // Fix Box
   fixBox: {
     borderColor: '#F59E0B50',
-    backgroundColor: '#F59E0B08',
+    backgroundColor: 'rgba(245, 158, 11, 0.06)',
   },
   sectionHeadingWarning: {
     color: '#F59E0B',
@@ -399,7 +400,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   fixTitle: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 15,
     fontWeight: 'bold',
     marginBottom: 6,
@@ -414,15 +415,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#D24B38',
+    backgroundColor: '#D4AF37',
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
   practiceBtnText: {
-    color: '#FFFFFF',
+    color: '#090F0D',
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   // Action Row
@@ -434,14 +436,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     paddingVertical: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: MartialTheme.colors.border,
   },
   tryAgainBtnText: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   techDetailsCard: {
-    backgroundColor: '#0F1020',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
     padding: 14,
     marginTop: 10,

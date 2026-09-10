@@ -1,7 +1,8 @@
 import { getHistory, SessionItem } from '@/constants/historyStore';
+import { ALL_CURRICULUM_LESSONS } from '@/constants/curriculumStore';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,8 +30,19 @@ const STRIKE_KNOWLEDGE: Record<string, { name: string; target: string; elbowRang
   "12": { name: "Strike 12: Crown Strike (Baston sa Tuktok)", target: "Crown of the Skull", elbowRange: "111.1° - 135.0°", chamber: "Direct vertical overhead chamber", tip: "Vertical downward cleave directly into the skull crown. Keep your weight centered and do not lean past your knees. Elbow must remain flexed (111°-135°) to absorb recoil." }
 };
 
-function generateSemanticCoachResponse(query: string, userSessions: SessionItem[]): string {
+function generateSemanticCoachResponse(query: string, userSessions: SessionItem[], activeWeakness?: string): string {
   const q = query.toLowerCase().trim();
+
+  // Contextual weakness intent
+  if ((q.includes("weakness") || q.includes("fix this") || q.includes("my fault")) && activeWeakness) {
+    return `🎯 **ACTIONABLE PROTOCOL TO FIX THIS FORM FAULT**\n\n` +
+      `**Diagnosed Focus:**\n"${activeWeakness}"\n\n` +
+      `**Guro's 3-Step Correction Protocol:**\n` +
+      `1. **Slow Down & Mirror:** Open **Follow Me** mode in the Train tab. Do 3 slow repetitions matching the ghost silhouette.\n` +
+      `2. **Check Hand Lock:** Keep your Kalasag hand glued to your solar plexus. As the stick accelerates, consciously check that your shield hand does not drop.\n` +
+      `3. **Commit Through Impact:** Ensure you strike cleanly through the apex line before snapping back into guard.\n\n` +
+      `When you're ready, tap **Train** to drill this strike and see your score improve!`;
+  }
 
   // 1. Performance Analysis Intent
   if (q.includes("analyze") || q.includes("performance") || q.includes("history") || q.includes("stats") || q.includes("progress")) {
@@ -321,6 +333,14 @@ function FormattedMessageText({ text, isUser }: { text: string; isUser: boolean 
 
 export default function CoachChatScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    strikeId?: string;
+    strikeName?: string;
+    recentScore?: string;
+    weakness?: string;
+    lessonId?: string;
+    query?: string;
+  }>();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [userSessions, setUserSessions] = useState<SessionItem[]>([]);
@@ -392,6 +412,87 @@ export default function CoachChatScreen() {
         const list = history || [];
         setUserSessions(list);
 
+        // Check if navigated with specific lesson context
+        if (params.lessonId) {
+          const lesson = ALL_CURRICULUM_LESSONS.find(l => l.id === params.lessonId);
+          if (lesson) {
+            const lessonMsg = `Mabuhay! I see you are learning **${lesson.title}** (${lesson.subtitle}).\n\n` +
+              `🥋 **Lesson Focus:** ${lesson.beginnerSummary || lesson.description}\n\n` +
+              `Ask me any questions about stance, grip, camera setup, or technique!`;
+
+            setMessages([
+              {
+                id: 'msg_lesson_' + Date.now(),
+                sender: 'coach',
+                text: lessonMsg,
+                time: formatTime(),
+              },
+            ]);
+
+            setSuggestions([
+              "🦵 Why is my stance wrong?",
+              "🎋 What does Tindig mean?",
+              "🐣 Can you explain this simply?",
+              "🛡️ How do I hold the check hand (Kalasag)?",
+              "🎋 How do I hold the stick (Hawak)?",
+            ]);
+
+            if (params.query) {
+              setTimeout(() => {
+                handleSendMessage(params.query!);
+              }, 400);
+            }
+            return;
+          }
+        }
+
+        // Check if navigated with specific strike/weakness context
+        if (params.strikeId || params.weakness) {
+          const strikeNum = params.strikeId ? params.strikeId.replace('strike_', '') : '';
+          const strikeTitle = params.strikeName || (strikeNum ? `Strike ${strikeNum}` : 'your strike');
+
+          let contextualMsg = `Mabuhay! I see you just trained **${strikeTitle}**`;
+          if (params.recentScore) {
+            contextualMsg += ` and scored **${params.recentScore}%**`;
+          }
+          contextualMsg += `.\n\n`;
+
+          if (params.weakness) {
+            contextualMsg += `🎯 **Target Focus Area:**\n"${params.weakness}"\n\n`;
+          }
+          contextualMsg += `I am here to guide your form. Ask me for biomechanical tips or tap a question below!`;
+
+          setMessages([
+            {
+              id: 'msg_contextual_' + Date.now(),
+              sender: 'coach',
+              text: contextualMsg,
+              time: formatTime(),
+            }
+          ]);
+
+          const contextualSuggestions: string[] = [];
+          if (params.weakness) {
+            contextualSuggestions.push(`💡 How do I fix this weakness?`);
+          }
+          if (strikeNum) {
+            contextualSuggestions.push(`📐 Target angles for Strike ${strikeNum}`);
+            contextualSuggestions.push(`🎋 How do I chamber Strike ${strikeNum}?`);
+          }
+          contextualSuggestions.push(`🛡️ How do I keep my Kalasag guard up?`);
+          contextualSuggestions.push(`🦵 What is proper Tindig stance?`);
+          contextualSuggestions.push(`🐣 Explain Strike ${strikeNum || '1'} like I'm a beginner`);
+
+          setSuggestions(contextualSuggestions);
+
+          if (params.query) {
+            setTimeout(() => {
+              handleSendMessage(params.query!);
+            }, 400);
+          }
+          return;
+        }
+
         const initialGreeting = buildInitialGreeting(list);
 
         if (list.length > 0) {
@@ -437,7 +538,7 @@ export default function CoachChatScreen() {
       return () => {
         isMounted = false;
       };
-    }, [])
+    }, [params.strikeId, params.weakness, params.recentScore, params.strikeName])
   );
 
   const handleResetChat = () => {
@@ -471,7 +572,7 @@ export default function CoachChatScreen() {
     // Trigger semantic coach response
     setIsTyping(true);
     setTimeout(() => {
-      const responseText = generateSemanticCoachResponse(text, userSessions);
+      const responseText = generateSemanticCoachResponse(text, userSessions, params.weakness);
 
       const coachMsg: Message = {
         id: 'msg_coach_' + Date.now(),

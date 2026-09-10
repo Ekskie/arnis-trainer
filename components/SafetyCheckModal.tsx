@@ -25,13 +25,14 @@ export function SafetyCheckModal({
   strikeName,
 }: SafetyCheckModalProps) {
   const [checklist, setChecklist] = useState({
+    wholeBody: true,
     space: true,
     stick: true,
-    pets: true,
-    camera: true,
+    stable: true,
+    safeEnv: true,
   });
 
-  const allChecked = checklist.space && checklist.stick && checklist.pets && checklist.camera;
+  const allChecked = checklist.wholeBody && checklist.space && checklist.stick && checklist.stable && checklist.safeEnv;
 
   const toggleItem = (key: keyof typeof checklist) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -55,11 +56,11 @@ export function SafetyCheckModal({
           {/* Top header badge */}
           <View style={styles.badgeRow}>
             <View style={styles.badge}>
-              <MaterialCommunityIcons name="shield-alert" size={14} color="#F59E0B" style={{ marginRight: 4 }} />
-              <Text style={styles.badgeText}>SAFETY FIRST</Text>
+              <MaterialCommunityIcons name="shield-check" size={14} color="#F59E0B" style={{ marginRight: 4 }} />
+              <Text style={styles.badgeText}>SETUP CHECKLIST</Text>
             </View>
             <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={20} color="#64748B" />
+              <Ionicons name="close" size={20} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
@@ -69,11 +70,28 @@ export function SafetyCheckModal({
           )}
 
           <Text style={styles.instruction}>
-            Before activating your camera and swinging your weapon, confirm that your training zone is secure:
+            Make sure your camera and surroundings are ready for safe training:
           </Text>
 
-          {/* Checklist items */}
+          {/* 5-Point Checklist items from Directive 26 */}
           <View style={styles.checklistContainer}>
+            <TouchableOpacity
+              style={[styles.checkItem, checklist.wholeBody && styles.checkItemActive]}
+              onPress={() => toggleItem('wholeBody')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={checklist.wholeBody ? "checkmark-circle" : "ellipse-outline"}
+                size={22}
+                color={checklist.wholeBody ? "#10B981" : "#64748B"}
+                style={styles.checkIcon}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkTitle}>Your whole body is visible</Text>
+                <Text style={styles.checkDesc}>From head to feet within the camera frame</Text>
+              </View>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.checkItem, checklist.space && styles.checkItemActive]}
               onPress={() => toggleItem('space')}
@@ -86,8 +104,8 @@ export function SafetyCheckModal({
                 style={styles.checkIcon}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>Enough Clearance Space</Text>
-                <Text style={styles.checkDesc}>At least 2 meters (6.5 ft) in all directions around you</Text>
+                <Text style={styles.checkTitle}>You have enough space</Text>
+                <Text style={styles.checkDesc}>At least 2 meters clear in all directions</Text>
               </View>
             </TouchableOpacity>
 
@@ -103,42 +121,42 @@ export function SafetyCheckModal({
                 style={styles.checkIcon}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>Training Stick is Secure</Text>
-                <Text style={styles.checkDesc}>Rattan is free of cracks/splinters; firm grip on the handle</Text>
+                <Text style={styles.checkTitle}>Your training stick is visible</Text>
+                <Text style={styles.checkDesc}>Held firmly in your dominant hand</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.checkItem, checklist.pets && styles.checkItemActive]}
-              onPress={() => toggleItem('pets')}
+              style={[styles.checkItem, checklist.stable && styles.checkItemActive]}
+              onPress={() => toggleItem('stable')}
               activeOpacity={0.8}
             >
               <Ionicons
-                name={checklist.pets ? "checkmark-circle" : "ellipse-outline"}
+                name={checklist.stable ? "checkmark-circle" : "ellipse-outline"}
                 size={22}
-                color={checklist.pets ? "#10B981" : "#64748B"}
+                color={checklist.stable ? "#10B981" : "#64748B"}
                 style={styles.checkIcon}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>Surroundings Are Clear</Text>
-                <Text style={styles.checkDesc}>No people, pets, or fragile objects in striking reach</Text>
+                <Text style={styles.checkTitle}>The camera is stable</Text>
+                <Text style={styles.checkDesc}>Resting securely at chest/eye level</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.checkItem, checklist.camera && styles.checkItemActive]}
-              onPress={() => toggleItem('camera')}
+              style={[styles.checkItem, checklist.safeEnv && styles.checkItemActive]}
+              onPress={() => toggleItem('safeEnv')}
               activeOpacity={0.8}
             >
               <Ionicons
-                name={checklist.camera ? "checkmark-circle" : "ellipse-outline"}
+                name={checklist.safeEnv ? "checkmark-circle" : "ellipse-outline"}
                 size={22}
-                color={checklist.camera ? "#10B981" : "#64748B"}
+                color={checklist.safeEnv ? "#10B981" : "#64748B"}
                 style={styles.checkIcon}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>Camera Sees Whole Body</Text>
-                <Text style={styles.checkDesc}>Phone placed 2.5–3.5m away with clear view head-to-toe</Text>
+                <Text style={styles.checkTitle}>You are in a safe environment</Text>
+                <Text style={styles.checkDesc}>No pets, bystanders, or obstacles nearby</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -170,7 +188,7 @@ export function SafetyCheckModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(5, 7, 15, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -178,16 +196,18 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: '#12162B',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
     padding: 22,
     borderWidth: 1,
-    borderColor: '#232A4A',
+    borderColor: '#E5E0D3',
+    borderBottomWidth: 5,
+    borderBottomColor: '#D5CEBF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.15,
     shadowRadius: 20,
-    elevation: 10,
+    elevation: 8,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -198,8 +218,8 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F59E0B20',
-    borderColor: '#F59E0B50',
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -207,29 +227,29 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#F59E0B',
+    fontWeight: '900',
+    color: '#B45309',
     letterSpacing: 1,
   },
   title: {
     fontSize: 20,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#1C2721',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: '#4B5852',
     marginBottom: 10,
   },
   strikeHighlight: {
-    color: '#D24B38',
-    fontWeight: '700',
+    color: '#15803D',
+    fontWeight: '800',
   },
   instruction: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: '#7D8C84',
     lineHeight: 17,
     marginBottom: 16,
   },
@@ -240,65 +260,65 @@ const styles = StyleSheet.create({
   checkItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#181E38',
-    borderRadius: 12,
+    backgroundColor: '#FAF8F3',
+    borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#262F52',
+    borderColor: '#E5E0D3',
+    borderBottomWidth: 3,
+    borderBottomColor: '#D5CEBF',
   },
   checkItemActive: {
-    backgroundColor: '#152538',
-    borderColor: '#10B98150',
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+    borderBottomColor: '#16A34A',
   },
   checkIcon: {
     marginRight: 12,
   },
   checkTitle: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '800',
+    color: '#1C2721',
     marginBottom: 2,
   },
   checkDesc: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#6B7280',
   },
   disclaimerBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1122',
+    backgroundColor: '#FEF3C7',
     borderRadius: 10,
     padding: 10,
     marginBottom: 18,
     borderWidth: 1,
-    borderColor: '#1C2340',
+    borderColor: '#FDE68A',
   },
   disclaimerText: {
     flex: 1,
     fontSize: 10.5,
-    color: '#94A3B8',
+    color: '#92400E',
     lineHeight: 15,
   },
   actionBtn: {
     flexDirection: 'row',
-    backgroundColor: '#D24B38',
+    backgroundColor: '#15803D',
     borderRadius: 14,
     height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#D24B38',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
+    borderBottomWidth: 4,
+    borderBottomColor: '#14532D',
   },
   actionBtnDisabled: {
-    backgroundColor: '#334155',
-    shadowOpacity: 0,
+    backgroundColor: '#D1D5DB',
+    borderBottomColor: '#9CA3AF',
   },
   actionBtnText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
