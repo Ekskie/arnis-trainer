@@ -3,13 +3,16 @@ import {
   AnyoRoutine,
   AnyoStepResult,
   computeGrade,
+  getHistory,
   saveAnyoSession,
-  saveSession
+  saveSession,
+  SessionItem,
 } from '@/constants/historyStore';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
 import { StrikeVideoModal } from '@/components/StrikeVideoModal';
 import { WhyFailedModal } from '@/components/WhyFailedModal';
+import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -22,6 +25,7 @@ import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, Styl
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { MartialTheme } from '@/constants/theme';
+import { PracticeHomeScreen } from '@/components/practice/PracticeHomeScreen';
 
 const { width } = Dimensions.get('window');
 
@@ -115,6 +119,13 @@ export default function EvaluateScreen() {
 
   // Navigation states: 'selection' | 'live' | 'result'
   const [screenState, setScreenState] = useState<'selection' | 'live' | 'result'>('selection');
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState<boolean>(false);
+  const [sessionImprovement, setSessionImprovement] = useState<{
+    previousBest: number;
+    delta: number;
+    isNewPersonalBest: boolean;
+    isMastered: boolean;
+  }>({ previousBest: 0, delta: 0, isNewPersonalBest: false, isMastered: false });
   const [practiceType, setPracticeType] = useState<'single' | 'anyo'>('single');
   const [selectedStrikeId, setSelectedStrikeId] = useState<string>('strike_1');
   const [evaluationMode, setEvaluationMode] = useState<'coach' | 'practice' | 'freeflow' | 'evaluate'>('coach');
@@ -192,15 +203,18 @@ export default function EvaluateScreen() {
   useEffect(() => {
     if (params.strikeId && STRIKE_RULES[params.strikeId]) {
       setSelectedStrikeId(params.strikeId);
-    }
-    if (params.mode === 'follow' || params.mode === 'guided' || params.mode === 'test') {
-      setProgressiveMode(params.mode);
-      if (params.mode === 'test') {
-        setEvaluationMode('evaluate');
-      } else if (params.mode === 'guided') {
-        setEvaluationMode('coach');
-      } else {
-        setEvaluationMode('practice');
+      if (params.mode) {
+        if (params.mode === 'follow') {
+          setProgressiveMode('follow');
+          setEvaluationMode('practice');
+        } else if (params.mode === 'test') {
+          setProgressiveMode('test');
+          setEvaluationMode('evaluate');
+        } else {
+          setProgressiveMode('guided');
+          setEvaluationMode('coach');
+        }
+        handleStartEvaluation(params.strikeId);
       }
     }
   }, [params.strikeId, params.mode]);
@@ -466,6 +480,21 @@ export default function EvaluateScreen() {
         };
 
         setFinalSessionStats(stats);
+
+        // Compute improvement delta from previous best
+        getHistory().then((historyList: SessionItem[]) => {
+          const prevScores = (historyList || [])
+            .filter((s: SessionItem) => s.strikeId === selectedStrikeId)
+            .map((s: SessionItem) => s.score);
+          const prevBest = prevScores.length > 0 ? Math.max(...prevScores) : 0;
+          const delta = prevBest > 0 ? finalScore - prevBest : 0;
+          setSessionImprovement({
+            previousBest: prevBest,
+            delta,
+            isNewPersonalBest: prevBest > 0 && finalScore > prevBest,
+            isMastered: finalScore >= 85,
+          });
+        });
 
         // Save to offline storage
         saveSession(
@@ -2228,220 +2257,275 @@ export default function EvaluateScreen() {
   }
 
   // 3B. SINGLE STRIKE RESULT VIEW
+  const finalScore = finalSessionStats?.score ?? 0;
+  let starCount = 0;
+  if (finalScore >= 95) starCount = 5;
+  else if (finalScore >= 85) starCount = 4;
+  else if (finalScore >= 75) starCount = 3;
+  else if (finalScore >= 60) starCount = 2;
+  else if (finalScore > 0) starCount = 1;
+
+  // Next strike in sequence
+  const currentStrikeNum = parseInt(selectedStrikeId.replace('strike_', ''), 10) || 1;
+  const nextStrikeId = currentStrikeNum < 12 ? `strike_${currentStrikeNum + 1}` : null;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBackToSelection} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={MartialTheme.colors.text} />
-          <Text style={styles.headerTitle}>Evaluate</Text>
+          <Text style={styles.headerTitle}>{currentRule.name}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={handleBackToSelection}
+          style={{ padding: 6 }}
+        >
+          <Ionicons name="close" size={24} color={MartialTheme.colors.text} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Human Coach Result Hero Card */}
+        {/* Duolingo Motivational Result Hero Card */}
         <View style={styles.coachResultHero}>
-          <Text style={styles.coachResultSubtitle}>YOUR RESULT</Text>
+          <View style={{ alignItems: 'center', marginBottom: 12 }}>
+            <CoachCharacter
+              pose={finalScore >= 85 || sessionImprovement.isNewPersonalBest ? "celebrating" : "stance"}
+              size={110}
+            />
+          </View>
+
+          <Text style={styles.coachFeedbackGreeting}>
+            {sessionImprovement.isMastered
+              ? 'STRIKE MASTERED! 🥋'
+              : sessionImprovement.isNewPersonalBest
+              ? 'NEW PERSONAL BEST! ⭐'
+              : finalScore >= 75
+              ? 'NICE WORK! 🎉'
+              : 'PRACTICE COMPLETE! 🥋'}
+          </Text>
+
+          <Text style={styles.coachResultStrikeName}>
+            {currentRule.name} — {currentRule.desc}
+          </Text>
+
           <View style={styles.coachScoreRow}>
-            <Text style={[styles.coachBigScore, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
-              {finalSessionStats?.score ?? 0}%
+            <Text style={[styles.coachBigScore, { color: getScoreColor(finalScore) }]}>
+              {finalScore}%
             </Text>
-            <View style={[styles.coachGradeBadge, { backgroundColor: getScoreColor(finalSessionStats?.score || 0) + '25' }]}>
-              <Text style={[styles.coachGradeBadgeText, { color: getScoreColor(finalSessionStats?.score || 0) }]}>
+            <View style={[styles.coachGradeBadge, { backgroundColor: getScoreColor(finalScore) + '25' }]}>
+              <Text style={[styles.coachGradeBadgeText, { color: getScoreColor(finalScore) }]}>
                 {finalSessionStats?.grade || 'Grade F'}
               </Text>
             </View>
           </View>
 
-          <Text style={styles.coachFeedbackGreeting}>
-            {(finalSessionStats?.score || 0) >= 85
-              ? '🎉 EXCELLENT EXECUTION!'
-              : (finalSessionStats?.score || 0) >= 70
-              ? '👍 GOOD JOB!'
-              : '🥋 NICE ATTEMPT!'}
-          </Text>
-          <Text style={styles.coachFeedbackSummary}>
-            {(finalSessionStats?.score || 0) >= 85
-              ? 'Your strike trajectory and guard hand were locked in. Great martial discipline!'
-              : (finalSessionStats?.score || 0) >= 70
-              ? 'Your strike direction is solid, but your elbow is opening slightly too much. Try keeping your arm more controlled.'
-              : 'Arnis takes practice! Let’s focus on bending your knees and keeping your check hand high.'}
-          </Text>
-
-          {/* Actionable Form Checklist */}
-          <View style={styles.actionChecklist}>
-            <View style={styles.actionCheckItem}>
+          {/* Star Rating Display */}
+          <View style={{ flexDirection: 'row', gap: 4, marginBottom: 12 }}>
+            {[1, 2, 3, 4, 5].map((st) => (
               <Ionicons
-                name={(finalSessionStats?.stance?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
-                size={16}
-                color={(finalSessionStats?.stance?.score || 0) >= 75 ? "#10B981" : "#F59E0B"}
+                key={st}
+                name={st <= starCount ? "star" : "star-outline"}
+                size={22}
+                color={st <= starCount ? MartialTheme.colors.bamboo : "#D1D5DB"}
               />
-              <Text style={styles.actionCheckLabel}>Stance (Tindig): {finalSessionStats?.stance?.score ?? 0}%</Text>
-            </View>
-            <View style={styles.actionCheckItem}>
-              <Ionicons
-                name={(finalSessionStats?.elbow?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
-                size={16}
-                color={(finalSessionStats?.elbow?.score || 0) >= 75 ? "#10B981" : "#F59E0B"}
-              />
-              <Text style={styles.actionCheckLabel}>Strike Direction: {finalSessionStats?.elbow?.score ?? 0}%</Text>
-            </View>
-            <View style={styles.actionCheckItem}>
-              <Ionicons
-                name={(finalSessionStats?.guard?.score || 0) >= 75 ? "checkmark-circle" : "alert-circle"}
-                size={16}
-                color={(finalSessionStats?.guard?.score || 0) >= 75 ? "#10B981" : "#EF4444"}
-              />
-              <Text style={styles.actionCheckLabel}>Return Guard (Kalasag): {finalSessionStats?.guard?.score ?? 0}%</Text>
-            </View>
+            ))}
           </View>
 
-          {/* "HOW CAN I IMPROVE?" Deep Dive Button */}
-          <TouchableOpacity
-            style={styles.whyBigButton}
-            activeOpacity={0.85}
-            onPress={() => setShowWhyModal(true)}
-          >
-            <Ionicons name="help-circle" size={18} color="#38BDF8" style={{ marginRight: 6 }} />
-            <Text style={styles.whyBigButtonText}>How Can I Improve? (Coach Diagnosis)</Text>
-            <Ionicons name="chevron-forward" size={16} color="#38BDF8" style={{ marginLeft: 4 }} />
-          </TouchableOpacity>
-        </View>
-
-        {/* 4-Pillar Kinetic Breakdown Card */}
-        <View style={styles.breakdownCard}>
-          <Text style={styles.breakdownHeading}>4-Pillar Kinetic Alignment</Text>
-
-          {/* Pillar 1: Striking Arm */}
-          <View style={styles.breakdownItem}>
-            <View style={styles.breakdownTextRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="sword" size={16} color="#3B82F6" style={{ marginRight: 6 }} />
-                <Text style={styles.breakdownLabel}>Striking Arm Trajectory</Text>
-              </View>
-              <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.elbow.score ?? 0) }]}>
-                {finalSessionStats?.elbow.score ?? 0}%
+          {/* Improvement Delta Banner */}
+          {sessionImprovement.previousBest > 0 && (
+            <View style={styles.deltaBanner}>
+              <Text style={styles.deltaBannerText}>
+                Previous: {sessionImprovement.previousBest}% → Current: {finalScore}%
+                {sessionImprovement.delta > 0 && (
+                  <Text style={{ color: MartialTheme.colors.primary, fontWeight: '900' }}>
+                    {' '}(↑ +{sessionImprovement.delta} points!)
+                  </Text>
+                )}
               </Text>
             </View>
-            <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.elbow.score ?? 0}%`, backgroundColor: getScoreColor(finalSessionStats?.elbow.score ?? 0) }]} />
-            </View>
-            <Text style={styles.breakdownActual}>
-              Actual Elbow: {finalSessionStats?.elbow.actual ?? 0}° · Target Range: {currentRule.right_min}° - {currentRule.right_max}°
+          )}
+
+          {/* Coach Advice Speech Bubble */}
+          <View style={styles.resultCoachBubble}>
+            <Text style={styles.resultCoachBubbleLabel}>YOUR COACH SAYS</Text>
+            <Text style={styles.resultCoachBubbleText}>
+              {finalScore >= 85
+                ? 'Your strike trajectory and Kalasag guard were locked in. Solid martial discipline!'
+                : (finalSessionStats?.elbow?.score ?? 0) < 70
+                ? 'Your elbow was opening slightly off the 45° angle. Keep your forearm aligned through the slice.'
+                : (finalSessionStats?.guard?.score ?? 0) < 70
+                ? 'Keep your check hand pinned firmly to your chest throughout the strike.'
+                : 'Great work! Keep practicing to build muscle memory and explosive speed.'}
             </Text>
           </View>
 
-          {/* Pillar 2: Check Hand (Kalasag) */}
-          <View style={styles.breakdownItem}>
-            <View style={styles.breakdownTextRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="shield-check" size={16} color="#10B981" style={{ marginRight: 6 }} />
-                <Text style={styles.breakdownLabel}>Check Hand Defense (Kalasag)</Text>
-              </View>
-              <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.guard?.score ?? 80) }]}>
-                {finalSessionStats?.guard?.score ?? 80}%
-              </Text>
-            </View>
-            <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.guard?.score ?? 80}%`, backgroundColor: getScoreColor(finalSessionStats?.guard?.score ?? 80) }]} />
-            </View>
-            <Text style={styles.breakdownActual}>
-              Target: {currentRule.guard_label || 'Chest / Solar Plexus Guard'}
-            </Text>
-          </View>
+          {/* Primary Action Buttons */}
+          <View style={{ width: '100%', gap: 10, marginTop: 14 }}>
+            <TouchableOpacity
+              style={styles.resultPrimaryBtn}
+              activeOpacity={0.85}
+              onPress={() => handleStartEvaluation(selectedStrikeId)}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+              <Text style={styles.resultPrimaryBtnText}>Try Again</Text>
+            </TouchableOpacity>
 
-          {/* Pillar 3: Stance & Base (Tindig) */}
-          <View style={styles.breakdownItem}>
-            <View style={styles.breakdownTextRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="human-male-height" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
-                <Text style={styles.breakdownLabel}>Stance & Base Stability (Tindig)</Text>
-              </View>
-              <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.stance?.score ?? 80) }]}>
-                {finalSessionStats?.stance?.score ?? 80}%
-              </Text>
-            </View>
-            <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.stance?.score ?? 80}%`, backgroundColor: getScoreColor(finalSessionStats?.stance?.score ?? 80) }]} />
-            </View>
-            <Text style={styles.breakdownActual}>
-              Lead Knee: {finalSessionStats?.stance?.actual ?? finalSessionStats?.knee?.actual ?? 0}° · Ideal Flexion: {currentRule.knee_min || 135}° - {currentRule.knee_max || 165}°
-            </Text>
-          </View>
+            {nextStrikeId && (
+              <TouchableOpacity
+                style={styles.resultSecondaryBtn}
+                activeOpacity={0.85}
+                onPress={() => handleStartEvaluation(nextStrikeId)}
+              >
+                <Text style={styles.resultSecondaryBtnText}>Next: Strike {currentStrikeNum + 1} →</Text>
+              </TouchableOpacity>
+            )}
 
-          {/* Pillar 4: Wrist Snap (Pitik) */}
-          <View style={styles.breakdownItem}>
-            <View style={styles.breakdownTextRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="flash" size={16} color="#8B5CF6" style={{ marginRight: 6 }} />
-                <Text style={styles.breakdownLabel}>Wrist Snap & Alignment (Pitik)</Text>
-              </View>
-              <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.wrist.score ?? 0) }]}>
-                {finalSessionStats?.wrist.score ?? 0}%
-              </Text>
-            </View>
-            <View style={styles.breakdownBarBg}>
-              <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.wrist.score ?? 0}%`, backgroundColor: getScoreColor(finalSessionStats?.wrist.score ?? 0) }]} />
-            </View>
-            <Text style={styles.breakdownActual}>
-              Actual Deviation: {finalSessionStats?.wrist.actual ?? 0}° · Target: ≤ 15° Straight Locked
-            </Text>
+            <TouchableOpacity
+              style={styles.resultOutlineBtn}
+              activeOpacity={0.85}
+              onPress={handleBackToSelection}
+            >
+              <Text style={styles.resultOutlineBtnText}>Back to Practice Menu</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Guro's Master Coaching Tip Card */}
-        {finalSessionStats?.improvementTip && (
-          <View style={styles.tipCard}>
-            <View style={styles.tipCardHeader}>
-              <MaterialCommunityIcons name="karate" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
-              <Text style={styles.tipCardTitle}>Guro&apos;s Kinetic Feedback</Text>
+        {/* Collapsible Biomechanical Breakdown */}
+        <TouchableOpacity
+          style={styles.toggleBreakdownBtn}
+          activeOpacity={0.7}
+          onPress={() => setShowTechnicalDetails(!showTechnicalDetails)}
+        >
+          <Ionicons
+            name={showTechnicalDetails ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={MartialTheme.colors.textMuted}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.toggleBreakdownBtnText}>
+            {showTechnicalDetails ? 'Hide Biomechanical Details' : 'View Detailed Biomechanical Analysis'}
+          </Text>
+        </TouchableOpacity>
+
+        {showTechnicalDetails && (
+          <View>
+            {/* 4-Pillar Kinetic Breakdown Card */}
+            <View style={styles.breakdownCard}>
+              <Text style={styles.breakdownHeading}>4-Pillar Kinetic Alignment</Text>
+
+              {/* Pillar 1: Striking Arm */}
+              <View style={styles.breakdownItem}>
+                <View style={styles.breakdownTextRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="sword" size={16} color="#3B82F6" style={{ marginRight: 6 }} />
+                    <Text style={styles.breakdownLabel}>Striking Arm Trajectory</Text>
+                  </View>
+                  <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.elbow.score ?? 0) }]}>
+                    {finalSessionStats?.elbow.score ?? 0}%
+                  </Text>
+                </View>
+                <View style={styles.breakdownBarBg}>
+                  <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.elbow.score ?? 0}%`, backgroundColor: getScoreColor(finalSessionStats?.elbow.score ?? 0) }]} />
+                </View>
+                <Text style={styles.breakdownActual}>
+                  Actual Elbow: {finalSessionStats?.elbow.actual ?? 0}° · Target Range: {currentRule.right_min}° - {currentRule.right_max}°
+                </Text>
+              </View>
+
+              {/* Pillar 2: Check Hand (Kalasag) */}
+              <View style={styles.breakdownItem}>
+                <View style={styles.breakdownTextRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="shield-check" size={16} color="#10B981" style={{ marginRight: 6 }} />
+                    <Text style={styles.breakdownLabel}>Check Hand Defense (Kalasag)</Text>
+                  </View>
+                  <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.guard?.score ?? 80) }]}>
+                    {finalSessionStats?.guard?.score ?? 80}%
+                  </Text>
+                </View>
+                <View style={styles.breakdownBarBg}>
+                  <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.guard?.score ?? 80}%`, backgroundColor: getScoreColor(finalSessionStats?.guard?.score ?? 80) }]} />
+                </View>
+                <Text style={styles.breakdownActual}>
+                  Target: {currentRule.guard_label || 'Chest / Solar Plexus Guard'}
+                </Text>
+              </View>
+
+              {/* Pillar 3: Stance Base */}
+              <View style={styles.breakdownItem}>
+                <View style={styles.breakdownTextRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="human-male-height" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
+                    <Text style={styles.breakdownLabel}>Stance & Knee Alignment (Tindig)</Text>
+                  </View>
+                  <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.stance?.score ?? 80) }]}>
+                    {finalSessionStats?.stance?.score ?? 80}%
+                  </Text>
+                </View>
+                <View style={styles.breakdownBarBg}>
+                  <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.stance?.score ?? 80}%`, backgroundColor: getScoreColor(finalSessionStats?.stance?.score ?? 80) }]} />
+                </View>
+                <Text style={styles.breakdownActual}>
+                  Ideal Knee Bend: {currentRule.ideal_knee || 150}° (Allowed: {currentRule.knee_min || 135}° - {currentRule.knee_max || 165}°)
+                </Text>
+              </View>
+
+              {/* Pillar 4: Wrist Snap */}
+              <View style={styles.breakdownItem}>
+                <View style={styles.breakdownTextRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="flash" size={16} color="#8B5CF6" style={{ marginRight: 6 }} />
+                    <Text style={styles.breakdownLabel}>Wrist Snap & Lock (Pitik)</Text>
+                  </View>
+                  <Text style={[styles.breakdownValue, { color: getScoreColor(finalSessionStats?.wrist.score ?? 85) }]}>
+                    {finalSessionStats?.wrist.score ?? 85}%
+                  </Text>
+                </View>
+                <View style={styles.breakdownBarBg}>
+                  <View style={[styles.breakdownBarFill, { width: `${finalSessionStats?.wrist.score ?? 85}%`, backgroundColor: getScoreColor(finalSessionStats?.wrist.score ?? 85) }]} />
+                </View>
+                <Text style={styles.breakdownActual}>
+                  Impact Snap: {finalSessionStats?.wrist.actual ?? 0}° · Ideal: {finalSessionStats?.wrist.ideal ?? 160}°
+                </Text>
+              </View>
+
+              {/* Coach Diagnosis Button */}
+              <TouchableOpacity
+                style={styles.whyBigButton}
+                activeOpacity={0.85}
+                onPress={() => setShowWhyModal(true)}
+              >
+                <Ionicons name="help-circle" size={18} color={MartialTheme.colors.bambooDark} style={{ marginRight: 6 }} />
+                <Text style={styles.whyBigButtonText}>Why Did I Get This Score? (Diagnosis)</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.tipCardBody}>{finalSessionStats.improvementTip}</Text>
+
+            {/* Posture Snapshot Card if Captured */}
+            {lastSnapshot && (
+              <View style={styles.resultSnapshotCard}>
+                <Text style={styles.resultSnapshotTitle}>📸 Peak Form Snapshot</Text>
+                <Image
+                  source={{ uri: lastSnapshot }}
+                  style={styles.resultSnapshotImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
           </View>
         )}
-
-        {/* Captured Posture Snapshot */}
-        {lastSnapshot && (
-          <View style={styles.resultSnapshotCard}>
-            <Text style={styles.resultSnapshotTitle}>📸 CAPTURED GREEN POSTURE SNAPSHOT</Text>
-            <Image
-              source={{ uri: lastSnapshot }}
-              style={styles.resultSnapshotImage}
-              resizeMode="cover"
-            />
-          </View>
-        )}
-
-        {/* Action Buttons: Try Again & Done */}
-        <View style={styles.resultActionsRow}>
-          <TouchableOpacity
-            style={styles.tryAgainButton}
-            activeOpacity={0.85}
-            onPress={() => handleStartEvaluation(selectedStrikeId)}
-          >
-            <Ionicons name="refresh" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.tryAgainButtonText}>TRY AGAIN</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.doneButton}
-            activeOpacity={0.8}
-            onPress={handleBackToSelection}
-          >
-            <Text style={styles.doneButtonText}>Done</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
 
-      {/* WHY DID I GET X%? MODAL */}
+      {/* Diagnosis Modal */}
       <WhyFailedModal
         visible={showWhyModal}
         onClose={() => setShowWhyModal(false)}
         overallScore={finalSessionStats?.score || 0}
-        grade={finalSessionStats?.grade || 'Unranked'}
+        grade={finalSessionStats?.grade || 'Grade F'}
         strikeName={currentRule.name}
         strikeId={selectedStrikeId}
         breakdown={{
-          elbowScore: finalSessionStats?.elbow.score,
+          directionScore: finalSessionStats?.elbow.score,
           bodyScore: finalSessionStats?.stance?.score,
           guardScore: finalSessionStats?.guard?.score,
           wristScore: finalSessionStats?.wrist.score,
@@ -2469,6 +2553,224 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  // COACH RESULT HERO
+  coachResultHero: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    marginBottom: 16,
+  },
+  coachResultStrikeName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#64748B',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  coachResultSubtitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1.2,
+  },
+  coachScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  coachBigScore: {
+    fontSize: 48,
+    fontWeight: '900',
+  },
+  coachGradeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  coachGradeBadgeText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  coachFeedbackGreeting: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  coachFeedbackSummary: {
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginBottom: 14,
+  },
+  deltaBanner: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 12,
+    width: '100%',
+  },
+  deltaBannerText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  resultCoachBubble: {
+    width: '100%',
+    backgroundColor: '#FAF8F3',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E0D3',
+    marginBottom: 8,
+  },
+  resultCoachBubbleLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: MartialTheme.colors.primary,
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  resultCoachBubbleText: {
+    fontSize: 13,
+    color: MartialTheme.colors.text,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  resultPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.primaryDark,
+  },
+  resultPrimaryBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  resultSecondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.bamboo,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.bambooDark,
+  },
+  resultSecondaryBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  resultOutlineBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 2,
+    borderBottomColor: MartialTheme.colors.border3D,
+  },
+  resultOutlineBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  toggleBreakdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    marginTop: 14,
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  toggleBreakdownBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+  },
+  actionChecklist: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginBottom: 14,
+  },
+  actionCheckItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionCheckLabel: {
+    fontSize: 12,
+    color: MartialTheme.colors.text,
+    fontWeight: '600',
+  },
+  whyBigButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38BDF820',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#38BDF850',
+  },
+  whyBigButtonText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#0284C7',
+  },
+  resultActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  tryAgainButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: MartialTheme.colors.primary,
+    borderRadius: 14,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tryAgainButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   headerTutorialBtn: {
     flexDirection: 'row',
@@ -4058,106 +4360,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // COACH RESULT HERO
-  coachResultHero: {
-    backgroundColor: '#161930',
-    borderRadius: 18,
-    padding: 18,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#262F52',
-    marginBottom: 16,
-  },
-  coachResultSubtitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 1.2,
-  },
-  coachScoreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 6,
-    marginBottom: 6,
-  },
-  coachBigScore: {
-    fontSize: 48,
-    fontWeight: '900',
-  },
-  coachGradeBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  coachGradeBadgeText: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  coachFeedbackGreeting: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    marginBottom: 6,
-  },
-  coachFeedbackSummary: {
-    fontSize: 12.5,
-    color: '#CBD5E1',
-    textAlign: 'center',
-    lineHeight: 17,
-    marginBottom: 14,
-  },
-  actionChecklist: {
-    width: '100%',
-    backgroundColor: '#101428',
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
-    marginBottom: 14,
-  },
-  actionCheckItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionCheckLabel: {
-    fontSize: 12,
-    color: '#E2E8F0',
-    fontWeight: '600',
-  },
-  whyBigButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#38BDF820',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#38BDF850',
-  },
-  whyBigButtonText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#38BDF8',
-  },
-  resultActionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-  },
-  tryAgainButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#D24B38',
-    borderRadius: 14,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tryAgainButtonText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
 });

@@ -55,7 +55,7 @@ export default function TabLayout() {
         options={{
           title: 'Practice',
           tabBarIcon: ({ color, focused }) => (
-            <MaterialCommunityIcons name={focused ? 'target' : 'target'} size={25} color={color} />
+            <MaterialCommunityIcons name="karate" size={24} color={color} />
           ),
         }}
       />
