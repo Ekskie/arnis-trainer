@@ -7,14 +7,13 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
-  Animated,
   Image,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 const TUTORIAL_STORAGE_KEY = '@arnis_tutorial_seen_v1';
 
 export interface AppTutorialModalProps {

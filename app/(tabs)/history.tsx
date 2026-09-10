@@ -16,6 +16,8 @@ export default function ProgressHistoryScreen() {
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
+  const [selectedRadarStrikeId, setSelectedRadarStrikeId] = useState<string | null>(null);
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
   const [stats, setStats] = useState({
     avgScore: 0,
     bestScore: 0,
@@ -200,86 +202,150 @@ export default function ProgressHistoryScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Statistics Widgets Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats.avgScore}</Text>
-            <Text style={styles.statLabel}>Avg Score</Text>
+        {/* Practitioner Mastery & Stats Summary Card */}
+        <View style={styles.masterySummaryCard}>
+          <View style={styles.masteryHeaderRow}>
+            <View style={styles.rankPill}>
+              <MaterialCommunityIcons name="shield-check" size={14} color="#F59E0B" style={{ marginRight: 5 }} />
+              <Text style={styles.rankPillText} numberOfLines={1}>{masteryStats.rankTitle}</Text>
+            </View>
+            <View style={styles.masteredCountBadge}>
+              <Text style={styles.masteredCountText}>
+                <Text style={{ color: '#10B981', fontWeight: '800' }}>{masteryStats.masteredCount}</Text> / 12 Mastered
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats.bestScore}</Text>
-            <Text style={styles.statLabel}>Best Score</Text>
-          </View>
-
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats.sessionsCount}</Text>
-            <Text style={styles.statLabel}>Sessions</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statMetricItem}>
+              <Text style={styles.statMetricValue}>{stats.avgScore}%</Text>
+              <Text style={styles.statMetricLabel}>AVG SCORE</Text>
+            </View>
+            <View style={styles.statMetricDivider} />
+            <View style={styles.statMetricItem}>
+              <Text style={[styles.statMetricValue, { color: getScoreColor(stats.bestScore) }]}>
+                {stats.bestScore}%
+              </Text>
+              <Text style={styles.statMetricLabel}>BEST SCORE</Text>
+            </View>
+            <View style={styles.statMetricDivider} />
+            <View style={styles.statMetricItem}>
+              <Text style={styles.statMetricValue}>{stats.sessionsCount}</Text>
+              <Text style={styles.statMetricLabel}>SESSIONS</Text>
+            </View>
+            <View style={styles.statMetricDivider} />
+            <View style={styles.statMetricItem}>
+              <Text style={[styles.statMetricValue, { color: '#FF6B57' }]}>
+                {masteryStats.overallMastery}%
+              </Text>
+              <Text style={styles.statMetricLabel}>MASTERY</Text>
+            </View>
           </View>
         </View>
 
         {viewTab === 'radar' ? (
           /* RADAR & 12 STRIKES MATRIX VIEW */
           <View>
-            <StrikeRadarChart masteryStats={masteryStats} />
+            <StrikeRadarChart
+              masteryStats={masteryStats}
+              onSelectStrike={(st) => setSelectedRadarStrikeId(st.id)}
+            />
 
             {/* 12 Strikes Full Breakdown List */}
             <Text style={styles.logHeading}>ALL 12 STRIKES BREAKDOWN</Text>
-            {masteryStats.strikes.map((st) => (
-              <View key={st.id} style={styles.strikeBreakdownCard}>
-                <View style={styles.strikeBreakdownLeft}>
-                  <View
-                    style={[
-                      styles.strikeBreakdownNum,
-                      { backgroundColor: getScoreColor(st.bestScore) + '22' }
-                    ]}
-                  >
-                    <Text
+            {masteryStats.strikes.map((st) => {
+              const isSelected = st.id === selectedRadarStrikeId;
+              return (
+                <View
+                  key={st.id}
+                  style={[
+                    styles.strikeBreakdownCard,
+                    isSelected && styles.strikeBreakdownCardSelected
+                  ]}
+                >
+                  <View style={styles.strikeBreakdownLeft}>
+                    <View
                       style={[
-                        styles.strikeBreakdownNumText,
-                        { color: getScoreColor(st.bestScore) }
+                        styles.strikeBreakdownNum,
+                        { backgroundColor: getScoreColor(st.bestScore) + '22' }
                       ]}
                     >
-                      {st.strikeNumber}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.strikeBreakdownNumText,
+                          { color: getScoreColor(st.bestScore) }
+                        ]}
+                      >
+                        {st.strikeNumber}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.strikeBreakdownName}>{st.name}</Text>
+                      <Text style={styles.strikeBreakdownTarget}>{st.target}</Text>
+                    </View>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.strikeBreakdownName}>{st.name}</Text>
-                    <Text style={styles.strikeBreakdownTarget}>{st.target}</Text>
-                  </View>
-                </View>
 
-                <View style={styles.strikeBreakdownRight}>
-                  <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
-                    <Text
-                      style={[
-                        styles.strikeBreakdownScore,
-                        { color: getScoreColor(st.bestScore) }
-                      ]}
+                  <View style={styles.strikeBreakdownRight}>
+                    <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
+                      <Text
+                        style={[
+                          styles.strikeBreakdownScore,
+                          { color: getScoreColor(st.bestScore) }
+                        ]}
+                      >
+                        {st.bestScore > 0 ? `${st.bestScore}%` : 'Unranked'}
+                      </Text>
+                      <Text style={styles.strikeBreakdownReps}>
+                        {st.attempts > 0 ? `${st.attempts} session${st.attempts > 1 ? 's' : ''}` : 'No attempts'}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.strikeTrainBtn}
+                      onPress={() => router.push({ pathname: '/evaluate', params: { strikeId: st.id } })}
+                      activeOpacity={0.7}
                     >
-                      {st.bestScore > 0 ? `${st.bestScore}%` : 'Unranked'}
-                    </Text>
-                    <Text style={styles.strikeBreakdownReps}>
-                      {st.attempts > 0 ? `${st.attempts} session${st.attempts > 1 ? 's' : ''}` : 'No attempts'}
-                    </Text>
+                      <Ionicons name="play" size={12} color="#FFFFFF" />
+                    </TouchableOpacity>
                   </View>
-
-                  <TouchableOpacity
-                    style={styles.strikeTrainBtn}
-                    onPress={() => router.push({ pathname: '/evaluate', params: { strikeId: st.id } })}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="play" size={12} color="#FFFFFF" />
-                  </TouchableOpacity>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : (
           /* TIMELINE & REPLAY LOG VIEW */
           <View>
             {/* Dynamic Trend Chart */}
             {historyList.length > 0 && renderTrendChart()}
+
+            {/* Filter Chips Row */}
+            <View style={styles.filterChipsRow}>
+              {[
+                { id: 'all', label: `All (${historyList.length})` },
+                { id: 'single', label: `Strikes (${historyList.filter(h => !h.routineId).length})` },
+                { id: 'anyo', label: `Anyo (${historyList.filter(h => !!h.routineId).length})` },
+                { id: 'mastered', label: `Mastered (${historyList.filter(h => h.score >= 85).length})` },
+              ].map((filter) => (
+                <TouchableOpacity
+                  key={filter.id}
+                  style={[
+                    styles.filterChip,
+                    timelineFilter === filter.id && styles.filterChipActive
+                  ]}
+                  onPress={() => setTimelineFilter(filter.id as any)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      timelineFilter === filter.id && styles.filterChipTextActive
+                    ]}
+                  >
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             {/* Session Log List */}
             <View style={styles.logHeaderRow}>
@@ -291,8 +357,29 @@ export default function ProgressHistoryScreen() {
               )}
             </View>
 
-            {historyList.length > 0 ? (
-              historyList.map((item) => (
+            {(() => {
+              const filteredList = historyList.filter((item) => {
+                if (timelineFilter === 'single') return !item.routineId;
+                if (timelineFilter === 'anyo') return !!item.routineId;
+                if (timelineFilter === 'mastered') return item.score >= 85;
+                return true;
+              });
+
+              if (filteredList.length === 0) {
+                return (
+                  <View style={styles.emptyCard}>
+                    <Ionicons name="receipt-outline" size={48} color="#475569" style={styles.emptyIcon} />
+                    <Text style={styles.emptyText}>
+                      {historyList.length === 0 ? 'No session history recorded.' : 'No sessions match this filter.'}
+                    </Text>
+                    <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/evaluate')}>
+                      <Text style={styles.emptyBtnText}>Start Practice</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+
+              return filteredList.map((item) => (
                 <TouchableOpacity
                   key={item.id}
                   style={styles.logCard}
@@ -328,16 +415,8 @@ export default function ProgressHistoryScreen() {
                     {item.grade.replace('Grade ', '')}
                   </Text>
                 </TouchableOpacity>
-              ))
-            ) : (
-              <View style={styles.emptyCard}>
-                <Ionicons name="receipt-outline" size={48} color="#475569" style={styles.emptyIcon} />
-                <Text style={styles.emptyText}>No session history recorded.</Text>
-                <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/evaluate')}>
-                  <Text style={styles.emptyBtnText}>Start Practice</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              ));
+            })()}
           </View>
         )}
       </ScrollView>
@@ -661,30 +740,111 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  statBox: {
-    flex: 1,
+  masterySummaryCard: {
     backgroundColor: '#161930',
-    borderRadius: 16,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: '#1E293B',
-    paddingVertical: 20,
+  },
+  masteryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  rankPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E243D',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B40',
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  rankPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F59E0B',
+    letterSpacing: 0.3,
+  },
+  masteredCountBadge: {
+    backgroundColor: '#10B98115',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#10B98130',
+  },
+  masteredCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#E2E8F0',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#101222',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#1C213E',
+  },
+  statMetricItem: {
+    flex: 1,
     alignItems: 'center',
   },
-  statValue: {
-    fontSize: 24,
+  statMetricValue: {
+    fontSize: 16,
     fontWeight: '800',
-    color: '#F59E0B',
+    color: '#FFFFFF',
+    marginBottom: 2,
   },
-  statLabel: {
-    fontSize: 11,
+  statMetricLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
     color: '#64748B',
-    fontWeight: '600',
-    marginTop: 4,
+    letterSpacing: 0.8,
+  },
+  statMetricDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#1E293B',
+  },
+  filterChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#161930',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  filterChipActive: {
+    backgroundColor: '#D24B3825',
+    borderColor: '#D24B38',
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  strikeBreakdownCardSelected: {
+    borderColor: '#F59E0B',
+    backgroundColor: '#1B1E38',
   },
   chartContainer: {
     backgroundColor: '#161930',

@@ -8,13 +8,14 @@ import {
 } from '@/constants/historyStore';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
+import { StrikeVideoModal } from '@/components/StrikeVideoModal';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -88,10 +89,12 @@ interface PersonData {
   isGuardLow?: boolean;
   isStanceHigh?: boolean;
   diagnosticFlags?: string[];
-  motionPhase?: 'chambering' | 'swinging' | 'apex_hit' | 'idle';
+  motionPhase?: 'chambering' | 'driving' | 'swinging' | 'apex_hit' | 'recovering' | 'idle';
   swingVelocity?: number;
   extDelta?: number;
   isApex?: boolean;
+  isStaticHold?: boolean;
+  kineticScore?: number;
   trajectory?: {
     arcAngle: number | null;
     arcLength: number;
@@ -110,16 +113,29 @@ export default function EvaluateScreen() {
   const [screenState, setScreenState] = useState<'selection' | 'live' | 'result'>('selection');
   const [practiceType, setPracticeType] = useState<'single' | 'anyo'>('single');
   const [selectedStrikeId, setSelectedStrikeId] = useState<string>('strike_1');
-  const [evaluationMode, setEvaluationMode] = useState<'coach' | 'practice' | 'evaluate'>('coach');
+  const [evaluationMode, setEvaluationMode] = useState<'coach' | 'practice' | 'freeflow' | 'evaluate'>('coach');
   const [stickColor, setStickColor] = useState<string>('rattan');
   const [motionRibbonEnabled, setMotionRibbonEnabled] = useState<boolean>(true);
   const [ribbonTheme, setRibbonTheme] = useState<'fire' | 'neon' | 'cyan'>('fire');
   const [ghostGuideEnabled, setGhostGuideEnabled] = useState<boolean>(true);
   const [trajectoryGuideEnabled, setTrajectoryGuideEnabled] = useState<boolean>(true);
 
+  // Video Demonstration Guide Modal States
+  const [videoModalVisible, setVideoModalVisible] = useState(false);
+  const [videoModalStrikeId, setVideoModalStrikeId] = useState('strike_1');
+
+  // Auto-Detected Strike HUD Banner States
+  const [lastDetectedStrike, setLastDetectedStrike] = useState<{ id: string; name: string; confidence: number } | null>(null);
+  const detectedBannerOpacity = useRef(new Animated.Value(0)).current;
+
+  const openVideoGuide = (strikeId?: string) => {
+    setVideoModalStrikeId(strikeId || selectedStrikeId);
+    setVideoModalVisible(true);
+  };
+
   // Form Coach (3-Step Guided Mode) States
   const [coachPhase, setCoachPhase] = useState<'chamber' | 'impact' | 'recovery' | 'completed'>('chamber');
-  const [coachScores, setCoachScores] = useState<{ chamber: number; impact: number; recovery: number }>({ chamber: 0, impact: 0, recovery: 0 });
+  const [, setCoachScores] = useState<{ chamber: number; impact: number; recovery: number }>({ chamber: 0, impact: 0, recovery: 0 });
   const [coachRepsCompleted, setCoachRepsCompleted] = useState<number>(0);
 
   // Anyo Routine States
@@ -195,7 +211,7 @@ export default function EvaluateScreen() {
   const [rtGuardScore, setRtGuardScore] = useState(0);
   const [rtStanceScore, setRtStanceScore] = useState(0);
   const [rtWristScore, setRtWristScore] = useState(0);
-  const [rtShoulderScore, setRtShoulderScore] = useState(0);
+  const [, setRtShoulderScore] = useState(0);
 
   // Result Summary cache
   const [finalSessionStats, setFinalSessionStats] = useState<{
@@ -281,6 +297,9 @@ export default function EvaluateScreen() {
         }
         if (window.setFormCoachMode) {
           window.setFormCoachMode(${evaluationMode === 'coach'});
+        }
+        if (window.setAutoDetectMode) {
+          window.setAutoDetectMode(${evaluationMode === 'freeflow'});
         }
         true;
       `;
@@ -489,6 +508,25 @@ export default function EvaluateScreen() {
             }
           }, 2500);
         }
+      } else if (data.type === 'AUTO_DETECTED_STRIKE') {
+        const detectedId = data.strikeId;
+        const detectedName = data.strikeName || detectedId;
+        const confidence = data.confidence || 85;
+
+        setLastDetectedStrike({ id: detectedId, name: detectedName, confidence });
+        setSelectedStrikeId(detectedId);
+
+        // Smooth fade-in & fade-out for the auto-detected HUD badge
+        detectedBannerOpacity.setValue(1);
+        Animated.sequence([
+          Animated.delay(2800),
+          Animated.timing(detectedBannerOpacity, { toValue: 0, duration: 400, useNativeDriver: true })
+        ]).start();
+
+        if (voiceFeedbackEnabled) {
+          Speech.speak(`${detectedName.split(':')[0]} detected`);
+        }
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } else if (data.type === 'POSE_DATA') {
         const rawPersons = data.persons || [];
 
@@ -517,7 +555,9 @@ export default function EvaluateScreen() {
           // Priority-based voice coaching
           let personWarning: string | null = null;
           const isHoldingStick = !!p.isHoldingLeft || !!p.isHoldingRight;
-          if (!isHoldingStick) {
+          if (p.isStaticHold) {
+            personWarning = "don't freeze in place, execute the full strike motion";
+          } else if (!isHoldingStick) {
             personWarning = "please hold your Arnis stick";
           } else if (p.isGuardLow || guardScore < 60) {
             personWarning = "raise your check hand to guard your chest";
@@ -527,7 +567,7 @@ export default function EvaluateScreen() {
             if (rightAngle > 0 && Math.abs(rightAngle - currentRule.chamber_elb) > 28) {
               personWarning = "chamber your stick for the strike";
             }
-          } else if (p.motionPhase === 'swinging') {
+          } else if (p.motionPhase === 'driving' || p.motionPhase === 'swinging') {
             if (!p.isRightGood && rightAngle > 0) {
               personWarning = rightAngle < currentRule.right_min ? "extend your striking arm fully" : "control your strike angle";
             }
@@ -573,6 +613,8 @@ export default function EvaluateScreen() {
             swingVelocity: p.swingVelocity || 0,
             extDelta: p.extDelta || 0,
             isApex: !!p.isApex,
+            isStaticHold: !!p.isStaticHold,
+            kineticScore: p.kineticScore !== undefined ? p.kineticScore : 80,
             trajectory: p.trajectory
           };
         });
@@ -962,7 +1004,7 @@ export default function EvaluateScreen() {
 
           {practiceType === 'single' ? (
             <>
-              {/* Mode Selector Segmented Control (3 Options) */}
+              {/* Mode Selector Segmented Control (4 Options) */}
               <View style={styles.modeSelectorContainer}>
                 <TouchableOpacity
                   style={[
@@ -983,7 +1025,7 @@ export default function EvaluateScreen() {
                       evaluationMode === 'coach' && styles.modeOptionTextActive
                     ]}
                   >
-                    Form Coach
+                    Coach
                   </Text>
                 </TouchableOpacity>
 
@@ -1007,6 +1049,29 @@ export default function EvaluateScreen() {
                     ]}
                   >
                     Practice
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modeOption,
+                    evaluationMode === 'freeflow' && styles.modeOptionActive
+                  ]}
+                  onPress={() => setEvaluationMode('freeflow')}
+                >
+                  <MaterialCommunityIcons
+                    name="auto-fix"
+                    size={14}
+                    color={evaluationMode === 'freeflow' ? '#FFFFFF' : '#64748B'}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    style={[
+                      styles.modeOptionText,
+                      evaluationMode === 'freeflow' && styles.modeOptionTextActive
+                    ]}
+                  >
+                    Auto-ID
                   </Text>
                 </TouchableOpacity>
 
@@ -1039,9 +1104,24 @@ export default function EvaluateScreen() {
                   ? "⭐ Guided 3-Step Calibration: 1. Chamber (Kasa) ➔ 2. Strike (Tudla) ➔ 3. Recovery (Bawi)."
                   : evaluationMode === 'practice'
                     ? "Continuous real-time posture feedback with 4-pillar kinetic chain meters."
-                    : "Step into camera frame to trigger a 3s countdown test. Auto-saves results."
+                    : evaluationMode === 'freeflow'
+                      ? "✨ AI Auto-Detection: Execute any strike form (1-12) freely. The AI identifies and grades it in real time!"
+                      : "Step into camera frame to trigger a 3s countdown test. Auto-saves results."
                 }
               </Text>
+
+              {/* Video Demonstration Guide Button */}
+              <TouchableOpacity
+                style={styles.videoGuideHeaderBtn}
+                activeOpacity={0.8}
+                onPress={() => openVideoGuide(selectedStrikeId)}
+              >
+                <MaterialCommunityIcons name="play-circle" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                <Text style={styles.videoGuideHeaderBtnText}>
+                  Watch Video Guide (All 12 Strikes Demo & Slow-Mo)
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#F59E0B" />
+              </TouchableOpacity>
             </>
           ) : (
             <View style={styles.anyoIntroBanner}>
@@ -1052,65 +1132,81 @@ export default function EvaluateScreen() {
             </View>
           )}
 
-          {/* Stick Color Selector */}
-          <Text style={styles.sectionHeading}>STICK SETTINGS</Text>
-          <View style={styles.stickColorContainer}>
-            {['rattan', 'red', 'blue', 'green', 'any'].map((color) => (
-              <TouchableOpacity
-                key={color}
-                style={[
-                  styles.stickColorOption,
-                  stickColor === color && styles.stickColorOptionActive
-                ]}
-                onPress={() => setStickColor(color)}
+          {/* Streamlined Quick Settings Strip */}
+          <View style={styles.quickSettingsStrip}>
+            {/* Stick Color Horizontal Scroll */}
+            <View style={styles.quickStickWrapper}>
+              <Text style={styles.quickStickLabel}>STICK</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.quickStickScroll}
               >
+                {[
+                  { id: 'rattan', label: '🪵 Rattan' },
+                  { id: 'red', label: '🔴 Red' },
+                  { id: 'blue', label: '🔵 Blue' },
+                  { id: 'green', label: '🟢 Green' },
+                  { id: 'any', label: '⚪ Any' },
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.quickStickChip,
+                      stickColor === item.id && styles.quickStickChipActive,
+                    ]}
+                    onPress={() => setStickColor(item.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.quickStickChipText,
+                        stickColor === item.id && styles.quickStickChipTextActive,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Quick Action Pills: Voice & Formula */}
+            <View style={styles.quickActionPills}>
+              <TouchableOpacity
+                style={[
+                  styles.quickActionBtn,
+                  voiceFeedbackEnabled && styles.quickActionBtnActive,
+                ]}
+                onPress={() => setVoiceFeedbackEnabled(!voiceFeedbackEnabled)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={voiceFeedbackEnabled ? "volume-high" : "volume-mute"}
+                  size={14}
+                  color={voiceFeedbackEnabled ? "#10B981" : "#64748B"}
+                  style={{ marginRight: 4 }}
+                />
                 <Text
                   style={[
-                    styles.stickColorOptionText,
-                    stickColor === color && styles.stickColorOptionTextActive
+                    styles.quickActionBtnText,
+                    voiceFeedbackEnabled && { color: '#10B981' },
                   ]}
                 >
-                  {color === 'rattan' ? 'Rattan (Wood)' : color.charAt(0).toUpperCase() + color.slice(1)}
+                  {voiceFeedbackEnabled ? "Voice ON" : "Muted"}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
 
-          {/* Voice Settings */}
-          <Text style={styles.sectionHeading}>VOICE ANNOUNCEMENTS</Text>
-          <TouchableOpacity
-            style={[
-              styles.voiceToggleButton,
-              voiceFeedbackEnabled && styles.voiceToggleButtonActive
-            ]}
-            onPress={() => setVoiceFeedbackEnabled(!voiceFeedbackEnabled)}
-          >
-            <Ionicons
-              name={voiceFeedbackEnabled ? "volume-high" : "volume-mute"}
-              size={18}
-              color="#FFFFFF"
-              style={{ marginRight: 8 }}
-            />
-            <Text style={styles.voiceToggleButtonText}>
-              {voiceFeedbackEnabled ? "Voice Corrections: ON" : "Voice Corrections: MUTED"}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Grading System & Rating Legend Banner */}
-          <TouchableOpacity
-            style={styles.legendBanner}
-            onPress={() => setShowLegendModal(true)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.legendBannerLeft}>
-              <Ionicons name="ribbon-outline" size={24} color="#F59E0B" style={{ marginRight: 12 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.legendBannerTitle}>Grading System & Legend</Text>
-                <Text style={styles.legendBannerSub}>Score calculation weights & rating criteria</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.quickActionBtn}
+                onPress={() => setShowLegendModal(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="ribbon-outline" size={14} color="#F59E0B" style={{ marginRight: 4 }} />
+                <Text style={[styles.quickActionBtnText, { color: '#F59E0B' }]}>Formula</Text>
+              </TouchableOpacity>
             </View>
-            <Ionicons name="information-circle" size={22} color="#F59E0B" />
-          </TouchableOpacity>
+          </View>
 
           {practiceType === 'single' ? (
             <>
@@ -1311,6 +1407,17 @@ export default function EvaluateScreen() {
             handleStartEvaluation(strikeId || 'strike_1');
           }}
         />
+
+        {/* 12-Strike Video Demonstration Guide Modal */}
+        <StrikeVideoModal
+          visible={videoModalVisible}
+          initialStrikeId={videoModalStrikeId}
+          onClose={() => setVideoModalVisible(false)}
+          onPracticeStrike={(strikeId: string) => {
+            setVideoModalVisible(false);
+            handleStartEvaluation(strikeId);
+          }}
+        />
       </SafeAreaView>
     );
   }
@@ -1336,89 +1443,93 @@ export default function EvaluateScreen() {
         </View>
 
         <View style={styles.liveSubHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, marginRight: 8 }}>
             <View
               style={[
                 styles.liveIndicatorContainer,
-                activeRoutine ? { backgroundColor: '#8B5CF620' } : evaluationMode === 'coach' ? { backgroundColor: '#38BDF820' } : evaluationMode === 'practice' ? { backgroundColor: '#3B82F620' } : undefined
+                activeRoutine ? { backgroundColor: '#8B5CF620' } : evaluationMode === 'coach' ? { backgroundColor: '#38BDF820' } : evaluationMode === 'freeflow' ? { backgroundColor: '#10B98120' } : evaluationMode === 'practice' ? { backgroundColor: '#3B82F620' } : undefined
               ]}
             >
               <View
                 style={[
                   styles.liveDot,
-                  activeRoutine ? { backgroundColor: '#8B5CF6' } : evaluationMode === 'coach' ? { backgroundColor: '#38BDF8' } : evaluationMode === 'practice' ? { backgroundColor: '#3B82F6' } : undefined
+                  activeRoutine ? { backgroundColor: '#8B5CF6' } : evaluationMode === 'coach' ? { backgroundColor: '#38BDF8' } : evaluationMode === 'freeflow' ? { backgroundColor: '#10B981' } : evaluationMode === 'practice' ? { backgroundColor: '#3B82F6' } : undefined
                 ]}
               />
               <Text
                 style={[
                   styles.liveText,
-                  activeRoutine ? { color: '#8B5CF6' } : evaluationMode === 'coach' ? { color: '#38BDF8' } : evaluationMode === 'practice' ? { color: '#3B82F6' } : undefined
+                  activeRoutine ? { color: '#8B5CF6' } : evaluationMode === 'coach' ? { color: '#38BDF8' } : evaluationMode === 'freeflow' ? { color: '#10B981' } : evaluationMode === 'practice' ? { color: '#3B82F6' } : undefined
                 ]}
               >
-                {activeRoutine ? 'ANYO FLOW' : evaluationMode === 'coach' ? 'FORM COACH' : evaluationMode === 'practice' ? 'PRACTICE' : 'LIVE'}
+                {activeRoutine ? 'ANYO FLOW' : evaluationMode === 'coach' ? 'FORM COACH' : evaluationMode === 'freeflow' ? '⚡ AUTO-ID' : evaluationMode === 'practice' ? 'PRACTICE' : 'LIVE'}
               </Text>
             </View>
-            <Text style={styles.liveStrikeTitle} numberOfLines={1}>
-              {activeRoutine ? activeRoutine.name : currentRule.name} - <Text style={styles.liveStrikeDesc}>{activeRoutine ? `Step ${routineStepIndex + 1}/${activeRoutine.strikes.length} (${currentRule.name})` : currentRule.desc}</Text>
+            <Text style={styles.liveStrikeTitle} numberOfLines={1} ellipsizeMode="tail">
+              {evaluationMode === 'freeflow'
+                ? (lastDetectedStrike ? lastDetectedStrike.name : "Freeflow (Strike Any Form)")
+                : (activeRoutine ? activeRoutine.name : currentRule.name)
+              } - <Text style={styles.liveStrikeDesc}>{evaluationMode === 'freeflow' ? "MediaPipe Auto-ID" : activeRoutine ? `Step ${routineStepIndex + 1}/${activeRoutine.strikes.length} (${currentRule.name})` : currentRule.desc}</Text>
             </Text>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {/* Trajectory Guide Path Toggle Button */}
+          {/* Compact HUD Controls Row */}
+          <View style={styles.liveControlsRow}>
+            {/* Video Demonstration Modal Button */}
             <TouchableOpacity
               style={[
-                styles.liveGhostToggle,
-                trajectoryGuideEnabled && { borderColor: '#FF9500', backgroundColor: '#FF950020' }
+                styles.hudIconBtn,
+                { borderColor: '#F59E0B', backgroundColor: '#F59E0B20' }
+              ]}
+              onPress={() => openVideoGuide(selectedStrikeId)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name="play-circle"
+                size={16}
+                color="#F59E0B"
+              />
+            </TouchableOpacity>
+
+            {/* Trajectory Guide Path Toggle */}
+            <TouchableOpacity
+              style={[
+                styles.hudIconBtn,
+                trajectoryGuideEnabled && { borderColor: '#FF9500', backgroundColor: '#FF950025' }
               ]}
               onPress={() => setTrajectoryGuideEnabled(!trajectoryGuideEnabled)}
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons
                 name="vector-line"
-                size={15}
+                size={16}
                 color={trajectoryGuideEnabled ? '#FF9500' : '#64748B'}
               />
-              <Text
-                style={[
-                  styles.liveGhostText,
-                  { color: trajectoryGuideEnabled ? '#FF9500' : '#64748B' }
-                ]}
-              >
-                {trajectoryGuideEnabled ? 'PATH' : 'OFF'}
-              </Text>
             </TouchableOpacity>
 
-            {/* Ghost Guide Toggle Button */}
+            {/* Ghost Guide Toggle */}
             <TouchableOpacity
               style={[
-                styles.liveGhostToggle,
-                ghostGuideEnabled && styles.liveGhostToggleActive
+                styles.hudIconBtn,
+                ghostGuideEnabled && { borderColor: '#00F2FE', backgroundColor: '#00F2FE25' }
               ]}
               onPress={() => setGhostGuideEnabled(!ghostGuideEnabled)}
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons
                 name="ghost-outline"
-                size={15}
+                size={16}
                 color={ghostGuideEnabled ? '#00F2FE' : '#64748B'}
               />
-              <Text
-                style={[
-                  styles.liveGhostText,
-                  { color: ghostGuideEnabled ? '#00F2FE' : '#64748B' }
-                ]}
-              >
-                {ghostGuideEnabled ? 'GHOST' : 'OFF'}
-              </Text>
             </TouchableOpacity>
 
-            {/* Motion Ribbon Toggle & Theme Cycle Button */}
+            {/* Motion Ribbon Cycle */}
             <TouchableOpacity
               style={[
-                styles.liveRibbonToggle,
+                styles.hudIconBtn,
                 motionRibbonEnabled && {
                   borderColor: ribbonTheme === 'fire' ? '#FF3B30' : ribbonTheme === 'neon' ? '#EC4899' : '#00F2FE',
-                  backgroundColor: ribbonTheme === 'fire' ? '#FF3B3020' : ribbonTheme === 'neon' ? '#EC489920' : '#00F2FE20',
+                  backgroundColor: ribbonTheme === 'fire' ? '#FF3B3025' : ribbonTheme === 'neon' ? '#EC489925' : '#00F2FE25',
                 }
               ]}
               onPress={() => {
@@ -1437,24 +1548,16 @@ export default function EvaluateScreen() {
             >
               <MaterialCommunityIcons
                 name="flare"
-                size={15}
+                size={16}
                 color={motionRibbonEnabled ? (ribbonTheme === 'fire' ? '#FF3B30' : ribbonTheme === 'neon' ? '#EC4899' : '#00F2FE') : '#64748B'}
               />
-              <Text
-                style={[
-                  styles.liveRibbonText,
-                  { color: motionRibbonEnabled ? '#FFFFFF' : '#64748B' }
-                ]}
-              >
-                {motionRibbonEnabled ? ribbonTheme.toUpperCase() : 'OFF'}
-              </Text>
             </TouchableOpacity>
 
             {/* Voice Coaching Toggle */}
             <TouchableOpacity
               style={[
-                styles.liveVoiceToggle,
-                voiceFeedbackEnabled && styles.liveVoiceToggleActive
+                styles.hudIconBtn,
+                voiceFeedbackEnabled && { borderColor: '#10B981', backgroundColor: '#10B98125' }
               ]}
               onPress={() => setVoiceFeedbackEnabled(!voiceFeedbackEnabled)}
               activeOpacity={0.7}
@@ -1501,14 +1604,78 @@ export default function EvaluateScreen() {
             </View>
           )}
 
+          {/* Toast Notification for Posture Snapshot */}
           {snapshotBannerVisible && (
             <View style={styles.snapshotOverlayPill}>
-              <Ionicons name="camera" size={14} color="#10B981" style={{ marginRight: 6 }} />
-              <Text style={styles.snapshotOverlayText}>📸 Posture Snapshot Captured!</Text>
+              <Ionicons name="camera" size={13} color="#10B981" style={{ marginRight: 5 }} />
+              <Text style={styles.snapshotOverlayText}>📸 Snapshot Saved</Text>
             </View>
           )}
 
-          {/* Anyo Sequence HUD Overlay */}
+          {/* Real-time AI Auto-Detected Strike HUD Banner */}
+          {lastDetectedStrike && (
+            <Animated.View style={[styles.autoDetectedPill, { opacity: detectedBannerOpacity }]}>
+              <View style={styles.autoDetectedIconWrap}>
+                <MaterialCommunityIcons name="lightning-bolt" size={16} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1, marginRight: 6 }}>
+                <Text style={styles.autoDetectedLabel}>AI IDENTIFIED STRIKE</Text>
+                <Text style={styles.autoDetectedName} numberOfLines={1}>
+                  {lastDetectedStrike.name} ({lastDetectedStrike.confidence}%)
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.autoDetectedVideoBtn}
+                onPress={() => openVideoGuide(lastDetectedStrike.id)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="play-circle" size={18} color="#F59E0B" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          {/* Minimalist Motion State Badge (Top-Left, non-intrusive) */}
+          {webReady && !errorMsg && persons.length > 0 && (
+            <View style={styles.motionBadgeOverlay}>
+              {(() => {
+                const activeP = persons.find(p => p.id === primaryPersonId) || persons[0];
+                const phase = activeP?.motionPhase || 'idle';
+                const speed = activeP?.swingVelocity || 0;
+
+                let badgeColor = '#64748B';
+                let badgeText = 'READY';
+                let iconName: any = 'shield-outline';
+
+                if (phase === 'chambering') {
+                  badgeColor = '#F59E0B';
+                  badgeText = 'CHAMBER';
+                  iconName = 'hand-left-outline';
+                } else if (phase === 'swinging') {
+                  badgeColor = '#3B82F6';
+                  badgeText = `SWING ${speed.toFixed(1)} m/s`;
+                  iconName = 'flash-outline';
+                } else if (phase === 'apex_hit' || activeP?.isApex) {
+                  badgeColor = '#10B981';
+                  badgeText = 'IMPACT APEX!';
+                  iconName = 'checkmark-circle-outline';
+                }
+
+                return (
+                  <View style={[styles.motionBadgePill, { backgroundColor: badgeColor + '20', borderColor: badgeColor }]}>
+                    <Ionicons name={iconName} size={13} color={badgeColor} style={{ marginRight: 4 }} />
+                    <Text style={[styles.motionBadgeText, { color: badgeColor }]}>{badgeText}</Text>
+                    {activeP?.trajectory && activeP.trajectory.arcAngle !== null && (
+                      <Text style={[styles.motionBadgeSubText, { color: badgeColor }]}>
+                        {' · '}{activeP.trajectory.arcAngle}°
+                      </Text>
+                    )}
+                  </View>
+                );
+              })()}
+            </View>
+          )}
+
+          {/* Anyo Sequence HUD Overlay (Bottom-aligned) */}
           {webReady && !errorMsg && activeRoutine && (
             <View style={styles.anyoLiveOverlay}>
               <View style={styles.anyoTimerRow}>
@@ -1564,12 +1731,12 @@ export default function EvaluateScreen() {
             </View>
           )}
 
-          {/* Form Coach Interactive Step HUD Overlay */}
+          {/* Form Coach Interactive Step HUD Overlay (Bottom-aligned, leaves upper body clear) */}
           {webReady && !errorMsg && !activeRoutine && evaluationMode === 'coach' && (
             <View style={styles.coachLiveOverlay}>
               <View style={styles.coachHeaderRow}>
                 <View style={styles.coachRepsPill}>
-                  <MaterialCommunityIcons name="repeat" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
+                  <MaterialCommunityIcons name="repeat" size={12} color="#38BDF8" style={{ marginRight: 3 }} />
                   <Text style={styles.coachRepsText}>Reps: {coachRepsCompleted}</Text>
                 </View>
                 <View style={styles.coachTitlePill}>
@@ -1612,52 +1779,6 @@ export default function EvaluateScreen() {
                   );
                 })}
               </View>
-            </View>
-          )}
-
-          {webReady && !errorMsg && persons.length > 0 && (
-            <View style={styles.motionBadgeOverlay}>
-              {(() => {
-                const activeP = persons.find(p => p.id === primaryPersonId) || persons[0];
-                const phase = activeP?.motionPhase || 'idle';
-                const speed = activeP?.swingVelocity || 0;
-
-                let badgeColor = '#64748B';
-                let badgeText = 'READY STANCE';
-                let iconName: any = 'shield-outline';
-
-                if (phase === 'chambering') {
-                  badgeColor = '#F59E0B';
-                  badgeText = 'CHAMBERING';
-                  iconName = 'hand-left-outline';
-                } else if (phase === 'swinging') {
-                  badgeColor = '#3B82F6';
-                  badgeText = `SWINGING (${speed.toFixed(1)} m/s)`;
-                  iconName = 'flash-outline';
-                } else if (phase === 'apex_hit' || activeP?.isApex) {
-                  badgeColor = '#10B981';
-                  badgeText = 'IMPACT APEX HIT!';
-                  iconName = 'checkmark-circle-outline';
-                }
-
-                return (
-                  <View style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-                    <View style={[styles.motionBadgePill, { backgroundColor: badgeColor + '30', borderColor: badgeColor }]}>
-                      <Ionicons name={iconName} size={14} color={badgeColor} style={{ marginRight: 6 }} />
-                      <Text style={[styles.motionBadgeText, { color: badgeColor }]}>{badgeText}</Text>
-                    </View>
-
-                    {activeP?.trajectory && activeP.trajectory.arcAngle !== null && (
-                      <View style={styles.trajectoryBadgePill}>
-                        <MaterialCommunityIcons name="gesture-swipe" size={13} color="#FF9500" style={{ marginRight: 5 }} />
-                        <Text style={styles.trajectoryBadgeText}>
-                          Arc: {activeP.trajectory.arcAngle}° · Speed: {activeP.trajectory.peakVelocity || activeP.swingVelocity || 0} m/s
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                );
-              })()}
             </View>
           )}
 
@@ -1708,116 +1829,93 @@ export default function EvaluateScreen() {
         </View>
 
         {/* Scrollable controls and analysis below camera */}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
-          {/* Stick Color Selector on Live screen */}
-          <View style={styles.liveStickColorBar}>
-            <Text style={styles.liveStickColorLabel}>Stick Color:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.liveStickColorScroll}>
-              {['rattan', 'red', 'blue', 'green', 'any'].map((color) => (
-                <TouchableOpacity
-                  key={color}
-                  style={[
-                    styles.liveStickColorOption,
-                    stickColor === color && styles.liveStickColorOptionActive
-                  ]}
-                  onPress={() => setStickColor(color)}
-                >
-                  <Text
-                    style={[
-                      styles.liveStickColorOptionText,
-                      stickColor === color && styles.liveStickColorOptionTextActive
-                    ]}
-                  >
-                    {color === 'rattan' ? 'Rattan' : color.charAt(0).toUpperCase() + color.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+          {/* Consolidated 4-Pillar Kinetic Alignment Card */}
+          <View style={styles.unifiedAnalysisCard}>
+            <View style={styles.analysisHeaderRow}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={styles.unifiedAnalysisHeading}>4-PILLAR KINETIC POSTURE</Text>
+                <Text style={styles.unifiedAnalysisSub} numberOfLines={1}>
+                  {activeRoutine
+                    ? `Step ${routineStepIndex + 1} (${currentRule.name})`
+                    : evaluationMode === 'coach'
+                      ? `Coach · ${coachPhase === 'chamber' ? '1. Kasa (Chamber)' : coachPhase === 'impact' ? '2. Tudla (Strike)' : coachPhase === 'recovery' ? '3. Bawi (Recovery)' : 'Complete'}`
+                      : evaluationMode === 'practice'
+                        ? 'Real-Time Biomechanical Alignment'
+                        : 'Timed Posture Recording'}
+                </Text>
+              </View>
 
-          {/* Progress Tracker bar */}
-          <View style={styles.progressContainer}>
-            <View style={styles.progressTextRow}>
-              <Text style={styles.progressLabel}>
-                {activeRoutine
-                  ? `Step ${routineStepIndex + 1} Accuracy (${currentRule.name})`
-                  : evaluationMode === 'coach'
-                    ? `Form Coach: ${coachPhase === 'chamber' ? '1. Chamber (Kasa)' : coachPhase === 'impact' ? '2. Strike (Tudla)' : coachPhase === 'recovery' ? '3. Recovery (Bawi)' : 'Step Complete!'}`
-                    : evaluationMode === 'practice'
-                      ? 'Live Multi-Joint Accuracy'
-                      : 'Analyzing pose...'}
-              </Text>
-              <Text style={styles.progressValue}>{poseScoreProgress}%</Text>
-            </View>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${poseScoreProgress}%` },
-                  (evaluationMode === 'practice' || evaluationMode === 'coach' || activeRoutine) && { backgroundColor: getScoreColor(poseScoreProgress) }
-                ]}
-              />
-            </View>
-          </View>
-
-          {/* Real-time 4-Pillar Biomechanical Posture Meters */}
-          <View style={styles.analysisPanel}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={styles.analysisHeading}>4-Pillar Kinetic Posture</Text>
-              <Text style={{ fontSize: 11, color: '#64748B', fontWeight: '600' }}>REAL-TIME FEEDBACK</Text>
+              <View style={[styles.overallScoreBadge, { borderColor: getScoreColor(poseScoreProgress) }]}>
+                <Text style={[styles.overallScoreValue, { color: getScoreColor(poseScoreProgress) }]}>
+                  {poseScoreProgress}%
+                </Text>
+                <Text style={styles.overallScoreLabel}>ACCURACY</Text>
+              </View>
             </View>
 
-            {/* Pillar 1: Striking Arm */}
-            <View style={styles.analysisRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', width: 115 }}>
-                <MaterialCommunityIcons name="sword" size={15} color="#3B82F6" style={{ marginRight: 6 }} />
-                <Text style={styles.analysisLabel}>Striking Arm</Text>
+            {/* 4 Pillars 2x2 Grid */}
+            <View style={styles.pillarsGrid}>
+              {/* Pillar 1: Striking Arm */}
+              <View style={styles.pillarCard}>
+                <View style={styles.pillarTopRow}>
+                  <View style={styles.pillarLabelGroup}>
+                    <MaterialCommunityIcons name="sword" size={14} color="#3B82F6" style={{ marginRight: 4 }} />
+                    <Text style={styles.pillarLabel}>Striking Arm</Text>
+                  </View>
+                  <Text style={[styles.pillarValue, { color: getScoreColor(rtElbowScore) }]}>{rtElbowScore}%</Text>
+                </View>
+                <View style={styles.pillarBarBg}>
+                  <View style={[styles.pillarBarFill, { width: `${rtElbowScore}%`, backgroundColor: getScoreColor(rtElbowScore) }]} />
+                </View>
               </View>
-              <View style={styles.analysisBarBg}>
-                <View style={[styles.analysisBarFill, { width: `${rtElbowScore}%`, backgroundColor: getScoreColor(rtElbowScore) }]} />
-              </View>
-              <Text style={[styles.analysisValue, { color: getScoreColor(rtElbowScore) }]}>{rtElbowScore}%</Text>
-            </View>
 
-            {/* Pillar 2: Check Hand (Kalasag) */}
-            <View style={styles.analysisRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', width: 115 }}>
-                <MaterialCommunityIcons name="shield-check" size={15} color="#10B981" style={{ marginRight: 6 }} />
-                <Text style={styles.analysisLabel}>Check Hand</Text>
+              {/* Pillar 2: Check Hand */}
+              <View style={styles.pillarCard}>
+                <View style={styles.pillarTopRow}>
+                  <View style={styles.pillarLabelGroup}>
+                    <MaterialCommunityIcons name="shield-check" size={14} color="#10B981" style={{ marginRight: 4 }} />
+                    <Text style={styles.pillarLabel}>Check Hand</Text>
+                  </View>
+                  <Text style={[styles.pillarValue, { color: getScoreColor(rtGuardScore) }]}>{rtGuardScore}%</Text>
+                </View>
+                <View style={styles.pillarBarBg}>
+                  <View style={[styles.pillarBarFill, { width: `${rtGuardScore}%`, backgroundColor: getScoreColor(rtGuardScore) }]} />
+                </View>
               </View>
-              <View style={styles.analysisBarBg}>
-                <View style={[styles.analysisBarFill, { width: `${rtGuardScore}%`, backgroundColor: getScoreColor(rtGuardScore) }]} />
-              </View>
-              <Text style={[styles.analysisValue, { color: getScoreColor(rtGuardScore) }]}>{rtGuardScore}%</Text>
-            </View>
 
-            {/* Pillar 3: Stance & Base (Tindig) */}
-            <View style={styles.analysisRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', width: 115 }}>
-                <MaterialCommunityIcons name="human-male-height" size={15} color="#F59E0B" style={{ marginRight: 6 }} />
-                <Text style={styles.analysisLabel}>Stance (Tindig)</Text>
+              {/* Pillar 3: Stance Base */}
+              <View style={styles.pillarCard}>
+                <View style={styles.pillarTopRow}>
+                  <View style={styles.pillarLabelGroup}>
+                    <MaterialCommunityIcons name="human-male-height" size={14} color="#F59E0B" style={{ marginRight: 4 }} />
+                    <Text style={styles.pillarLabel}>Stance (Tindig)</Text>
+                  </View>
+                  <Text style={[styles.pillarValue, { color: getScoreColor(rtStanceScore) }]}>{rtStanceScore}%</Text>
+                </View>
+                <View style={styles.pillarBarBg}>
+                  <View style={[styles.pillarBarFill, { width: `${rtStanceScore}%`, backgroundColor: getScoreColor(rtStanceScore) }]} />
+                </View>
               </View>
-              <View style={styles.analysisBarBg}>
-                <View style={[styles.analysisBarFill, { width: `${rtStanceScore}%`, backgroundColor: getScoreColor(rtStanceScore) }]} />
-              </View>
-              <Text style={[styles.analysisValue, { color: getScoreColor(rtStanceScore) }]}>{rtStanceScore}%</Text>
-            </View>
 
-            {/* Pillar 4: Power & Wrist Snap */}
-            <View style={styles.analysisRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', width: 115 }}>
-                <MaterialCommunityIcons name="flash" size={15} color="#8B5CF6" style={{ marginRight: 6 }} />
-                <Text style={styles.analysisLabel}>Wrist Snap</Text>
+              {/* Pillar 4: Wrist Snap */}
+              <View style={styles.pillarCard}>
+                <View style={styles.pillarTopRow}>
+                  <View style={styles.pillarLabelGroup}>
+                    <MaterialCommunityIcons name="flash" size={14} color="#8B5CF6" style={{ marginRight: 4 }} />
+                    <Text style={styles.pillarLabel}>Wrist Snap</Text>
+                  </View>
+                  <Text style={[styles.pillarValue, { color: getScoreColor(rtWristScore) }]}>{rtWristScore}%</Text>
+                </View>
+                <View style={styles.pillarBarBg}>
+                  <View style={[styles.pillarBarFill, { width: `${rtWristScore}%`, backgroundColor: getScoreColor(rtWristScore) }]} />
+                </View>
               </View>
-              <View style={styles.analysisBarBg}>
-                <View style={[styles.analysisBarFill, { width: `${rtWristScore}%`, backgroundColor: getScoreColor(rtWristScore) }]} />
-              </View>
-              <Text style={[styles.analysisValue, { color: getScoreColor(rtWristScore) }]}>{rtWristScore}%</Text>
             </View>
           </View>
 
-          {/* Multi-Person Panel */}
-          {persons.length > 0 && (
+          {/* Multi-Person Panel (only displayed when more than 1 person is detected) */}
+          {persons.length > 1 && (
             <View style={styles.multiPersonPanel}>
               <Text style={styles.analysisHeading}>Detected Practitioners ({persons.length})</Text>
               {persons.map((person) => {
@@ -1858,6 +1956,20 @@ export default function EvaluateScreen() {
             </View>
           )}
         </ScrollView>
+
+        {/* 12-Strike Video Demonstration Guide Modal (Live Screen) */}
+        <StrikeVideoModal
+          visible={videoModalVisible}
+          initialStrikeId={videoModalStrikeId}
+          onClose={() => setVideoModalVisible(false)}
+          onPracticeStrike={(strikeId: string) => {
+            setSelectedStrikeId(strikeId);
+            setVideoModalVisible(false);
+            if (webViewRef.current) {
+              webViewRef.current.injectJavaScript(`if (window.setTargetStrike) window.setTargetStrike('${strikeId}'); true;`);
+            }
+          }}
+        />
       </SafeAreaView>
     );
   }
@@ -2073,7 +2185,7 @@ export default function EvaluateScreen() {
           <View style={styles.tipCard}>
             <View style={styles.tipCardHeader}>
               <MaterialCommunityIcons name="karate" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
-              <Text style={styles.tipCardTitle}>Guro's Kinetic Feedback</Text>
+              <Text style={styles.tipCardTitle}>Guro&apos;s Kinetic Feedback</Text>
             </View>
             <Text style={styles.tipCardBody}>{finalSessionStats.improvementTip}</Text>
           </View>
@@ -2203,18 +2315,19 @@ const styles = StyleSheet.create({
   liveSubHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: '#0A0C16',
   },
   liveIndicatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EF444420',
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 4,
-    marginRight: 12,
+    marginRight: 8,
   },
   liveDot: {
     width: 6,
@@ -2229,9 +2342,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   liveStrikeTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#F59E0B',
+    flex: 1,
+    flexShrink: 1,
   },
   liveStrikeDesc: {
     color: '#FFFFFF',
@@ -2552,72 +2667,179 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  stickColorContainer: {
+  quickSettingsStrip: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
     backgroundColor: '#161930',
-    borderRadius: 10,
+    borderRadius: 14,
+    padding: 8,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: '#1E293B',
-    padding: 4,
   },
-  stickColorOption: {
+  quickStickWrapper: {
     flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-    marginHorizontal: 2,
-  },
-  stickColorOptionActive: {
-    backgroundColor: '#D24B38',
-  },
-  stickColorOptionText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#64748B',
-  },
-  stickColorOptionTextActive: {
-    color: '#FFFFFF',
-  },
-  liveStickColorBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F1020',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#161930',
-  },
-  liveStickColorLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-    marginRight: 10,
-  },
-  liveStickColorScroll: {
-    alignItems: 'center',
-  },
-  liveStickColorOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#1E293B',
     marginRight: 8,
-    backgroundColor: '#161930',
   },
-  liveStickColorOptionActive: {
-    backgroundColor: '#D24B38',
+  quickStickLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1,
+    marginRight: 8,
+  },
+  quickStickScroll: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  quickStickChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#1E243D',
+    borderWidth: 1,
+    borderColor: '#2A3352',
+  },
+  quickStickChipActive: {
+    backgroundColor: '#D24B3825',
     borderColor: '#D24B38',
   },
-  liveStickColorOptionText: {
-    color: '#64748B',
+  quickStickChipText: {
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#94A3B8',
   },
-  liveStickColorOptionTextActive: {
+  quickStickChipTextActive: {
     color: '#FFFFFF',
+  },
+  quickActionPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#1E243D',
+    borderWidth: 1,
+    borderColor: '#2A3352',
+  },
+  quickActionBtnActive: {
+    backgroundColor: '#10B98120',
+    borderColor: '#10B981',
+  },
+  quickActionBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  liveControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  hudIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#161930',
+    borderWidth: 1,
+    borderColor: '#2A3352',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unifiedAnalysisCard: {
+    backgroundColor: '#161930',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    marginBottom: 16,
+  },
+  analysisHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  unifiedAnalysisHeading: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1.2,
+  },
+  unifiedAnalysisSub: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  overallScoreBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 3,
+    backgroundColor: '#101222',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overallScoreValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  overallScoreLabel: {
+    fontSize: 7,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  pillarsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  pillarCard: {
+    width: (width - 32 - 32 - 10) / 2,
+    backgroundColor: '#101222',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#1E243D',
+  },
+  pillarTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  pillarLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pillarLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#E2E8F0',
+  },
+  pillarValue: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  pillarBarBg: {
+    height: 4,
+    backgroundColor: '#1E293B',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  pillarBarFill: {
+    height: '100%',
+    borderRadius: 2,
   },
   multiPersonPanel: {
     padding: 20,
@@ -2746,22 +2968,27 @@ const styles = StyleSheet.create({
   },
   motionBadgeOverlay: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: 10,
+    left: 10,
     zIndex: 20,
   },
   motionBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
     borderWidth: 1,
+    backgroundColor: 'rgba(10, 12, 22, 0.85)',
   },
   motionBadgeText: {
     fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  motionBadgeSubText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
   trajectoryBadgePill: {
     flexDirection: 'row',
@@ -2780,21 +3007,21 @@ const styles = StyleSheet.create({
   },
   snapshotOverlayPill: {
     position: 'absolute',
-    top: 16,
-    left: 16,
+    top: 10,
+    right: 10,
     zIndex: 25,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172AEE',
+    backgroundColor: '#0F172AE8',
     borderColor: '#10B981',
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
   },
   snapshotOverlayText: {
     color: '#10B981',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
   },
   legendBanner: {
@@ -3290,18 +3517,19 @@ const styles = StyleSheet.create({
   },
   coachLiveOverlay: {
     position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
-    backgroundColor: '#0F172AE8',
-    borderRadius: 14,
-    padding: 10,
-    borderWidth: 1.5,
-    borderColor: '#38BDF8',
+    bottom: 10,
+    left: 10,
+    right: 10,
+    zIndex: 30,
+    backgroundColor: 'rgba(10, 14, 28, 0.92)',
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#38BDF860',
     shadowColor: '#38BDF8',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
     elevation: 4,
   },
   coachHeaderRow: {
@@ -3371,5 +3599,68 @@ const styles = StyleSheet.create({
   },
   coachStepTextDone: {
     color: '#10B981',
+  },
+  videoGuideHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161930',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#F59E0B60',
+    marginBottom: 16,
+  },
+  videoGuideHeaderBtnText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#F59E0B',
+    letterSpacing: 0.2,
+  },
+  autoDetectedPill: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    right: 14,
+    zIndex: 45,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  autoDetectedIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#10B981',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  autoDetectedLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#10B981',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  autoDetectedName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  autoDetectedVideoBtn: {
+    padding: 6,
+    marginLeft: 4,
   },
 });

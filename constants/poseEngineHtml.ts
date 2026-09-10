@@ -119,14 +119,24 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       "strike_12": { id: "strike_12", name: "Strike 12: Crown", chamber_elb: 114.4, right_min: 111.1, right_max: 135.0, left_min: 24.3, left_max: 118.3, ideal_shoulder: 87.1, ideal_knee: 155.0, knee_min: 135.0, knee_max: 165.0, guard_target: "chest", guard_label: "Center Chest Guard", ext_delta: 27.6 }
     };
 
-    // Motion history buffer per person (up to 15 frames)
+    // Motion history & Kinetic Chain buffer per person
     const personHistories = {};
 
     function updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, timestamp) {
       if (!personHistories[personIdx]) {
-        personHistories[personIdx] = [];
+        personHistories[personIdx] = {
+          frames: [],
+          phase: "idle",
+          peakVelocity: 0,
+          targetZoneStartTime: null,
+          isStaticHold: false,
+          chamberDetected: false,
+          driveDetected: false,
+          dynamicKineticScore: 70
+        };
       }
-      const history = personHistories[personIdx];
+      const pState = personHistories[personIdx];
+      const history = pState.frames;
       
       let wristDist = 0;
       if (rightWrist && rightShoulder) {
@@ -143,12 +153,13 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         t: timestamp
       });
 
-      if (history.length > 15) {
+      if (history.length > 20) {
         history.shift();
       }
 
       let velocity = 0;
       let extDelta = 0;
+      let accel = 0;
       if (history.length >= 2) {
         const newest = history[history.length - 1];
         const oldest = history[0];
@@ -159,40 +170,100 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         const dy = newest.y - prev.y;
         velocity = Math.sqrt(dx * dx + dy * dy) / dt;
         extDelta = newest.dist - oldest.dist;
+
+        if (history.length >= 3) {
+          const prev2 = history[history.length - 3];
+          const dt2 = Math.max(0.001, (prev.t - prev2.t) / 1000);
+          const vPrev = Math.sqrt(Math.pow(prev.x - prev2.x, 2) + Math.pow(prev.y - prev2.y, 2)) / dt2;
+          accel = (velocity - vPrev) / dt;
+        }
+      }
+
+      if (velocity > pState.peakVelocity) {
+        pState.peakVelocity = velocity;
       }
 
       const rules = STRIKE_RULES[activeStrike];
-      let phase = "idle";
+      let phase = pState.phase || "idle";
       let isApex = false;
 
       if (rules) {
         const elDiffChamber = rightAngle !== null ? Math.abs(rightAngle - rules.chamber_elb) : 99;
-        if (elDiffChamber < 25 || velocity < 0.12) {
+        const isInTargetRange = rightAngle !== null && rightAngle >= (rules.right_min - 10) && rightAngle <= (rules.right_max + 10);
+
+        // 1. Kinetic Sequence Phase Progression
+        if (elDiffChamber < 28 || (velocity < 0.12 && !isInTargetRange)) {
           phase = "chambering";
-        } else if (velocity >= 0.12) {
-          phase = "swinging";
+          pState.chamberDetected = true;
+          pState.targetZoneStartTime = null;
+          pState.isStaticHold = false;
+        } else if (velocity >= 0.16 && (phase === "chambering" || phase === "idle" || phase === "driving")) {
+          phase = "driving";
+          pState.driveDetected = true;
         }
 
+        // 2. Apex Hit Detection via kinematic peak or rapid deceleration
         if (history.length >= 3 && rightAngle !== null) {
           const curr = history[history.length - 1];
           const prev1 = history[history.length - 2];
           const prev2 = history[history.length - 3];
 
-          const isInTargetRange = rightAngle >= (rules.right_min - 12) && rightAngle <= (rules.right_max + 12);
           const isLocalPeakExt = prev1.dist >= prev2.dist && curr.dist < prev1.dist;
+          const isSnapDecel = phase === "driving" && velocity < 0.22 && pState.peakVelocity >= 0.24;
           
-          if (isInTargetRange && (isLocalPeakExt || (phase === "swinging" && velocity < 0.25))) {
+          if (isInTargetRange && (isLocalPeakExt || isSnapDecel || (velocity >= 0.18))) {
             phase = "apex_hit";
             isApex = true;
           }
         }
+
+        // 3. Recovery Phase detection
+        if (phase === "apex_hit" && velocity < 0.15 && !isApex) {
+          phase = "recovering";
+        }
+
+        // 4. Anti-Static Gaming Detection:
+        // If the user simply stands motionless in the target range without any dynamic swing acceleration
+        if (isInTargetRange) {
+          if (pState.targetZoneStartTime === null) {
+            pState.targetZoneStartTime = timestamp;
+          } else if (timestamp - pState.targetZoneStartTime > 950 && pState.peakVelocity < 0.14) {
+            pState.isStaticHold = true;
+          }
+        } else {
+          pState.targetZoneStartTime = null;
+          pState.isStaticHold = false;
+        }
+
+        // 5. Dynamic Kinetic Execution Score (DKS)
+        let kineticScore = 75;
+        if (pState.isStaticHold) {
+          kineticScore = 40; // Penalty for freezing without swinging
+        } else {
+          if (pState.chamberDetected && pState.driveDetected && isApex) {
+            kineticScore = 100; // Complete kinetic chain
+          } else if (pState.driveDetected || pState.peakVelocity >= 0.22) {
+            kineticScore = 90;
+          } else if (pState.chamberDetected) {
+            kineticScore = 80;
+          }
+        }
+        pState.dynamicKineticScore = kineticScore;
+        pState.phase = phase;
+
+        // Reset peak velocity decay over time so next rep requires new acceleration
+        pState.peakVelocity = Math.max(0, pState.peakVelocity * 0.94);
       }
 
       return {
         velocity: parseFloat(velocity.toFixed(3)),
         extDelta: parseFloat(extDelta.toFixed(3)),
+        accel: parseFloat(accel.toFixed(3)),
+        peakVelocity: parseFloat(pState.peakVelocity.toFixed(3)),
         phase: phase,
-        isApex: isApex
+        isApex: isApex,
+        isStaticHold: pState.isStaticHold,
+        kineticScore: pState.dynamicKineticScore
       };
     }
 
@@ -263,6 +334,21 @@ export const getPoseEngineHtml = (modelUrl: string) => `
 
     window.setTrajectoryGuideEnabled = (enabled) => {
       trajectoryGuideEnabled = !!enabled;
+    };
+
+    // Auto-Strike Detection Mode state variables
+    let autoDetectMode = false;
+    let lastDetectedStrikeId = null;
+    let lastDetectedStrikeTime = 0;
+    let detectedStrikeBannerText = "";
+    let detectedStrikeConfidence = 0;
+
+    window.setAutoDetectMode = (enabled) => {
+      autoDetectMode = !!enabled;
+      if (!enabled) {
+        lastDetectedStrikeId = null;
+        detectedStrikeBannerText = "";
+      }
     };
 
     // Master Ghost Reference Offsets for all 12 Strikes (Normalized relative to shoulder center and torso scale)
@@ -845,6 +931,145 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       ctx.restore();
     }
 
+    // Dynamic Strike Motion Classifier (Compares live landmarks & kinetics against 12 Arnis strikes)
+    function classifyStrikeMotion(landmarks, personData, trajMetrics) {
+      if (!landmarks || !landmarks[11] || !landmarks[12] || !landmarks[14] || !landmarks[16]) {
+        return null;
+      }
+      if (landmarks[11].visibility < 0.35 || landmarks[12].visibility < 0.35 || landmarks[14].visibility < 0.35 || landmarks[16].visibility < 0.35) {
+        return null;
+      }
+
+      // Mirrored shoulder center and torso scale
+      const lsX = (1 - landmarks[11].x) * canvasElement.width;
+      const lsY = landmarks[11].y * canvasElement.height;
+      const rsX = (1 - landmarks[12].x) * canvasElement.width;
+      const rsY = landmarks[12].y * canvasElement.height;
+      const anchorX = (lsX + rsX) / 2;
+      const anchorY = (lsY + rsY) / 2;
+      const shoulderSpan = Math.sqrt((rsX - lsX) * (rsX - lsX) + (rsY - lsY) * (rsY - lsY)) || 80;
+      const scale = Math.max(120, shoulderSpan * 2.1);
+
+      // Mirrored right wrist and elbow
+      const rwX = (1 - landmarks[16].x) * canvasElement.width;
+      const rwY = landmarks[16].y * canvasElement.height;
+      const userWristDx = (rwX - anchorX) / scale;
+      const userWristDy = (rwY - anchorY) / scale;
+
+      const reX = (1 - landmarks[14].x) * canvasElement.width;
+      const reY = landmarks[14].y * canvasElement.height;
+      const userElbowDx = (reX - anchorX) / scale;
+      const userElbowDy = (reY - anchorY) / scale;
+
+      let bestStrike = null;
+      let highestScore = -1;
+
+      for (let i = 1; i <= 12; i++) {
+        const sId = "strike_" + i;
+        const ghost = GHOST_STRIKE_OFFSETS[sId];
+        const rules = STRIKE_RULES[sId];
+        const trajPath = STRIKE_TRAJECTORY_PATHS[sId];
+        if (!ghost || !rules) continue;
+
+        // Proximity to ghost right wrist (weight 40%)
+        const wDist = Math.sqrt(
+          Math.pow(userWristDx - ghost.rightWrist.dx, 2) +
+          Math.pow(userWristDy - ghost.rightWrist.dy, 2)
+        );
+        const wristScore = Math.max(0, 100 - (wDist * 95));
+
+        // Proximity to ghost right elbow (weight 20%)
+        const eDist = Math.sqrt(
+          Math.pow(userElbowDx - ghost.rightElbow.dx, 2) +
+          Math.pow(userElbowDy - ghost.rightElbow.dy, 2)
+        );
+        const elbowPosScore = Math.max(0, 100 - (eDist * 115));
+
+        // Elbow joint angle closeness to strike target zone (weight 20%)
+        let angleScore = 50;
+        if (personData.rightAngle !== null && personData.rightAngle !== undefined && personData.rightAngle > 0) {
+          if (personData.rightAngle >= rules.right_min && personData.rightAngle <= rules.right_max) {
+            angleScore = 100;
+          } else {
+            const diff = personData.rightAngle < rules.right_min 
+              ? rules.right_min - personData.rightAngle 
+              : personData.rightAngle - rules.right_max;
+            angleScore = Math.max(0, 100 - diff * 2.2);
+          }
+        }
+
+        // Shoulder angle closeness (weight 10%)
+        let shoulderScore = 50;
+        if (personData.rightShoulderAngle !== null && personData.rightShoulderAngle !== undefined && personData.rightShoulderAngle > 0) {
+          const sDiff = Math.abs(personData.rightShoulderAngle - rules.ideal_shoulder);
+          shoulderScore = Math.max(0, 100 - sDiff * 2.0);
+        }
+
+        // Trajectory and Apex path validation bonus (weight 10%)
+        let pathBonus = 0;
+        if (trajPath) {
+          const apexDist = Math.sqrt(
+            Math.pow(userWristDx - trajPath.apex.dx, 2) +
+            Math.pow(userWristDy - trajPath.apex.dy, 2)
+          );
+          if (apexDist < 0.28) {
+            pathBonus += 10;
+          }
+        }
+
+        const totalScore = Math.min(100, Math.round(
+          wristScore * 0.40 +
+          elbowPosScore * 0.20 +
+          angleScore * 0.20 +
+          shoulderScore * 0.10 +
+          pathBonus
+        ));
+
+        if (totalScore > highestScore) {
+          highestScore = totalScore;
+          bestStrike = {
+            id: sId,
+            name: rules.name,
+            confidence: totalScore
+          };
+        }
+      }
+
+      return bestStrike;
+    }
+
+    function drawAutoDetectHUD(ctx, now) {
+      if (!autoDetectMode) return;
+      ctx.save();
+      const canvasW = canvasElement.width;
+      const isRecent = (now - lastDetectedStrikeTime) < 3200 && detectedStrikeBannerText;
+      const bannerW = isRecent ? Math.min(340, canvasW - 20) : Math.min(260, canvasW - 20);
+      const bannerH = 34;
+      const bannerX = (canvasW - bannerW) / 2;
+      const bannerY = formCoachMode ? 78 : 16;
+
+      ctx.fillStyle = isRecent ? "rgba(16, 185, 129, 0.92)" : "rgba(15, 23, 42, 0.88)";
+      ctx.strokeStyle = isRecent ? "#34D399" : "rgba(245, 158, 11, 0.8)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 8);
+      } else {
+        ctx.rect(bannerX, bannerY, bannerW, bannerH);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#FFFFFF";
+      const label = isRecent
+        ? "⚡ IDENTIFIED: " + detectedStrikeBannerText + " (" + detectedStrikeConfidence + "%)"
+        : "✨ AUTO-DETECT: Strike Any Form";
+      ctx.fillText(label, canvasW / 2, bannerY + 21);
+      ctx.restore();
+    }
+
     function drawFormCoachHUD(ctx, phase, strikeId, now) {
       if (!formCoachMode) return;
 
@@ -902,6 +1127,96 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       ctx.fillStyle = phase === 'impact' ? "#FACC15" : phase === 'recovery' ? "#38BDF8" : "#E2E8F0";
       ctx.textAlign = "center";
       ctx.fillText(guideText, bannerX + bannerW / 2, bannerY + 48);
+
+      ctx.restore();
+    }
+
+    // 3-Meter Visual Ergonomics: Full-Screen Peripheral Edge Glow & State Indicator
+    function drawPeripheralEdgeGlow(ctx, primaryPerson, width, height, timestamp) {
+      if (!primaryPerson) return;
+
+      const flags = primaryPerson.diagnosticFlags || [];
+      const isApex = primaryPerson.isApex;
+      const accuracy = primaryPerson.accuracy || 0;
+      const isStatic = flags.includes('STATIC_HOLD');
+      const isCriticalFault = flags.includes('GUARD_LOW') || flags.includes('ELBOW_UNDER') || flags.includes('ELBOW_OVER');
+
+      let glowColor = "transparent";
+      let badgeBg = "rgba(15, 23, 42, 0.88)";
+      let badgeText = "READY GUARD";
+      let badgeColor = "#38BDF8";
+      let borderWidth = 6;
+
+      const pulse = 0.65 + Math.sin(timestamp / 180) * 0.35;
+
+      if (isApex) {
+        glowColor = "rgba(255, 215, 0, " + (0.75 * pulse) + ")";
+        badgeBg = "rgba(234, 179, 8, 0.95)";
+        badgeText = "⚡ APEX IMPACT HIT!";
+        badgeColor = "#0F172A";
+        borderWidth = 14;
+      } else if (isStatic) {
+        glowColor = "rgba(245, 158, 11, " + (0.65 * pulse) + ")";
+        badgeBg = "rgba(245, 158, 11, 0.95)";
+        badgeText = "⚠️ STATIC HOLD - EXECUTE FULL SWING!";
+        badgeColor = "#000000";
+        borderWidth = 10;
+      } else if (accuracy >= 85) {
+        glowColor = "rgba(16, 185, 129, " + (0.65 * pulse) + ")";
+        badgeBg = "rgba(16, 185, 129, 0.95)";
+        badgeText = "✓ MASTER FORM LOCKED (" + accuracy + "%)";
+        badgeColor = "#FFFFFF";
+        borderWidth = 10;
+      } else if (isCriticalFault) {
+        glowColor = "rgba(239, 68, 68, " + (0.55 * pulse) + ")";
+        badgeBg = "rgba(239, 68, 68, 0.95)";
+        if (flags.includes('GUARD_LOW')) {
+          badgeText = "🛡️ RAISE KALASAG GUARD HAND!";
+        } else if (flags.includes('ELBOW_UNDER')) {
+          badgeText = "⚔️ OPEN STRIKING ELBOW HIGHER!";
+        } else {
+          badgeText = "⚠️ ADJUST POSTURE FORM (" + accuracy + "%)";
+        }
+        badgeColor = "#FFFFFF";
+        borderWidth = 8;
+      } else if (primaryPerson.motionPhase === 'chambering') {
+        glowColor = "rgba(56, 189, 248, " + (0.45 * pulse) + ")";
+        badgeBg = "rgba(15, 23, 42, 0.9)";
+        badgeText = "🥋 CHAMBERING (KASA)";
+        badgeColor = "#38BDF8";
+        borderWidth = 7;
+      }
+
+      ctx.save();
+
+      // 1. Draw Peripheral Viewport Border Glow
+      if (glowColor !== "transparent") {
+        ctx.lineWidth = borderWidth;
+        ctx.strokeStyle = glowColor;
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = glowColor;
+        ctx.strokeRect(borderWidth / 2, borderWidth / 2, width - borderWidth, height - borderWidth);
+      }
+
+      // 2. High-Visibility 3-Meter Visual Badge (Top Center)
+      // Designed for distance clarity across room
+      const badgeW = Math.min(360, width - 40);
+      const badgeH = 34;
+      const badgeX = (width - badgeW) / 2;
+      const badgeY = 16;
+
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+      ctx.fillStyle = badgeBg;
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 17);
+      ctx.fill();
+
+      ctx.font = "bold 12.5px sans-serif";
+      ctx.fillStyle = badgeColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(badgeText, width / 2, badgeY + badgeH / 2);
 
       ctx.restore();
     }
@@ -1010,8 +1325,8 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       }
     }
 
-    function detectStick(wristLandmark, imgData, stickMode) {
-      if (!wristLandmark || wristLandmark.visibility < 0.4 || !imgData) {
+    function detectStick(wristLandmark, elbowLandmark, imgData, stickMode) {
+      if (!wristLandmark || wristLandmark.visibility < 0.35 || !imgData) {
         return { detected: false };
       }
       
@@ -1020,6 +1335,23 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       const startX = (1 - wristLandmark.x) * width;
       const startY = wristLandmark.y * height;
       const data = imgData.data;
+
+      // 1. Calculate dynamic reach adaptively from user's screen-space forearm length
+      let forearmLength = 80;
+      let hasElbow = false;
+      let ex = startX;
+      let ey = startY;
+      if (elbowLandmark && elbowLandmark.visibility > 0.35) {
+        ex = (1 - elbowLandmark.x) * width;
+        ey = elbowLandmark.y * height;
+        forearmLength = Math.sqrt((startX - ex) * (startX - ex) + (startY - ey) * (startY - ey));
+        hasElbow = true;
+      }
+      
+      // Typical Arnis baston extends ~1.5x - 1.8x the user's forearm length
+      const dynamicReach = Math.max(50, Math.min(300, forearmLength * 1.65));
+      const maxSteps = 14;
+      const stepSize = dynamicReach / maxSteps;
 
       function getPixelColor(x, y) {
         const xi = Math.round(x);
@@ -1032,9 +1364,6 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       }
 
       const numAngles = 16;
-      const maxSteps = 12;
-      const stepSize = 8; // pixels
-
       let bestAngle = 0;
       let maxMatches = 0;
       let bestLinePoints = [];
@@ -1068,14 +1397,43 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         }
       }
 
-      const detected = maxMatches >= 5;
-      return {
-        detected,
-        angle: bestAngle,
-        points: bestLinePoints,
-        startX,
-        startY
-      };
+      const detected = maxMatches >= 4;
+      if (detected) {
+        return {
+          detected: true,
+          angle: bestAngle,
+          points: bestLinePoints,
+          startX,
+          startY,
+          reach: dynamicReach,
+          isKinematicFallback: false
+        };
+      }
+
+      // 2. Kinematic Forearm Vector Fallback (Motion Blur Compensation)
+      // When swinging at high speed (>400 deg/s), camera exposure causes severe motion blur.
+      // We extrapolate the stick along the wrist-forearm extension vector so tracking doesn't drop!
+      if (hasElbow) {
+        const foreAngle = Math.atan2(startY - ey, startX - ex);
+        const projectedPoints = [];
+        for (let s = 1; s <= maxSteps; s++) {
+          projectedPoints.push({
+            x: startX + Math.cos(foreAngle) * (s * stepSize),
+            y: startY + Math.sin(foreAngle) * (s * stepSize)
+          });
+        }
+        return {
+          detected: true,
+          angle: foreAngle,
+          points: projectedPoints,
+          startX,
+          startY,
+          reach: dynamicReach,
+          isKinematicFallback: true
+        };
+      }
+
+      return { detected: false };
     }
 
     // Send data back to React Native helper
@@ -1153,7 +1511,10 @@ export const getPoseEngineHtml = (modelUrl: string) => `
               delegate: "GPU"
             },
             runningMode: "VIDEO",
-            numPoses: 4
+            numPoses: 4,
+            minPoseDetectionConfidence: 0.65,
+            minPosePresenceConfidence: 0.65,
+            minTrackingConfidence: 0.65
           });
         } catch (gpuErr) {
           logStatus("GPU unavailable, using CPU fallback...");
@@ -1164,7 +1525,10 @@ export const getPoseEngineHtml = (modelUrl: string) => `
               delegate: "CPU"
             },
             runningMode: "VIDEO",
-            numPoses: 4
+            numPoses: 4,
+            minPoseDetectionConfidence: 0.65,
+            minPosePresenceConfidence: 0.65,
+            minTrackingConfidence: 0.65
           });
         }
         
@@ -1233,15 +1597,28 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       }
     }
 
-    // Standard joint angle calculation
-    function calculateAngle(a, b, c) {
+    // 3D Metric Normalized Joint Angle Calculation
+    // Evaluates true 3D Euclidean angle using calibrated depth coordinates
+    // invariant to camera distance, tilt, and perspective foreshortening
+    function calculateAngle(a, b, c, torsoScale) {
       if (!a || !b || !c || a.visibility < 0.35 || b.visibility < 0.35 || c.visibility < 0.35) {
         return null;
       }
-      // Vector ba: elbow (b) to shoulder (a)
-      const ba = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
-      // Vector bc: elbow (b) to wrist (c)
-      const bc = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+      // Depth scale factor: MediaPipe gives z roughly on same scale as x when normalized
+      const zScale = (typeof torsoScale === 'number' && torsoScale > 0) ? Math.min(1.2, Math.max(0.8, torsoScale / 0.3)) : 1.0;
+      
+      // Vector ba: joint b to a in 3D
+      const ba = {
+        x: a.x - b.x,
+        y: a.y - b.y,
+        z: ((a.z !== undefined ? a.z : 0) - (b.z !== undefined ? b.z : 0)) * zScale
+      };
+      // Vector bc: joint b to c in 3D
+      const bc = {
+        x: c.x - b.x,
+        y: c.y - b.y,
+        z: ((c.z !== undefined ? c.z : 0) - (b.z !== undefined ? b.z : 0)) * zScale
+      };
 
       const dotProduct = ba.x * bc.x + ba.y * bc.y + ba.z * bc.z;
       const magA = Math.sqrt(ba.x * ba.x + ba.y * ba.y + ba.z * ba.z);
@@ -1250,10 +1627,74 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       if (magA === 0 || magC === 0) return null;
 
       let cosine = dotProduct / (magA * magC);
-      cosine = Math.max(-1.0, Math.min(1.0, cosine)); // clamp
+      cosine = Math.max(-1.0, Math.min(1.0, cosine)); // numerical clamp
 
       const angleRad = Math.acos(cosine);
       return parseFloat((angleRad * (180 / Math.PI)).toFixed(1));
+    }
+
+    // Anatomical & Biomechanical Pose Validation:
+    // Rejects hand hallucinations, partial non-human objects, or background artifacts.
+    // Confirms presence of an authentic upright human practitioner before grading or auto-identifying strikes.
+    function isValidHumanPose(landmarks) {
+      if (!landmarks || landmarks.length < 33) return false;
+
+      const nose = landmarks[0];
+      const leftShoulder = landmarks[11];
+      const rightShoulder = landmarks[12];
+      const leftHip = landmarks[23];
+      const rightHip = landmarks[24];
+
+      if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip) return false;
+
+      // 1. Landmark Visibility: Real human shoulders and head have strong visibility scores
+      const leftShldVis = leftShoulder.visibility || 0;
+      const rightShldVis = rightShoulder.visibility || 0;
+      if (leftShldVis < 0.45 || rightShldVis < 0.45) return false;
+
+      // At least one hip must be detected with reasonable visibility
+      const maxHipVis = Math.max(leftHip.visibility || 0, rightHip.visibility || 0);
+      if (maxHipVis < 0.30) return false;
+
+      // Head visibility: nose or eye landmark must be present
+      const noseVis = nose.visibility || 0;
+      const eyeVis = Math.max(
+        (landmarks[2] && landmarks[2].visibility) || 0,
+        (landmarks[5] && landmarks[5].visibility) || 0
+      );
+      if (noseVis < 0.40 && eyeVis < 0.40) return false;
+
+      // 2. Anatomical Orientation (Screen coords: Y increases downward)
+      const midShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+      const midHipY = (leftHip.y + rightHip.y) / 2;
+      const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
+
+      // Head MUST be above shoulders by at least 1% of screen height
+      if (nose.y >= midShoulderY - 0.01) return false;
+
+      // Shoulders MUST be above hips by at least 3% of screen height
+      if (midShoulderY >= midHipY - 0.03) return false;
+
+      // 3. Dimensional Scale Checks
+      const torsoHeight = midHipY - midShoulderY;
+      if (torsoHeight < 0.07 || torsoHeight > 0.90) return false;
+
+      const shoulderSpan = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+      if (shoulderSpan < 0.06 || shoulderSpan > 0.90) return false;
+
+      // 4. Biomechanical Ratio Constraints:
+      // Human torso height-to-shoulder-span ratio is physiologically bounded (0.45 to 3.5)
+      const torsoRatio = torsoHeight / (shoulderSpan || 0.001);
+      if (torsoRatio < 0.45 || torsoRatio > 3.5) return false;
+
+      // 5. Shoulder Tilt: Level within martial arts limits (tilt ratio <= 0.85)
+      const shoulderDy = Math.abs(leftShoulder.y - rightShoulder.y);
+      if (shoulderDy / (shoulderSpan || 0.001) > 0.85) return false;
+
+      // 6. Head Centrality: Head must be reasonably centered above shoulder line
+      if (Math.abs(nose.x - midShoulderX) > shoulderSpan * 1.2) return false;
+
+      return true;
     }
 
     // Main frame loop
@@ -1293,9 +1734,12 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       }
 
       let personsData = [];
+      const allLandmarks = (results && results.landmarks) ? results.landmarks : [];
+      // Strictly filter for authentic upright human practitioners (rejects hands, partial objects, etc.)
+      const validLandmarksList = allLandmarks.filter(lm => isValidHumanPose(lm));
 
-      if (results && results.landmarks && results.landmarks.length > 0) {
-        results.landmarks.forEach((landmarks, personIdx) => {
+      if (validLandmarksList.length > 0) {
+        validLandmarksList.forEach((landmarks, personIdx) => {
           const leftShoulder = landmarks[11];
           const leftElbow = landmarks[13];
           const leftWrist = landmarks[15];
@@ -1313,18 +1757,28 @@ export const getPoseEngineHtml = (modelUrl: string) => `
           const leftAnkle = landmarks[27];
           const rightAnkle = landmarks[28];
 
-          // 1. Calculate actual joint angles
-          const leftAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-          const rightAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+          // Compute torso scale reference for 3D depth and metric normalization
+          let torsoScale = 0.28;
+          if (leftShoulder && rightShoulder && leftHip && rightHip) {
+            const msX = (leftShoulder.x + rightShoulder.x) / 2;
+            const msY = (leftShoulder.y + rightShoulder.y) / 2;
+            const mhX = (leftHip.x + rightHip.x) / 2;
+            const mhY = (leftHip.y + rightHip.y) / 2;
+            torsoScale = Math.sqrt((msX - mhX) * (msX - mhX) + (msY - mhY) * (msY - mhY)) || 0.28;
+          }
 
-          const leftShoulderAngle = calculateAngle(leftHip, leftShoulder, leftElbow);
-          const rightShoulderAngle = calculateAngle(rightHip, rightShoulder, rightElbow);
+          // 1. Calculate actual joint angles using 3D metric normalization
+          const leftAngle = calculateAngle(leftShoulder, leftElbow, leftWrist, torsoScale);
+          const rightAngle = calculateAngle(rightShoulder, rightElbow, rightWrist, torsoScale);
 
-          const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
-          const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
+          const leftShoulderAngle = calculateAngle(leftHip, leftShoulder, leftElbow, torsoScale);
+          const rightShoulderAngle = calculateAngle(rightHip, rightShoulder, rightElbow, torsoScale);
 
-          const leftWristRaw = calculateAngle(leftElbow, leftWrist, leftIndex);
-          const rightWristRaw = calculateAngle(rightElbow, rightWrist, rightIndex);
+          const leftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle, torsoScale);
+          const rightKneeAngle = calculateAngle(rightHip, rightKnee, rightAnkle, torsoScale);
+
+          const leftWristRaw = calculateAngle(leftElbow, leftWrist, leftIndex, torsoScale);
+          const rightWristRaw = calculateAngle(rightElbow, rightWrist, rightIndex, torsoScale);
 
           // Convert wrist angle into a signed deviation from straight line (180 deg)
           const leftWristAngle = leftWristRaw !== null ? Math.round(180 - leftWristRaw) : null;
@@ -1346,7 +1800,6 @@ export const getPoseEngineHtml = (modelUrl: string) => `
           // In Arnis, the non-striking hand must actively defend the chest/solar plexus/throat
           let chestX = 0.5;
           let chestY = 0.4;
-          let torsoScale = 0.3;
           let normGuardDist = 1.0;
           let guardScore = 0;
           let isGuardLow = false;
@@ -1448,17 +1901,20 @@ export const getPoseEngineHtml = (modelUrl: string) => `
 
           const strikingArmComposite = Math.round(elbowScore * 0.75 + shoulderScore * 0.25);
 
-          // 6. COMPOSITE 4-PILLAR HOLISTIC ACCURACY
-          // 40% Striking Arm | 25% Guard Hand | 20% Stance | 15% Power/Wrist
-          const compositeAccuracy = Math.round(
-            strikingArmComposite * 0.40 +
-            guardScore * 0.25 +
-            stanceScore * 0.20 +
-            wristScore * 0.15
-          );
+          // Stick detection with adaptive reach and forearm kinematic fallback
+          const stickLeft = detectStick(leftWrist, leftElbow, imgData, stickColorMode);
+          const stickRight = detectStick(rightWrist, rightElbow, imgData, stickColorMode);
+
+          // Dynamic Motion Tracking & Kinetic Sequence Calculation
+          const motionState = updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, performance.now());
 
           // Diagnostic issue flags
           const diagnosticFlags = [];
+          if (motionState.isStaticHold) {
+            diagnosticFlags.push('STATIC_HOLD');
+          } else if (motionState.kineticScore >= 90) {
+            diagnosticFlags.push('KINETIC_FLOW_EXCELLENT');
+          }
           if (isGuardLow) diagnosticFlags.push('GUARD_LOW');
           if (isStanceHigh) diagnosticFlags.push('STANCE_HIGH');
           if (rightAngle !== null && rules) {
@@ -1467,14 +1923,22 @@ export const getPoseEngineHtml = (modelUrl: string) => `
           }
           if (rightWristAngle !== null && rightWristAngle > 20) diagnosticFlags.push('WRIST_WEAK');
           if (torsoTiltDeg > 22) diagnosticFlags.push('TORSO_LEAN');
-
-          // Stick detection
-          const stickLeft = detectStick(leftWrist, imgData, stickColorMode);
-          const stickRight = detectStick(rightWrist, imgData, stickColorMode);
-
-          // Dynamic Motion Tracking Calculation
-          const motionState = updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, performance.now());
           if (motionState.isApex) diagnosticFlags.push('APEX_LOCKED');
+
+          // 6. COMPOSITE 5-PILLAR HOLISTIC ACCURACY (Incorporating Dynamic Kinetic Flow)
+          // 35% Striking Arm | 25% Guard Hand | 20% Stance | 10% Power/Wrist | 10% Kinetic Flow
+          let compositeAccuracy = Math.round(
+            strikingArmComposite * 0.35 +
+            guardScore * 0.25 +
+            stanceScore * 0.20 +
+            wristScore * 0.10 +
+            motionState.kineticScore * 0.10
+          );
+
+          // Anti-Static Gaming Penalty: If user froze in pose without swinging, penalize score
+          if (motionState.isStaticHold) {
+            compositeAccuracy = Math.max(25, compositeAccuracy - 30);
+          }
 
           // Track Stick Tip for Motion Ribbon
           let stickTipX = null;
@@ -1486,8 +1950,9 @@ export const getPoseEngineHtml = (modelUrl: string) => `
               stickTipX = lp.x;
               stickTipY = lp.y;
             } else {
-              stickTipX = stickRight.startX + Math.cos(stickRight.angle) * 85;
-              stickTipY = stickRight.startY + Math.sin(stickRight.angle) * 85;
+              const reach = stickRight.reach || 85;
+              stickTipX = stickRight.startX + Math.cos(stickRight.angle) * reach;
+              stickTipY = stickRight.startY + Math.sin(stickRight.angle) * reach;
             }
           } else if (rightWrist && rightElbow && rightWrist.visibility > 0.35 && rightElbow.visibility > 0.35) {
             // Predict tip forward along forearm vector
@@ -1498,8 +1963,9 @@ export const getPoseEngineHtml = (modelUrl: string) => `
             const vdx = wx - ex;
             const vdy = wy - ey;
             const vlen = Math.sqrt(vdx * vdx + vdy * vdy) || 1;
-            stickTipX = wx + (vdx / vlen) * 75;
-            stickTipY = wy + (vdy / vlen) * 75;
+            const reach = Math.max(65, vlen * 1.6);
+            stickTipX = wx + (vdx / vlen) * reach;
+            stickTipY = wy + (vdy / vlen) * reach;
           }
 
           if (stickTipX !== null && stickTipY !== null) {
@@ -1507,6 +1973,45 @@ export const getPoseEngineHtml = (modelUrl: string) => `
           }
 
           const trajMetrics = calculateTrajectoryMetrics(personIdx);
+
+          // Dynamic Auto-Strike Identification (Freeflow Mode)
+          let autoDetectedStrike = null;
+          if (autoDetectMode) {
+            autoDetectedStrike = classifyStrikeMotion(landmarks, {
+              rightAngle: rightAngle,
+              rightShoulderAngle: rightShoulderAngle,
+              leftAngle: leftAngle
+            }, trajMetrics);
+
+            const now = performance.now();
+            // Require dynamic kinetic swing, NOT a static hold, and confident score (>=75%)
+            const hasDynamicMotion = (motionState.isApex || motionState.velocity >= 0.18) && !motionState.isStaticHold;
+            const isHighConfidence = autoDetectedStrike && autoDetectedStrike.confidence >= 75;
+            const cooldownPassed = (now - lastDetectedStrikeTime) >= 900;
+
+            if (hasDynamicMotion && isHighConfidence && cooldownPassed) {
+              const isApex = motionState.isApex;
+              const isNewStrike = autoDetectedStrike.id !== lastDetectedStrikeId;
+
+              // Only trigger on swing apex hit or dynamic strike transition
+              if (isApex || isNewStrike) {
+                lastDetectedStrikeId = autoDetectedStrike.id;
+                lastDetectedStrikeTime = now;
+                detectedStrikeBannerText = autoDetectedStrike.name;
+                detectedStrikeConfidence = autoDetectedStrike.confidence;
+
+                // Sync engine active strike so ghost silhouette and grading adapt to detected form!
+                activeStrike = autoDetectedStrike.id;
+
+                sendToReactNative({
+                  type: "AUTO_DETECTED_STRIKE",
+                  strikeId: autoDetectedStrike.id,
+                  strikeName: autoDetectedStrike.name,
+                  confidence: autoDetectedStrike.confidence
+                });
+              }
+            }
+          }
 
           personsData.push({
             id: personIdx,
@@ -1528,9 +2033,12 @@ export const getPoseEngineHtml = (modelUrl: string) => `
             swingVelocity: motionState.velocity,
             extDelta: motionState.extDelta,
             isApex: motionState.isApex,
+            isStaticHold: motionState.isStaticHold,
+            kineticScore: motionState.kineticScore,
             trajectory: trajMetrics,
+            detectedStrike: autoDetectedStrike,
             isPersonVisible: true,
-            // 4-pillar scores & diagnostics
+            // 5-pillar scores & diagnostics
             accuracy: compositeAccuracy,
             elbowScore: elbowScore,
             shoulderScore: shoulderScore,
@@ -1683,8 +2191,8 @@ export const getPoseEngineHtml = (modelUrl: string) => `
       
       canvasCtx.font = "bold 16px sans-serif";
 
-      if (results && results.landmarks && results.landmarks.length > 0) {
-        results.landmarks.forEach((landmarks, personIdx) => {
+      if (validLandmarksList.length > 0) {
+        validLandmarksList.forEach((landmarks, personIdx) => {
           const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
           const data = personsData[personIdx];
           if (!data) return;
@@ -1816,7 +2324,7 @@ export const getPoseEngineHtml = (modelUrl: string) => `
 
         // 7. Calculate Body Anchor for Visual Guides
         const primaryPersonObj = personsData[0] || null;
-        const primaryLandmarks = (results.landmarks && results.landmarks[0]) ? results.landmarks[0] : null;
+        const primaryLandmarks = validLandmarksList[0] || null;
 
         let guideAnchorX = canvasElement.width * 0.5;
         let guideAnchorY = canvasElement.height * 0.35;
@@ -1906,6 +2414,14 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         if (formCoachMode) {
           drawFormCoachHUD(canvasCtx, formCoachPhase, activeStrike, performance.now());
         }
+
+        // 12. Draw Auto-Detect Mode Banner HUD
+        if (autoDetectMode) {
+          drawAutoDetectHUD(canvasCtx, performance.now());
+        }
+
+        // 13. 3-Meter Visual Ergonomics: Draw Peripheral Edge Glow & Status Indicator
+        drawPeripheralEdgeGlow(canvasCtx, primaryPersonObj, canvasElement.width, canvasElement.height, performance.now());
       } else {
         // Draw centered idle ghost guide and trajectory when no person in frame
         const cX = canvasElement.width * 0.5;
@@ -1915,6 +2431,9 @@ export const getPoseEngineHtml = (modelUrl: string) => `
         drawStrikeTrajectoryGuide(activeStrike, cX, cY, cScale, canvasCtx, performance.now());
         if (formCoachMode) {
           drawFormCoachHUD(canvasCtx, formCoachPhase, activeStrike, performance.now());
+        }
+        if (autoDetectMode) {
+          drawAutoDetectHUD(canvasCtx, performance.now());
         }
       }
 
