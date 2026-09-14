@@ -78,6 +78,7 @@ export default function EvaluateScreen() {
           strikeRule={practice.currentRule}
           lastSnapshot={practice.lastSnapshot}
           lastReplayVideo={practice.lastReplayVideo}
+          lastImpactMeta={practice.lastImpactMeta}
           isFromLesson={practice.source === 'lesson'}
           onRetry={practice.retry}
           onNextStrike={practice.nextStrike}

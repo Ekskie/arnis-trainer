@@ -4,6 +4,7 @@ import Svg, { Polygon, Line, Circle, Text as SvgText, Defs, LinearGradient, Stop
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StrikeMasteryItem, MasteryStats } from '@/constants/historyStore';
+import { MartialTheme } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
 
@@ -33,11 +34,10 @@ export function StrikeRadarChart({
   const gridLevels = [0.25, 0.5, 0.75, 1.0];
 
   const getScoreColor = (score: number) => {
-    if (score >= 95) return '#10B981'; // Green
-    if (score >= 85) return '#3B82F6'; // Blue
-    if (score >= 70) return '#F59E0B'; // Orange
+    if (score >= 85) return MartialTheme.colors.primary; // Forest Green
+    if (score >= 70) return MartialTheme.colors.bambooDark; // Amber Bamboo
     if (score > 0) return '#EF4444'; // Red
-    return '#475569'; // Muted Slate
+    return '#94A3B8'; // Slate
   };
 
   const getAngle = (index: number) => {
@@ -97,7 +97,7 @@ export function StrikeRadarChart({
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
           <View style={styles.titleIconBadge}>
-            <MaterialCommunityIcons name="spider-web" size={18} color="#D24B38" />
+            <MaterialCommunityIcons name="spider-web" size={18} color={MartialTheme.colors.primary} />
           </View>
           <View>
             <Text style={styles.cardTitle}>12 STRIKES MASTERY</Text>
@@ -148,8 +148,8 @@ export function StrikeRadarChart({
         <Svg width={chartSize} height={chartSize}>
           <Defs>
             <LinearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#D24B38" stopOpacity={0.45} />
-              <Stop offset="100%" stopColor="#D24B38" stopOpacity={0.12} />
+              <Stop offset="0%" stopColor="#15803D" stopOpacity={0.42} />
+              <Stop offset="100%" stopColor="#22C55E" stopOpacity={0.10} />
             </LinearGradient>
           </Defs>
 
@@ -158,8 +158,8 @@ export function StrikeRadarChart({
             <Polygon
               key={`grid-${idx}`}
               points={getGridPolygonPoints(lvl)}
-              fill={lvl === 1.0 ? 'rgba(22, 25, 48, 0.4)' : 'none'}
-              stroke={lvl === 1.0 ? '#2A2F4D' : '#1A1F36'}
+              fill={lvl === 1.0 ? 'rgba(240, 253, 244, 0.45)' : 'none'}
+              stroke={lvl === 1.0 ? '#CBD5E1' : '#E2E8F0'}
               strokeWidth={lvl === 1.0 ? 1.5 : 1}
               strokeDasharray={lvl < 1.0 ? '3, 3' : undefined}
             />
@@ -177,7 +177,7 @@ export function StrikeRadarChart({
                 y1={cy}
                 x2={x2}
                 y2={y2}
-                stroke="#1A1F36"
+                stroke="#E2E8F0"
                 strokeWidth={1}
               />
             );
@@ -188,16 +188,16 @@ export function StrikeRadarChart({
             <Polygon
               points={polygonPoints.join(' ')}
               fill="url(#radarGradient)"
-              stroke="#D24B38"
-              strokeWidth={2.2}
+              stroke={MartialTheme.colors.primary}
+              strokeWidth={2.5}
             />
           )}
 
           {/* Grid Scale Markings */}
-          <SvgText x={cx + 4} y={cy - radius * 0.5 + 3} fill="#4B5563" fontSize="8" fontWeight="600">
+          <SvgText x={cx + 4} y={cy - radius * 0.5 + 3} fill="#94A3B8" fontSize="8" fontWeight="700">
             50%
           </SvgText>
-          <SvgText x={cx + 4} y={cy - radius * 1.0 + 8} fill="#4B5563" fontSize="8" fontWeight="600">
+          <SvgText x={cx + 4} y={cy - radius * 1.0 + 8} fill="#94A3B8" fontSize="8" fontWeight="700">
             100%
           </SvgText>
 
@@ -208,7 +208,11 @@ export function StrikeRadarChart({
             const lx = cx + labelR * Math.cos(angle);
             const ly = cy + labelR * Math.sin(angle) + 4;
             const isSelected = s.id === selectedStrikeId;
-            const color = isSelected ? '#FFFFFF' : s.bestScore >= 85 ? '#10B981' : '#64748B';
+            const color = isSelected
+              ? MartialTheme.colors.primaryDark
+              : s.bestScore >= 85
+              ? MartialTheme.colors.primary
+              : '#64748B';
 
             return (
               <G key={`label-${idx}`} onPress={() => handleNodePress(s)}>
@@ -216,8 +220,8 @@ export function StrikeRadarChart({
                   x={lx}
                   y={ly}
                   fill={color}
-                  fontSize={isSelected ? '11' : '9.5'}
-                  fontWeight={isSelected ? 'bold' : '600'}
+                  fontSize={isSelected ? '11.5' : '9.5'}
+                  fontWeight={isSelected ? '900' : '600'}
                   textAnchor="middle"
                 >
                   {`S${s.strikeNumber}`}
@@ -240,9 +244,9 @@ export function StrikeRadarChart({
                     cy={pt.y}
                     r={10}
                     fill="none"
-                    stroke="#FFFFFF"
-                    strokeWidth={1.5}
-                    opacity={0.8}
+                    stroke={MartialTheme.colors.primary}
+                    strokeWidth={2}
+                    opacity={0.85}
                   />
                 )}
                 {/* Vertex Center Dot */}
@@ -251,7 +255,7 @@ export function StrikeRadarChart({
                   cy={pt.y}
                   r={isSelected ? 6 : 4}
                   fill={nodeColor}
-                  stroke="#0F1020"
+                  stroke="#FFFFFF"
                   strokeWidth={1.5}
                 />
               </G>
@@ -268,19 +272,36 @@ export function StrikeRadarChart({
               <View
                 style={[
                   styles.strikeBadge,
-                  { backgroundColor: getScoreColor(selectedStrike.bestScore) + '25' }
+                  {
+                    backgroundColor: selectedStrike.isMastered
+                      ? MartialTheme.colors.primaryMuted
+                      : selectedStrike.bestScore > 0
+                      ? MartialTheme.colors.bambooMuted
+                      : '#F1F5F9',
+                    borderColor: selectedStrike.isMastered
+                      ? '#86EFAC'
+                      : selectedStrike.bestScore > 0
+                      ? '#FDE68A'
+                      : '#E2E8F0',
+                  }
                 ]}
               >
                 <Text
                   style={[
                     styles.strikeBadgeText,
-                    { color: getScoreColor(selectedStrike.bestScore) }
+                    {
+                      color: selectedStrike.isMastered
+                        ? MartialTheme.colors.primaryDark
+                        : selectedStrike.bestScore > 0
+                        ? MartialTheme.colors.bambooDark
+                        : MartialTheme.colors.textMuted,
+                    }
                   ]}
                 >
                   {selectedStrike.strikeNumber}
                 </Text>
               </View>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.detailName}>{selectedStrike.name}</Text>
                 <Text style={styles.detailTarget}>{selectedStrike.target}</Text>
               </View>
@@ -289,13 +310,22 @@ export function StrikeRadarChart({
             <View
               style={[
                 styles.gradePill,
-                { backgroundColor: getScoreColor(selectedStrike.bestScore) + '20' }
+                {
+                  backgroundColor: selectedStrike.isMastered
+                    ? MartialTheme.colors.primaryMuted
+                    : '#FEF3C7',
+                  borderColor: selectedStrike.isMastered ? '#BBF7D0' : '#FDE68A',
+                }
               ]}
             >
               <Text
                 style={[
                   styles.gradePillText,
-                  { color: getScoreColor(selectedStrike.bestScore) }
+                  {
+                    color: selectedStrike.isMastered
+                      ? MartialTheme.colors.primaryDark
+                      : MartialTheme.colors.bambooDark,
+                  }
                 ]}
               >
                 {selectedStrike.grade}
@@ -351,8 +381,7 @@ export function StrikeRadarChart({
       <View style={styles.selectorRow}>
         {masteryStats.strikes.map((st) => {
           const isSelected = st.id === selectedStrikeId;
-          const score = scoreMode === 'best' ? st.bestScore : st.avgScore;
-          const color = getScoreColor(score);
+          const isMastered = st.isMastered;
 
           return (
             <TouchableOpacity
@@ -360,7 +389,7 @@ export function StrikeRadarChart({
               style={[
                 styles.selectorPill,
                 isSelected && styles.selectorPillActive,
-                { borderColor: isSelected ? '#FFFFFF' : color + '40' }
+                !isSelected && isMastered && styles.selectorPillMastered,
               ]}
               onPress={() => handleNodePress(st)}
               activeOpacity={0.7}
@@ -368,7 +397,11 @@ export function StrikeRadarChart({
               <Text
                 style={[
                   styles.selectorPillText,
-                  { color: isSelected ? '#FFFFFF' : color }
+                  isSelected
+                    ? styles.selectorPillTextActive
+                    : isMastered
+                    ? styles.selectorPillTextMastered
+                    : styles.selectorPillTextDefault,
                 ]}
               >
                 {st.strikeNumber}
@@ -383,17 +416,14 @@ export function StrikeRadarChart({
 
 const styles = StyleSheet.create({
   cardContainer: {
-    backgroundColor: '#161930',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 18,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 4,
+    borderBottomColor: MartialTheme.colors.border3D,
+    padding: 16,
+    marginBottom: 20,
   },
   headerRow: {
     flexDirection: 'row',
@@ -408,60 +438,64 @@ const styles = StyleSheet.create({
   titleIconBadge: {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(210, 75, 56, 0.15)',
+    borderRadius: 10,
+    backgroundColor: MartialTheme.colors.primaryMuted,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
   cardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 1.1,
+    fontSize: 13,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    letterSpacing: 0.8,
   },
   rankSubtitle: {
     fontSize: 11,
-    color: '#94A3B8',
+    fontWeight: '700',
+    color: MartialTheme.colors.bambooDark,
     marginTop: 1,
   },
   modeSwitcher: {
     flexDirection: 'row',
-    backgroundColor: '#0F1020',
-    borderRadius: 8,
-    padding: 2,
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 10,
+    padding: 3,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
   },
   modeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 7,
   },
   modeBtnActive: {
-    backgroundColor: '#D24B38',
+    backgroundColor: MartialTheme.colors.primary,
   },
   modeBtnText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: '700',
+    color: MartialTheme.colors.textMuted,
   },
   modeBtnTextActive: {
     color: '#FFFFFF',
+    fontWeight: '900',
   },
   progressSummaryRow: {
     marginBottom: 8,
   },
   progressBarWrapper: {
-    height: 5,
-    backgroundColor: '#0F1020',
+    height: 6,
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
     borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 6,
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#D24B38',
+    backgroundColor: MartialTheme.colors.primary,
     borderRadius: 3,
   },
   progressLabelRow: {
@@ -471,11 +505,12 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textSecondary,
+    fontWeight: '600',
   },
   progressHighlight: {
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   chartWrapper: {
     alignItems: 'center',
@@ -483,11 +518,11 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   detailCard: {
-    backgroundColor: '#0F1020',
-    borderRadius: 12,
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 16,
     padding: 14,
-    borderWidth: 1,
-    borderColor: '#1E293B',
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
     marginTop: 8,
     marginBottom: 12,
   },
@@ -501,106 +536,139 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    paddingRight: 8,
   },
   strikeBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    borderWidth: 1,
   },
   strikeBadgeText: {
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '900',
   },
   detailName: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   detailTarget: {
     fontSize: 11,
-    color: '#F59E0B',
+    color: MartialTheme.colors.bambooDark,
+    fontWeight: '700',
     marginTop: 1,
   },
   gradePill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   gradePillText: {
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '900',
   },
   detailDesc: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: MartialTheme.colors.textSecondary,
     marginBottom: 10,
     lineHeight: 16,
+    fontWeight: '600',
   },
   metricsRow: {
     flexDirection: 'row',
-    backgroundColor: '#161930',
-    borderRadius: 8,
-    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'space-around',
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
   },
   metricItem: {
     alignItems: 'center',
   },
   metricLabel: {
     fontSize: 9,
-    fontWeight: 'bold',
-    color: '#64748B',
+    fontWeight: '900',
+    color: MartialTheme.colors.textMuted,
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   metricValue: {
     fontSize: 13,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   metricDivider: {
     width: 1,
-    height: 20,
-    backgroundColor: '#1E293B',
+    height: 22,
+    backgroundColor: MartialTheme.colors.border,
   },
   practiceButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#D24B38',
-    borderRadius: 8,
-    paddingVertical: 9,
+    backgroundColor: MartialTheme.colors.primary,
+    borderRadius: 12,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.primary,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.primaryDark,
   },
   practiceButtonText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 12.5,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
   selectorRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 4,
+    gap: 4,
   },
   selectorPill: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    backgroundColor: '#0F1020',
+    flex: 1,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 2,
+    borderBottomColor: MartialTheme.colors.border3D,
   },
   selectorPillActive: {
-    backgroundColor: '#D24B38',
+    backgroundColor: MartialTheme.colors.primary,
+    borderColor: MartialTheme.colors.primary,
+    borderBottomColor: MartialTheme.colors.primaryDark,
+  },
+  selectorPillMastered: {
+    borderColor: '#BBF7D0',
+    backgroundColor: '#F0FDF4',
   },
   selectorPillText: {
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '900',
+  },
+  selectorPillTextDefault: {
+    color: MartialTheme.colors.textMuted,
+  },
+  selectorPillTextActive: {
+    color: '#FFFFFF',
+  },
+  selectorPillTextMastered: {
+    color: MartialTheme.colors.primaryDark,
   },
 });

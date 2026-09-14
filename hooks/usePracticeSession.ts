@@ -14,6 +14,8 @@ import {
   SessionItem,
 } from '@/constants/historyStore';
 import { addXpAndStreak } from '@/constants/gamificationStore';
+import { getCoachReference } from '@/constants/referenceStore';
+import { persistUserStrikeMedia } from '@/services/mediaStorageService';
 
 export type PracticeScreenState = 'setup' | 'briefing' | 'live' | 'result';
 
@@ -63,6 +65,17 @@ export function usePracticeSession() {
   });
   const [lastSnapshot, setLastSnapshot] = useState<string | null>(null);
   const [lastReplayVideo, setLastReplayVideo] = useState<string | null>(null);
+  const [lastImpactMeta, setLastImpactMeta] = useState<{
+    impactFrame?: number;
+    impactTime?: number;
+    coachImpactTime?: number;
+    confidence?: number;
+    actualAngles?: {
+      elbow?: number;
+      shoulder?: number;
+      knee?: number;
+    };
+  }>({});
 
   // Derive current rule from canonical strikeRules
   const currentRule: StrikeRule = useMemo(() => {
@@ -148,7 +161,18 @@ export function usePracticeSession() {
         durationMs?: number;
       },
       snapshotBase64?: string,
-      replayVideoBase64?: string
+      replayVideoBase64?: string,
+      impactMeta?: {
+        impactFrame?: number;
+        impactTime?: number;
+        coachImpactTime?: number;
+        confidence?: number;
+        actualAngles?: {
+          elbow?: number;
+          shoulder?: number;
+          knee?: number;
+        };
+      }
     ) => {
       // 1. Fetch previous history to compute delta
       const historyList: SessionItem[] = await getHistory();
@@ -180,27 +204,80 @@ export function usePracticeSession() {
       if (snapshotBase64) setLastSnapshot(snapshotBase64);
       if (replayVideoBase64) setLastReplayVideo(replayVideoBase64);
 
-      // 3. Save to historyStore
+      // 3. Obtain coach reference & persist user media to stable storage
+      const coachRef = getCoachReference(selectedStrikeId);
+      const nowTimestamp = Date.now();
+
+      const storedMedia = await persistUserStrikeMedia({
+        strikeId: selectedStrikeId,
+        timestamp: nowTimestamp,
+        videoBase64: replayVideoBase64,
+        snapshotBase64,
+        impactFrame: impactMeta?.impactFrame ?? 45,
+        impactTime: impactMeta?.impactTime ?? 1.45,
+        score: finalScore,
+      });
+
+      const meta = {
+        impactFrame: impactMeta?.impactFrame ?? storedMedia.impactFrame,
+        impactTime: impactMeta?.impactTime ?? storedMedia.impactTime,
+        coachImpactTime: coachRef.impactTime,
+        confidence: impactMeta?.confidence ?? storedMedia.confidence,
+        actualAngles: impactMeta?.actualAngles,
+      };
+      setLastImpactMeta(meta);
+
+      // 4. Save to historyStore with rich media payload
       await saveSession(
         selectedStrikeId,
         currentRule.name,
         currentRule.desc,
         result.score,
         {
-          elbow: { score: rawStats.elbowScore, actual: 0, ideal: currentRule.chamber_elb },
-          shoulder: { score: rawStats.shoulderScore, actual: 0, ideal: currentRule.ideal_shoulder },
-          wrist: { score: rawStats.wristScore, actual: 0, ideal: 0 },
-          guard: { score: rawStats.guardScore, actual: 0, ideal: 0 },
-          stance: { score: rawStats.stanceScore, actual: 0, ideal: currentRule.ideal_knee },
+          elbow: {
+            score: rawStats.elbowScore,
+            actual: impactMeta?.actualAngles?.elbow ?? 0,
+            ideal: coachRef.angles.elbow || currentRule.chamber_elb,
+          },
+          shoulder: {
+            score: rawStats.shoulderScore,
+            actual: impactMeta?.actualAngles?.shoulder ?? 0,
+            ideal: coachRef.angles.shoulder || currentRule.ideal_shoulder,
+          },
+          wrist: {
+            score: rawStats.wristScore,
+            actual: 0,
+            ideal: coachRef.angles.wrist || 90,
+          },
+          guard: {
+            score: rawStats.guardScore,
+            actual: 0,
+            ideal: coachRef.angles.guard || 70,
+          },
+          stance: {
+            score: rawStats.stanceScore,
+            actual: impactMeta?.actualAngles?.knee ?? 0,
+            ideal: coachRef.angles.knee || currentRule.ideal_knee,
+          },
         },
         snapshotBase64,
-        replayVideoBase64
+        replayVideoBase64,
+        {
+          userVideoUri: storedMedia.userVideoUri || replayVideoBase64,
+          userImpactSnapshotUri: storedMedia.userImpactSnapshotUri || snapshotBase64,
+          coachVideoUri: coachRef.videoUrl,
+          coachImpactSnapshotUri: coachRef.snapshotUrl,
+          impactFrame: meta.impactFrame,
+          impactTime: meta.impactTime,
+          coachImpactTime: meta.coachImpactTime,
+          impactConfidence: meta.confidence,
+        }
       );
 
-      // 4. Award XP and streak
+      // 5. Award XP and streak
       await addXpAndStreak(10);
 
-      // 5. Navigate to result view
+      // 6. Navigate to result view
       setScreen('result');
     },
     [selectedStrikeId, currentRule]
@@ -302,6 +379,7 @@ export function usePracticeSession() {
     sessionImprovement,
     lastSnapshot,
     lastReplayVideo,
+    lastImpactMeta,
     startStrike,
     startAnyo,
     completeSingleStrikeSession,

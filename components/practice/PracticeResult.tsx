@@ -19,6 +19,9 @@ import { SessionImprovement } from '@/hooks/usePracticeSession';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { WhyFailedModal } from '@/components/WhyFailedModal';
 import { TactileButton } from '@/components/ui/TactileButton';
+import { CoachVsYou } from '@/components/comparison/CoachVsYou';
+import { ComparisonPlayer } from '@/components/comparison/ComparisonPlayer';
+import { getCoachReference } from '@/constants/referenceStore';
 
 export interface PracticeResultProps {
   result: StrikeEvaluationResult;
@@ -26,6 +29,17 @@ export interface PracticeResultProps {
   strikeRule: StrikeRule;
   lastSnapshot?: string | null;
   lastReplayVideo?: string | null;
+  lastImpactMeta?: {
+    impactFrame?: number;
+    impactTime?: number;
+    coachImpactTime?: number;
+    confidence?: number;
+    actualAngles?: {
+      elbow?: number;
+      shoulder?: number;
+      knee?: number;
+    };
+  };
   isFromLesson?: boolean;
   onRetry: () => void;
   onNextStrike?: () => void;
@@ -39,6 +53,7 @@ export function PracticeResult({
   strikeRule,
   lastSnapshot,
   lastReplayVideo,
+  lastImpactMeta,
   isFromLesson,
   onRetry,
   onNextStrike,
@@ -48,6 +63,9 @@ export function PracticeResult({
   const router = useRouter();
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [showWhyModal, setShowWhyModal] = useState(false);
+  const [showComparisonPlayer, setShowComparisonPlayer] = useState(false);
+
+  const coachRef = getCoachReference(strikeRule.id);
 
   const isMastered = improvement.isMastered || result.score >= 85;
 
@@ -238,7 +256,27 @@ export function PracticeResult({
           </View>
         </View>
 
-        {/* --- 2. COLLAPSIBLE DETAILED BIOMECHANICAL ANALYSIS --- */}
+        {/* --- 2. COACH VS YOU POSTURE COMPARISON CARD --- */}
+        <CoachVsYou
+          strikeRule={strikeRule}
+          coachReference={coachRef}
+          userSnapshotUri={lastSnapshot}
+          userScore={result.score}
+          userPillars={{
+            strikingArm: result.pillarScores.strikingArm,
+            guard: result.pillarScores.guard,
+            stance: result.pillarScores.stance,
+            wrist: result.pillarScores.wrist,
+          }}
+          userActualAngles={lastImpactMeta?.actualAngles}
+          userImpactTime={lastImpactMeta?.impactTime ?? 1.45}
+          coachImpactTime={coachRef.impactTime}
+          confidence={lastImpactMeta?.confidence ?? 0.85}
+          onOpenVideoComparison={() => setShowComparisonPlayer(true)}
+          hasUserVideo={!!lastReplayVideo}
+        />
+
+        {/* --- 3. COLLAPSIBLE DETAILED BIOMECHANICAL ANALYSIS --- */}
         <TouchableOpacity
           style={styles.toggleDetailsBtn}
           activeOpacity={0.75}
@@ -419,6 +457,17 @@ export function PracticeResult({
           setShowWhyModal(false);
           onRetry();
         }}
+      />
+
+      {/* Synchronized Dual Video Comparison Modal */}
+      <ComparisonPlayer
+        visible={showComparisonPlayer}
+        onClose={() => setShowComparisonPlayer(false)}
+        strikeRule={strikeRule}
+        coachReference={coachRef}
+        userVideoUri={lastReplayVideo}
+        userImpactTime={lastImpactMeta?.impactTime ?? 1.45}
+        coachImpactTime={coachRef.impactTime}
       />
     </SafeAreaView>
   );

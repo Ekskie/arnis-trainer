@@ -1308,6 +1308,11 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
           mediaRecorder.onstop = () => {
             try {
               const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+              // Limit blob size to prevent OutOfMemory/TransactionTooLarge on Android bridge
+              if (blob.size > 6 * 1024 * 1024) {
+                console.warn("Recorded video replay exceeds 6MB bridge threshold, skipping transfer.");
+                return;
+              }
               const reader = new FileReader();
               reader.onloadend = () => {
                 const videoDataUrl = reader.result;
@@ -1322,7 +1327,11 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             }
           };
 
-          mediaRecorder.start(100);
+          try {
+            mediaRecorder.start(100);
+          } catch (startErr) {
+            console.warn("mediaRecorder.start failed:", startErr);
+          }
         }
       } catch (err) {
         console.error("Failed to start MediaRecorder:", err);

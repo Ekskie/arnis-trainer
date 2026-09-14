@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +21,7 @@ import {
 } from '@/constants/curriculumStore';
 import { addXpAndStreak } from '@/constants/gamificationStore';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
+import { STRIKE_RULES } from '@/constants/strikeRules';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { LessonProgressBar } from '@/components/ui/LessonProgressBar';
@@ -39,6 +41,7 @@ export default function LessonScreen() {
   const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>({});
   const [earnedXp, setEarnedXp] = useState(10);
   const [newStreak, setNewStreak] = useState(3);
+  const [isPlaying, setIsPlaying] = useState(true);
 
   // Steps definition: Rapid 4 to 5 screen sequence
   const steps: LessonStepType[] = useMemo(() => {
@@ -50,18 +53,75 @@ export default function LessonScreen() {
 
   const currentStep = steps[currentStepIndex] || 'concept';
 
-  // Video setup if strike or video available
+  // Video setup with asset URI resolution for Expo Go / native compatibility
   const videoSource = useMemo(() => {
     if (lesson.strikeKey && LOCAL_STRIKE_VIDEOS[lesson.strikeKey]) {
-      return LOCAL_STRIKE_VIDEOS[lesson.strikeKey];
+      const raw = LOCAL_STRIKE_VIDEOS[lesson.strikeKey];
+      try {
+        const resolved = Image.resolveAssetSource(raw);
+        return resolved?.uri ? { uri: resolved.uri } : raw;
+      } catch {
+        return raw;
+      }
     }
     return null;
   }, [lesson.strikeKey]);
 
-  const player = useVideoPlayer(videoSource || '', (p) => {
+  const player = useVideoPlayer(videoSource, (p) => {
     p.loop = true;
     p.muted = true;
+    try {
+      p.play();
+    } catch {
+      // ignore
+    }
   });
+
+  // Play video when entering visual step; pause when leaving
+  useEffect(() => {
+    if (!player) return;
+    if (currentStep === 'visual') {
+      try {
+        player.play();
+        setIsPlaying(true);
+      } catch {
+        // ignore
+      }
+    } else {
+      try {
+        player.pause();
+        setIsPlaying(false);
+      } catch {
+        // ignore
+      }
+    }
+  }, [currentStep, player]);
+
+  // Clean up playback on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        player?.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [player]);
+
+  const togglePlayback = () => {
+    if (!player) return;
+    try {
+      if (player.playing) {
+        player.pause();
+        setIsPlaying(false);
+      } else {
+        player.play();
+        setIsPlaying(true);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleNextStep = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -80,17 +140,28 @@ export default function LessonScreen() {
 
   const handleFinishAndExit = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.replace('/explore' as any);
+    try {
+      player?.pause();
+    } catch {
+      // ignore
+    }
+    router.replace('/journey' as any);
   };
 
-  const handleStartCameraDrill = (mode: 'follow' | 'guided' | 'test') => {
+  const handleStartCameraDrill = (drillMode: 'follow' | 'guided' | 'test') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    try {
+      player?.pause();
+    } catch {
+      // ignore
+    }
+    const targetStrikeId = lesson.strikeKey || (STRIKE_RULES[lesson.id] ? lesson.id : 'strike_1');
     router.push({
       pathname: '/evaluate' as any,
       params: {
-        strikeId: lesson.id,
+        strikeId: targetStrikeId,
         lessonId: lesson.id,
-        mode,
+        mode: drillMode,
         source: 'lesson',
       },
     });
@@ -217,8 +288,19 @@ export default function LessonScreen() {
                   player={player}
                   style={styles.videoPlayer}
                   allowsFullscreen={false}
+                  allowsPictureInPicture={false}
                   nativeControls={false}
+                  contentFit="cover"
+                  surfaceType="textureView"
                 />
+                <TouchableOpacity
+                  style={styles.videoPlayToggleBadge}
+                  onPress={togglePlayback}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={isPlaying ? 'pause' : 'play'} size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.videoPlayToggleText}>{isPlaying ? 'Pause' : 'Play'}</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <CoachCharacter pose="stance" size={135} style={{ marginVertical: 12 }} />
@@ -566,6 +648,24 @@ const styles = StyleSheet.create({
   videoPlayer: {
     width: '100%',
     height: '100%',
+  },
+  videoPlayToggleBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(28, 39, 33, 0.75)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  videoPlayToggleText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
   watchCuesCard: {
     backgroundColor: '#FFFFFF',

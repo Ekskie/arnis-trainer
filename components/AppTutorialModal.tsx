@@ -1234,7 +1234,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#161930',
+    borderTopColor: MartialTheme.colors.border,
   },
   dotsContainer: {
     flexDirection: 'row',
@@ -1247,7 +1247,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#334155',
+    backgroundColor: '#CBD5E1',
   },
   dotActive: {
     width: 20,

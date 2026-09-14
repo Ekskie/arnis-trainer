@@ -32,6 +32,11 @@ import {
 } from '@/constants/historyStore';
 import { getGamificationStats } from '@/constants/gamificationStore';
 
+import { getStrikeRule } from '@/constants/strikeRules';
+import { getCoachReference } from '@/constants/referenceStore';
+import { CoachVsYou } from '@/components/comparison/CoachVsYou';
+import { ComparisonPlayer } from '@/components/comparison/ComparisonPlayer';
+
 const { width } = Dimensions.get('window');
 
 export default function ProgressHistoryScreen() {
@@ -42,6 +47,7 @@ export default function ProgressHistoryScreen() {
   const [streakDays, setStreakDays] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
+  const [comparisonSession, setComparisonSession] = useState<SessionItem | null>(null);
 
   const [stats, setStats] = useState({
     avgScore: 0,
@@ -864,7 +870,7 @@ export default function ProgressHistoryScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 540 }}>
               {/* Score Header */}
               <View style={styles.replayScoreHeader}>
                 <View
@@ -889,8 +895,37 @@ export default function ProgressHistoryScreen() {
                 </View>
               </View>
 
-              {/* Video Replay if available */}
-              {selectedSession?.replayVideoBase64 && (
+              {/* Coach vs You Posture & Video Comparison for Strike Sessions */}
+              {selectedSession && !selectedSession.routineId && (
+                <CoachVsYou
+                  strikeRule={getStrikeRule(selectedSession.strikeId)}
+                  coachReference={getCoachReference(selectedSession.strikeId)}
+                  userSnapshotUri={selectedSession.userImpactSnapshotUri || selectedSession.snapshotBase64}
+                  userScore={selectedSession.score}
+                  userPillars={{
+                    strikingArm: selectedSession.breakdown?.elbow?.score ?? selectedSession.score,
+                    guard: selectedSession.breakdown?.guard?.score ?? 80,
+                    stance: selectedSession.breakdown?.stance?.score ?? selectedSession.breakdown?.knee?.score ?? 80,
+                    wrist: selectedSession.breakdown?.wrist?.score ?? 85,
+                  }}
+                  userActualAngles={{
+                    elbow: selectedSession.breakdown?.elbow?.actual,
+                    shoulder: selectedSession.breakdown?.shoulder?.actual,
+                    knee: selectedSession.breakdown?.stance?.actual ?? selectedSession.breakdown?.knee?.actual,
+                  }}
+                  userImpactTime={selectedSession.impactTime ?? 1.45}
+                  coachImpactTime={selectedSession.coachImpactTime ?? getCoachReference(selectedSession.strikeId).impactTime}
+                  confidence={selectedSession.impactConfidence ?? 0.85}
+                  onOpenVideoComparison={() => {
+                    const s = selectedSession;
+                    setComparisonSession(s);
+                  }}
+                  hasUserVideo={!!(selectedSession.userVideoUri || selectedSession.replayVideoBase64)}
+                />
+              )}
+
+              {/* Video Replay if available (for Anyo routines or standalone) */}
+              {selectedSession?.routineId && selectedSession?.replayVideoBase64 && (
                 <View style={styles.videoReplayContainer}>
                   <Text style={styles.videoReplayHeading}>SESSION MOTION REPLAY</Text>
                   <View style={styles.videoWrapper}>
@@ -914,8 +949,8 @@ export default function ProgressHistoryScreen() {
                 </View>
               )}
 
-              {/* Snapshot if available */}
-              {selectedSession?.snapshotBase64 && !selectedSession?.replayVideoBase64 && (
+              {/* Snapshot if available for Anyo routines */}
+              {selectedSession?.routineId && selectedSession?.snapshotBase64 && !selectedSession?.replayVideoBase64 && (
                 <View style={styles.videoReplayContainer}>
                   <Text style={styles.videoReplayHeading}>IMPACT ZONE SNAPSHOT</Text>
                   <Image source={{ uri: selectedSession.snapshotBase64 }} style={styles.snapshotImg} resizeMode="contain" />
@@ -963,6 +998,19 @@ export default function ProgressHistoryScreen() {
               params: { strikeId: sid, mode: 'guided' },
             });
           }}
+        />
+      )}
+
+      {/* --- SYNCHRONIZED COMPARISON PLAYER MODAL --- */}
+      {comparisonSession && !comparisonSession.routineId && (
+        <ComparisonPlayer
+          visible={!!comparisonSession}
+          onClose={() => setComparisonSession(null)}
+          strikeRule={getStrikeRule(comparisonSession.strikeId)}
+          coachReference={getCoachReference(comparisonSession.strikeId)}
+          userVideoUri={comparisonSession.userVideoUri || comparisonSession.replayVideoBase64}
+          userImpactTime={comparisonSession.impactTime ?? 1.45}
+          coachImpactTime={comparisonSession.coachImpactTime ?? getCoachReference(comparisonSession.strikeId).impactTime}
         />
       )}
     </SafeAreaView>

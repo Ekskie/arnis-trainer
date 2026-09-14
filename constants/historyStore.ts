@@ -10,6 +10,14 @@ export interface SessionItem {
   date: string;
   snapshotBase64?: string;
   replayVideoBase64?: string;
+  userVideoUri?: string;
+  userImpactSnapshotUri?: string;
+  coachVideoUri?: string;
+  coachImpactSnapshotUri?: string;
+  impactFrame?: number;
+  impactTime?: number;
+  coachImpactTime?: number;
+  impactConfidence?: number;
   breakdown: {
     elbow: { score: number; actual: number; ideal: number };
     shoulder: { score: number; actual: number; ideal: number };
@@ -23,6 +31,17 @@ export interface SessionItem {
   anyoSteps?: AnyoStepResult[];
   totalDurationMs?: number;
   cadenceSpeedSec?: number;
+}
+
+export interface SessionMediaPayload {
+  userVideoUri?: string;
+  userImpactSnapshotUri?: string;
+  coachVideoUri?: string;
+  coachImpactSnapshotUri?: string;
+  impactFrame?: number;
+  impactTime?: number;
+  coachImpactTime?: number;
+  impactConfidence?: number;
 }
 
 export interface AnyoRoutine {
@@ -259,7 +278,8 @@ export async function saveSession(
   score: number,
   breakdown: SessionItem['breakdown'],
   snapshotBase64?: string,
-  replayVideoBase64?: string
+  replayVideoBase64?: string,
+  mediaPayload?: SessionMediaPayload
 ): Promise<SessionItem> {
   const grade = computeGrade(score);
 
@@ -281,6 +301,14 @@ export async function saveSession(
     date: dateStr,
     snapshotBase64,
     replayVideoBase64,
+    userVideoUri: mediaPayload?.userVideoUri || replayVideoBase64,
+    userImpactSnapshotUri: mediaPayload?.userImpactSnapshotUri || snapshotBase64,
+    coachVideoUri: mediaPayload?.coachVideoUri,
+    coachImpactSnapshotUri: mediaPayload?.coachImpactSnapshotUri,
+    impactFrame: mediaPayload?.impactFrame,
+    impactTime: mediaPayload?.impactTime,
+    coachImpactTime: mediaPayload?.coachImpactTime,
+    impactConfidence: mediaPayload?.impactConfidence,
     breakdown
   };
 

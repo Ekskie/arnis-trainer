@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useCameraPermissions } from 'expo-camera';
 import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
@@ -24,6 +26,9 @@ import { evaluatePoseFrame } from '@/engine/evaluation/strikeEvaluator';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
 import { AnyoRoutine, AnyoStepResult } from '@/constants/historyStore';
+import { ImpactDetector } from '@/services/impactDetector';
+import { CoachCharacter } from '@/components/ui/CoachCharacter';
+import { TactileButton } from '@/components/ui/TactileButton';
 
 export interface PracticeLiveProps {
   strikeRule: StrikeRule;
@@ -42,7 +47,17 @@ export interface PracticeLiveProps {
       durationMs?: number;
     },
     snapshotBase64?: string,
-    replayVideoBase64?: string
+    replayVideoBase64?: string,
+    impactMeta?: {
+      impactFrame?: number;
+      impactTime?: number;
+      confidence?: number;
+      actualAngles?: {
+        elbow?: number;
+        shoulder?: number;
+        knee?: number;
+      };
+    }
   ) => void;
   onCompleteAnyo?: (
     routine: AnyoRoutine,
@@ -67,6 +82,15 @@ export function PracticeLive({
   const router = useRouter();
   // Collapsible Technical Analysis drawer (collapsed by default)
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+  // Camera permissions
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    if (!cameraPermission?.granted) {
+      requestCameraPermission().catch(() => {});
+    }
+  }, [cameraPermission, requestCameraPermission]);
 
   // Sound toggle override locally
   const [voiceActive, setVoiceActive] = useState(evaluationConfig.voiceEnabled);
@@ -97,6 +121,7 @@ export function PracticeLive({
     guardScore: 0,
     stanceScore: 0,
   });
+  const impactDetectorRef = useRef(new ImpactDetector());
 
   // Form Coach (3-step) states
   const [coachPhase, setCoachPhase] = useState<'chamber' | 'impact' | 'recovery' | 'completed'>('chamber');
@@ -168,8 +193,10 @@ export function PracticeLive({
         setCoachPrompt('Sharp form! Keep your speed and snap!');
       }
 
-      // Track best scores during evaluating window
+      // Track best scores & impact frames during evaluating window
       if (countdownState === 'evaluating') {
+        impactDetectorRef.current.addFrame(primaryPerson, strikeRule, lastSnapshot || undefined);
+
         if (frameResult.accuracy > bestScoreRef.current) {
           bestScoreRef.current = frameResult.accuracy;
           bestAnglesRef.current = {
@@ -236,15 +263,40 @@ export function PracticeLive({
     }
   }, [webReady, evaluationConfig, voiceActive, sendSessionConfig]);
 
-  // Video player for Mode: Follow the Coach
-  const followVideoSource = LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
+  // Video player for Mode: Follow the Coach (only instantiate when mode is 'follow')
+  const followVideoSource = useMemo(() => {
+    if (mode !== 'follow') return null;
+    const raw = LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
+    try {
+      const resolved = Image.resolveAssetSource(raw);
+      return resolved?.uri ? { uri: resolved.uri } : raw;
+    } catch {
+      return raw;
+    }
+  }, [mode, strikeRule.id]);
+
   const followPlayer = useVideoPlayer(followVideoSource, (p) => {
     p.loop = true;
     p.playbackRate = 0.75;
     if (mode === 'follow') {
-      p.play();
+      try {
+        p.play();
+      } catch {
+        // ignore
+      }
     }
   });
+
+  // Ensure follow player pauses when not in follow mode or unmounting
+  useEffect(() => {
+    return () => {
+      try {
+        followPlayer?.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [followPlayer]);
 
   // Countdown timer logic: 3 -> 2 -> 1 -> GO!
   const startCountdown = () => {
@@ -281,6 +333,7 @@ export function PracticeLive({
   const startEvaluationWindow = () => {
     setCountdownState('evaluating');
     bestScoreRef.current = 0;
+    impactDetectorRef.current.reset(Date.now());
     startVideoRecording();
 
     // Evaluation window: 10s for test mode, 6s for guided practice
@@ -336,6 +389,15 @@ export function PracticeLive({
     }
 
     // Single Strike completion
+    const impactResult = impactDetectorRef.current.finalize(durationMs);
+    const actualAngles = {
+      elbow: Math.round(impactResult.detectedPose.rightAngle ?? 0),
+      shoulder: Math.round(impactResult.detectedPose.rightShoulderAngle ?? 0),
+      knee: Math.round(impactResult.detectedPose.leadKneeAngle ?? impactResult.detectedPose.rightKneeAngle ?? 0),
+    };
+
+    const finalSnapshot = impactResult.snapshotBase64 || lastSnapshot || undefined;
+
     onComplete(
       {
         score: finalScore,
@@ -346,8 +408,14 @@ export function PracticeLive({
         stanceScore: bestAnglesRef.current.stanceScore || livePillars.stance || 80,
         durationMs,
       },
-      lastSnapshot || undefined,
-      lastReplayVideo || undefined
+      finalSnapshot,
+      lastReplayVideo || undefined,
+      {
+        impactFrame: impactResult.impactFrame,
+        impactTime: impactResult.impactTime,
+        confidence: impactResult.confidence,
+        actualAngles,
+      }
     );
   };
 
@@ -369,6 +437,41 @@ export function PracticeLive({
 
   const modelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
   const webBaseUrl = Platform.OS === 'android' ? 'https://localhost' : 'http://localhost';
+
+  // Camera permission gatekeeper: don't mount WebView until OS camera permission is confirmed
+  if (!cameraPermission) {
+    return (
+      <SafeAreaView style={styles.permissionContainer} edges={['top', 'bottom']}>
+        <ActivityIndicator size="large" color={MartialTheme.colors.primary} />
+        <Text style={[styles.permissionDesc, { marginTop: 16 }]}>Checking camera permissions...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!cameraPermission.granted) {
+    return (
+      <SafeAreaView style={styles.permissionContainer} edges={['top', 'bottom']}>
+        <View style={styles.permissionCard}>
+          <CoachCharacter pose="thinking" size={100} />
+          <Text style={styles.permissionTitle}>Camera Access Needed</Text>
+          <Text style={styles.permissionDesc}>
+            To analyze your strike form, track your body angles, and give you real-time coach feedback, Arnis Trainer needs access to your camera.
+          </Text>
+          <View style={styles.permissionActions}>
+            <TactileButton
+              title="ALLOW CAMERA ACCESS"
+              variant="primary"
+              size="lg"
+              onPress={() => requestCameraPermission()}
+            />
+            <TouchableOpacity onPress={onExit} style={styles.permissionCancelBtn}>
+              <Text style={styles.permissionCancelText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -454,6 +557,7 @@ export function PracticeLive({
               allowsFullscreen={false}
               allowsPictureInPicture={false}
               contentFit="cover"
+              surfaceType="textureView"
             />
           </View>
         )}
@@ -1034,5 +1138,60 @@ const styles = StyleSheet.create({
   pillarBarFill: {
     height: '100%',
     borderRadius: 3,
+  },
+
+  // CAMERA PERMISSION FALLBACK
+  permissionContainer: {
+    flex: 1,
+    backgroundColor: MartialTheme.colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  permissionCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: MartialTheme.colors.card,
+    borderRadius: 24,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 5,
+    borderBottomColor: MartialTheme.colors.border3D,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  permissionTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    marginTop: 18,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  permissionDesc: {
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '600',
+    color: MartialTheme.colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  permissionActions: {
+    width: '100%',
+    gap: 12,
+  },
+  permissionCancelBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  permissionCancelText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
   },
 });
