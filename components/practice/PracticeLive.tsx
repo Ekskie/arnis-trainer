@@ -14,6 +14,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
+import { useRouter } from 'expo-router';
 
 import { MartialTheme } from '@/constants/theme';
 import { StrikeRule } from '@/constants/strikeRules';
@@ -63,6 +64,7 @@ export function PracticeLive({
   onExit,
   onChangeMode,
 }: PracticeLiveProps) {
+  const router = useRouter();
   // Collapsible Technical Analysis drawer (collapsed by default)
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
@@ -400,21 +402,41 @@ export function PracticeLive({
           </View>
         </View>
 
-        {/* Audio / Voice Feedback Toggle Button */}
-        <TouchableOpacity
-          style={[styles.audioToggleBtn, voiceActive && styles.audioToggleBtnActive]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setVoiceActive(!voiceActive);
-          }}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={voiceActive ? 'volume-high' : 'volume-mute'}
-            size={20}
-            color={voiceActive ? MartialTheme.colors.primary : MartialTheme.colors.textMuted}
-          />
-        </TouchableOpacity>
+        {/* Actions on right: Quick Coach Tips + Audio Toggle Button */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            style={styles.coachLiveBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({
+                pathname: '/chat' as any,
+                params: {
+                  strikeId: strikeRule.id,
+                  strikeName: strikeRule.name,
+                  source: 'practice',
+                },
+              });
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.coachLiveBtnText}>💬 Coach</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.audioToggleBtn, voiceActive && styles.audioToggleBtnActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setVoiceActive(!voiceActive);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={voiceActive ? 'volume-high' : 'volume-mute'}
+              size={20}
+              color={voiceActive ? MartialTheme.colors.primary : MartialTheme.colors.textMuted}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* --- 2. IMMERSIVE CAMERA VIEWPORT --- */}
@@ -674,6 +696,19 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 6,
     marginLeft: 6,
+  },
+  coachLiveBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  coachLiveBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#92400E',
   },
   audioToggleBtn: {
     padding: 6,

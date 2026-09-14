@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 
 import { MartialTheme } from '@/constants/theme';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
@@ -43,6 +44,7 @@ export function PracticeHomeScreen({
   voiceFeedbackEnabled,
   setVoiceFeedbackEnabled,
 }: PracticeHomeScreenProps) {
+  const router = useRouter();
   const [streakDays, setStreakDays] = useState(1);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
@@ -204,7 +206,25 @@ export function PracticeHomeScreen({
             <CoachCharacter pose="thinking" size={46} />
           </View>
           <View style={styles.coachSpeechContent}>
-            <Text style={styles.coachSpeechLabel}>COACH SAYS</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+              <Text style={styles.coachSpeechLabel}>COACH SAYS</Text>
+              <TouchableOpacity
+                style={styles.coachAskBtn}
+                activeOpacity={0.75}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push({
+                    pathname: '/chat' as any,
+                    params: {
+                      strikeId: recommendedStrike.id,
+                      strikeName: `Strike ${recommendedStrike.strikeNumber}`,
+                    },
+                  });
+                }}
+              >
+                <Text style={styles.coachAskBtnText}>💬 Ask Coach</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.coachSpeechText}>{`"${recommendedStrike.coachTip}"`}</Text>
           </View>
         </View>
@@ -688,7 +708,21 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: MartialTheme.colors.bambooDark,
     letterSpacing: 0.8,
-    marginBottom: 2,
+  },
+  coachAskBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  coachAskBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
   },
   coachSpeechText: {
     fontSize: 12.5,

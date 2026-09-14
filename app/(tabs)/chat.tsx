@@ -1,11 +1,24 @@
-import { getHistory, SessionItem } from '@/constants/historyStore';
-import { ALL_CURRICULUM_LESSONS } from '@/constants/curriculumStore';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { MartialTheme } from '@/constants/theme';
+import { getHistory, SessionItem } from '@/constants/historyStore';
+import { ALL_CURRICULUM_LESSONS } from '@/constants/curriculumStore';
+import { getStrikeRule } from '@/constants/strikeRules';
+import { CoachCharacter } from '@/components/ui/CoachCharacter';
 
 interface Message {
   id: string;
@@ -14,52 +27,73 @@ interface Message {
   time: string;
 }
 
-// Comprehensive Arnis Biomechanics & Cultural Knowledge Base
-const STRIKE_KNOWLEDGE: Record<string, { name: string; target: string; elbowRange: string; chamber: string; tip: string }> = {
-  "1": { name: "Strike 1: Left Temple (Pang-una)", target: "Left Temple / Neck", elbowRange: "110.9° - 156.8°", chamber: "Right ear chamber with stick angled back 45°", tip: "Slash diagonally downward from your right ear across the opponent's left temple. Keep your Kalasag (check hand) pinned to your chest to block counter-strikes." },
-  "2": { name: "Strike 2: Right Temple (Pangalawa)", target: "Right Temple / Neck", elbowRange: "132.3° - 175.3°", chamber: "Left shoulder chamber across chest", tip: "Diagonal downward backhand strike targeting the right temple. Pivot your hips forward and snap your wrist at the apex." },
-  "3": { name: "Strike 3: Left Torso (Pangatlo)", target: "Left Ribs / Torso", elbowRange: "87.2° - 114.0°", chamber: "Right side chamber at hip level", tip: "Horizontal forehand slash cutting through the ribs. Lower your center of gravity by bending both knees into a solid forward stance." },
-  "4": { name: "Strike 4: Right Torso (Pang-apat)", target: "Right Ribs / Torso", elbowRange: "121.1° - 165.8°", chamber: "Left side chamber across torso", tip: "Horizontal backhand cut to the right ribs. Rotate your torso into the cut while keeping your check hand high to guard against incoming counters." },
-  "5": { name: "Strike 5: Abdomen Thrust (Pang-lima)", target: "Solar Plexus / Navel", elbowRange: "151.1° - 168.4°", chamber: "Hip level with stick horizontal", tip: "Linear thrust driving forward directly into the core. Keep your elbow almost straight (155°-168°) and lunge slightly forward to maximize penetration depth." },
-  "6": { name: "Strike 6: Left Chest Thrust (Pang-anim)", target: "Left Upper Chest / Clavicle", elbowRange: "158.0° - 178.8°", chamber: "Right chest chamber angled upward", tip: "High upward thrust targeting the left chest or heart area. Palm facing upward at impact with the check hand protecting your chin." },
-  "7": { name: "Strike 7: Right Chest Thrust (Pang-pito)", target: "Right Upper Chest / Clavicle", elbowRange: "149.2° - 172.1°", chamber: "Left shoulder chamber", tip: "Backhand diagonal thrust targeting the right chest. Maintain firm wrist tension so the weapon does not buckle on impact." },
-  "8": { name: "Strike 8: Left Knee (Pang-walo)", target: "Left Knee / Lower Thigh", elbowRange: "165.5° - 178.0°", chamber: "High right chamber", tip: "Low downward diagonal slash targeting the lead knee. Drop your stance deeply into a low forward stance to reach the target without bending your spine forward." },
-  "9": { name: "Strike 9: Right Knee (Pang-siyam)", target: "Right Knee / Lower Thigh", elbowRange: "170.3° - 176.3°", chamber: "High left chamber", tip: "Low backhand strike targeting the opponent's right knee. Drive the cut through with wrist snap (Pitik) and recover swiftly to avoid counter-head strikes." },
-  "10": { name: "Strike 10: Left Eye Thrust (Pang-sampu)", target: "Left Eye / Facial Nerve", elbowRange: "161.9° - 179.1°", chamber: "Ear level, horizontal alignment", tip: "Precise eye-level thrust. Requires minimal chambering telegraphing; flick directly forward along the line of sight." },
-  "11": { name: "Strike 11: Right Eye Thrust (Pang-labing-isa)", target: "Right Eye / Face Thrust", elbowRange: "151.9° - 178.9°", chamber: "Left eye level", tip: "Backhand eye thrust. Keep the wrist straight and immediately pull back into Kalasag guard after delivery (Bawi phase)." },
-  "12": { name: "Strike 12: Crown Strike (Baston sa Tuktok)", target: "Crown of the Skull", elbowRange: "111.1° - 135.0°", chamber: "Direct vertical overhead chamber", tip: "Vertical downward cleave directly into the skull crown. Keep your weight centered and do not lean past your knees. Elbow must remain flexed (111°-135°) to absorb recoil." }
-};
-
-function generateSemanticCoachResponse(query: string, userSessions: SessionItem[], activeWeakness?: string): string {
+/**
+ * Generate semantic coach response reusing centralized STRIKE_RULES and curriculum data
+ */
+function generateSemanticCoachResponse(
+  query: string,
+  userSessions: SessionItem[],
+  activeWeakness?: string,
+  activeStrikeId?: string
+): string {
   const q = query.toLowerCase().trim();
 
-  // Contextual weakness intent
-  if ((q.includes("weakness") || q.includes("fix this") || q.includes("my fault")) && activeWeakness) {
-    return `🎯 **ACTIONABLE PROTOCOL TO FIX THIS FORM FAULT**\n\n` +
-      `**Diagnosed Focus:**\n"${activeWeakness}"\n\n` +
-      `**Guro's 3-Step Correction Protocol:**\n` +
-      `1. **Slow Down & Mirror:** Open **Follow Me** mode in the Train tab. Do 3 slow repetitions matching the ghost silhouette.\n` +
-      `2. **Check Hand Lock:** Keep your Kalasag hand glued to your solar plexus. As the stick accelerates, consciously check that your shield hand does not drop.\n` +
-      `3. **Commit Through Impact:** Ensure you strike cleanly through the apex line before snapping back into guard.\n\n` +
-      `When you're ready, tap **Train** to drill this strike and see your score improve!`;
+  // 1. Contextual weakness / score troubleshooting
+  if (
+    q.includes('weakness') ||
+    q.includes('fix this') ||
+    q.includes('why did i get') ||
+    q.includes('why was my score') ||
+    q.includes('improve my score') ||
+    q.includes('what am i doing wrong')
+  ) {
+    if (activeWeakness) {
+      return (
+        `🎯 **HOW TO CORRECT THIS FORM FAULT**\n\n` +
+        `**Diagnosed Focus:**\n"${activeWeakness}"\n\n` +
+        `**Coach's 3-Step Correction Protocol:**\n` +
+        `1. **Lock Your Kalasag Shield:** Keep your non-striking fist pinned firmly to your chest/solar plexus. Don't let it drift downward as you swing.\n` +
+        `2. **Check Your Angle & Reach:** Make sure your slicing arm cuts along the canonical diagonal or horizontal plane without dropping.\n` +
+        `3. **Snap Through the Apex:** Deliver a crisp wrist snap (*Pitik*) at the impact apex, then immediately recover back to guard.\n\n` +
+        `When you're ready, tap the practice button below to try again!`
+      );
+    }
+
+    if (userSessions.length === 0) {
+      return (
+        `📉 **WHY LOW SCORES HAPPEN & HOW TO FIX THEM**\n\n` +
+        `1. **Keep Moving:** The evaluator grades dynamic strikes! Don't freeze in place.\n` +
+        `2. **Guard Hand (Kalasag):** 25% of your score is your shield hand! Keep it pinned to your chest.\n` +
+        `3. **Athletic Stance (Tindig):** Bend your lead knee at an athletic angle (135°-165°).\n` +
+        `4. **Camera Framing:** Make sure your entire body (head to feet) is visible in the frame.`
+      );
+    }
   }
 
-  // 1. Performance Analysis Intent
-  if (q.includes("analyze") || q.includes("performance") || q.includes("history") || q.includes("stats") || q.includes("progress")) {
+  // 2. Performance Analysis Intent
+  if (
+    q.includes('analyze') ||
+    q.includes('performance') ||
+    q.includes('history') ||
+    q.includes('progress') ||
+    q.includes('stats')
+  ) {
     if (userSessions.length === 0) {
-      return "📊 **PERFORMANCE ANALYSIS**\n\nYou haven't recorded any evaluation sessions yet! Head over to the **Evaluate** tab, select a strike, and complete a 3-second test to start tracking your kinetic accuracy.";
+      return (
+        `📊 **PERFORMANCE ANALYSIS**\n\n` +
+        `You haven't recorded any practice sessions yet! Go to the **Practice** tab, choose a strike, and finish a rep to start tracking your accuracy.`
+      );
     }
     const count = userSessions.length;
     const avgScore = Math.round(userSessions.reduce((a, b) => a + b.score, 0) / count);
-    const bestScore = Math.max(...userSessions.map(s => s.score));
+    const bestScore = Math.max(...userSessions.map((s) => s.score));
 
-    // Find pillar averages
     let totalElbow = 0, totalGuard = 0, totalStance = 0, totalWrist = 0;
-    userSessions.forEach(s => {
-      totalElbow += (s.breakdown?.elbow?.score || s.score);
-      totalGuard += (s.breakdown?.guard?.score || 80);
-      totalStance += (s.breakdown?.stance?.score || s.breakdown?.knee?.score || 80);
-      totalWrist += (s.breakdown?.wrist?.score || 85);
+    userSessions.forEach((s) => {
+      totalElbow += s.breakdown?.elbow?.score || s.score;
+      totalGuard += s.breakdown?.guard?.score || 80;
+      totalStance += s.breakdown?.stance?.score || s.breakdown?.knee?.score || 80;
+      totalWrist += s.breakdown?.wrist?.score || 85;
     });
 
     const avgElbow = Math.round(totalElbow / count);
@@ -67,43 +101,51 @@ function generateSemanticCoachResponse(query: string, userSessions: SessionItem[
     const avgStance = Math.round(totalStance / count);
     const avgWrist = Math.round(totalWrist / count);
 
-    let weakestPillar = "Striking Arm Extension";
+    let weakestPillar = 'Striking Arm Path';
     let minPillarVal = avgElbow;
-    if (avgGuard < minPillarVal) { weakestPillar = "Kalasag Check Hand Guard"; minPillarVal = avgGuard; }
-    if (avgStance < minPillarVal) { weakestPillar = "Tindig Knee Bend & Base"; minPillarVal = avgStance; }
-    if (avgWrist < minPillarVal) { weakestPillar = "Pitik Wrist Alignment"; minPillarVal = avgWrist; }
+    if (avgGuard < minPillarVal) { weakestPillar = 'Kalasag Check Hand Guard'; minPillarVal = avgGuard; }
+    if (avgStance < minPillarVal) { weakestPillar = 'Tindig Stance Stability'; minPillarVal = avgStance; }
+    if (avgWrist < minPillarVal) { weakestPillar = 'Pitik Wrist Snap'; minPillarVal = avgWrist; }
 
-    return `📊 **ACADEMIC PERFORMANCE TELEMETRY**\n\n` +
-      `• **Total Completed Sessions:** ${count}\n` +
-      `• **Overall Composite Accuracy:** ${avgScore}%\n` +
-      `• **Personal Best Execution:** ${bestScore}%\n\n` +
-      `**4-Pillar Biomechanical Breakdown:**\n` +
-      `• ⚔️ Striking Arm Mechanics: ${avgElbow}%\n` +
+    return (
+      `📊 **YOUR PERFORMANCE SUMMARY**\n\n` +
+      `• **Total Practice Sessions:** ${count}\n` +
+      `• **Overall Average Score:** ${avgScore}%\n` +
+      `• **Personal Best Score:** ${bestScore}%\n\n` +
+      `**4-Pillar Alignment Breakdown:**\n` +
+      `• ⚔️ Strike Trajectory: ${avgElbow}%\n` +
       `• 🛡️ Kalasag Guard Hand: ${avgGuard}%\n` +
-      `• 🦵 Tindig Stance Stability: ${avgStance}%\n` +
+      `• 🦵 Tindig Stance Base: ${avgStance}%\n` +
       `• ⚡ Pitik Wrist Snap: ${avgWrist}%\n\n` +
-      `💡 **Primary Prescription:** Focus on drilling your **${weakestPillar}** (${minPillarVal}% avg). Check the Evaluate tab to isolate this motion!`;
+      `💡 **Recommended Focus:** Work on your **${weakestPillar}** (${minPillarVal}% avg) in your next session!`
+    );
   }
 
-  // 2. Lowest / Weakest Strike Diagnosis Intent
-  if (q.includes("lowest") || q.includes("fix my") || q.includes("weakest") || q.includes("struggling") || q.includes("worst") || q.includes("low score") || q.includes("why did i fail")) {
+  // 3. Lowest / Weakest Strike Intent
+  if (
+    q.includes('weakest') ||
+    q.includes('lowest') ||
+    q.includes('struggling') ||
+    q.includes('worst') ||
+    q.includes('what should i practice today') ||
+    q.includes('show me what to focus on')
+  ) {
     if (userSessions.length === 0) {
-      return "📉 **WHY LOW SCORES HAPPEN & HOW TO FIX THEM**\n\n" +
-        "1. **Did you freeze?** The system evaluates dynamic strikes! Freezing in place triggers the *STATIC_HOLD* penalty.\n" +
-        "2. **Check Hand Dropping?** 25% of your score comes from *Kalasag* (check hand). Keep your non-striking fist pinned to your solar plexus.\n" +
-        "3. **Stiff Knees?** Standing upright reduces *Tindig* (stance) points. Bend your lead knee into an active forward stance.\n" +
-        "4. **Camera Framing:** Make sure your entire body (head to toes) is visible in the frame (stand 2 to 2.5m back).\n\n" +
-        "Complete a test in the Evaluate tab to see your exact 4-pillar breakdown!";
+      return (
+        `🎯 **START WITH STRIKE 1**\n\n` +
+        `Since you haven't recorded any sessions yet, start with **Strike 1 (Left Temple)**. It teaches the foundational 45° diagonal downward slicing path and Kalasag guard!`
+      );
     }
+
     const strikeScores: Record<string, number[]> = {};
-    userSessions.forEach(item => {
+    userSessions.forEach((item) => {
       if (!strikeScores[item.strikeName]) strikeScores[item.strikeName] = [];
       strikeScores[item.strikeName].push(item.score);
     });
 
     let lowestStrike = '';
     let lowestAvg = 100;
-    Object.keys(strikeScores).forEach(name => {
+    Object.keys(strikeScores).forEach((name) => {
       const avg = Math.round(strikeScores[name].reduce((a, b) => a + b, 0) / strikeScores[name].length);
       if (avg < lowestAvg) {
         lowestAvg = avg;
@@ -111,158 +153,162 @@ function generateSemanticCoachResponse(query: string, userSessions: SessionItem[
       }
     });
 
-    return `🎯 **DIAGNOSTIC PRESCRIPTION FOR ${lowestStrike.toUpperCase()}** (Avg ${lowestAvg}%)\n\n` +
-      `Based on your movement patterns, here is your 3-step corrective protocol:\n\n` +
-      `1. **Kasa (Chambering Phase):** Ensure you load the weapon fully before launching the swing. Don't rush the acceleration.\n` +
-      `2. **Kalasag Guard:** Keep your non-striking hand locked at solar plexus level throughout the stroke.\n` +
-      `3. **Pitik Snap at Apex:** Accelerate through the target arc and snap the wrist firmly upon reaching the apex impact zone.\n\n` +
-      `💡 Avoid standing still—the system requires dynamic acceleration to register apex impact!`;
+    return (
+      `🎯 **FOCUS AREA: ${lowestStrike.toUpperCase() || 'STRIKE 3'}** (Avg ${lowestAvg}%)\n\n` +
+      `Here is how to master this technique:\n\n` +
+      `1. **Chamber (Kasa):** Load the stick deliberately before swinging. Don't rush into the slice.\n` +
+      `2. **Check Hand Shield:** Keep your non-striking hand locked at your solar plexus.\n` +
+      `3. **Snap & Recover (Bawi):** Cut through the target and immediately return to your ready guard.`
+    );
   }
 
-  // 2b. How to hold the stick / grip
-  if (q.includes("hold") || q.includes("grip") || q.includes("punyo") || q.includes("hand position")) {
-    return `🎋 **HOW TO HOLD THE ARNIS STICK (HAWAK & PUNYO)**\n\n` +
+  // 4. How to hold the stick / grip
+  if (q.includes('hold') || q.includes('grip') || q.includes('punyo') || q.includes('hawak')) {
+    return (
+      `🎋 **HOW TO HOLD THE ARNIS STICK (HAWAK & PUNYO)**\n\n` +
       `• **The 4-Finger Wrap:** Wrap your four fingers firmly around the baston, locking your thumb securely over your index finger.\n` +
       `• **Leave 1–2 Inches (The Punyo):** Leave 1 to 2 inches of stick butt extending beneath your pinky. This is the *Punyo*, used for close-range butt strikes, hooking, and disarming!\n` +
-      `• **Grip Tension:** Hold with moderate firmness (like holding a bird—neither crushing it nor letting it drop). Relax until the moment of impact, then tighten and snap (*Pitik*)!`;
+      `• **Grip Tension:** Hold with relaxed firmness (like holding a bird—neither crushing it nor letting it fly away). Relax until the moment of impact, then tighten and snap (*Pitik*)!`
+    );
   }
 
-  // 2c. Difference between Strike 1 and Strike 2
-  if (q.includes("difference") && (q.includes("1") || q.includes("2") || q.includes("temple"))) {
-    return `⚔️ **STRIKE 1 VS. STRIKE 2: FOREHAND VS. BACKHAND**\n\n` +
-      `• **Strike 1 (Forehand Temple Cut):**\n` +
+  // 5. Difference between Strike 1 and Strike 2
+  if (q.includes('difference') && (q.includes('1') || q.includes('2') || q.includes('temple'))) {
+    return (
+      `⚔️ **STRIKE 1 VS. STRIKE 2 (FOREHAND VS. BACKHAND)**\n\n` +
+      `• **Strike 1 (Forehand Left Temple Cut):**\n` +
       `  - Starts at your right ear/shoulder chamber.\n` +
-      `  - Slices diagonally downward to the opponent's left temple.\n` +
-      `  - Uses powerful chest and core rotation.\n\n` +
-      `• **Strike 2 (Backhand Temple Cut):**\n` +
+      `  - Slices diagonally downward across to the opponent's left temple.\n` +
+      `  - Driven by chest and core rotation.\n\n` +
+      `• **Strike 2 (Backhand Right Temple Cut):**\n` +
       `  - Starts crossed over at your left shoulder chamber.\n` +
       `  - Slices diagonally downward to the opponent's right temple.\n` +
       `  - Driven by triceps extension, hip opening, and backhand wrist snap.\n\n` +
-      `🛡️ **Both Require:** Kalasag check hand firmly shielding your chest!`;
+      `🛡️ **Both Require:** Kalasag check hand firmly shielding your chest!`
+    );
   }
 
-  // 2d. Explain like a beginner
-  if (q.includes("beginner") || q.includes("simple") || q.includes("explain this like") || q.includes("start")) {
-    return `🥋 **ARNIS IN 3 SIMPLE RULES FOR BEGINNERS**\n\n` +
-      `Welcome to Arnis (Philippine National Martial Art)! Here is all you need to remember:\n\n` +
+  // 6. Explain like a beginner
+  if (q.includes('beginner') || q.includes('simple') || q.includes('explain this simply') || q.includes('start')) {
+    return (
+      `🥋 **ARNIS IN 3 SIMPLE RULES FOR BEGINNERS**\n\n` +
       `1. **The Stick is Your Arm's Extension:** Don't swing like a baseball bat. Rotate your hips and lead with your elbow.\n` +
-      `2. **Guard Your Core (Kalasag):** Your empty hand is your shield! Keep it pinned to your solar plexus. If it drops, you get hit in combat.\n` +
-      `3. **The 3-Beat Rhythm:** Kasa (cock weapon by ear) ➔ Tudla (accelerate and slice through target) ➔ Bawi (recover right back to defensive guard).\n\n` +
-      `Check out **Level 0 (Orientation)** and **Level 1 (Fundamentals)** in the Learn tab!`;
+      `2. **Guard Your Core (Kalasag):** Your empty hand is your shield! Keep it pinned to your solar plexus. If it drops, you are open to counters.\n` +
+      `3. **The 3-Beat Rhythm:** Kasa (chamber near ear) ➔ Tudla (slice smoothly through target) ➔ Bawi (recover right back to ready guard).`
+    );
   }
 
-  // 3. Individual Strike Specific Inquiries (Strike 1 to 12)
+  // 7. Individual Strike Queries (Reusing centralized STRIKE_RULES)
   for (let i = 1; i <= 12; i++) {
     const numStr = i.toString();
-    const strikeKey = "strike " + numStr;
-    const strikeKeyAlt = "strike" + numStr;
-    if (q.includes(strikeKey) || q.includes(strikeKeyAlt) || (q.includes(numStr) && (q.includes("strike") || q.includes("technique")))) {
-      const info = STRIKE_KNOWLEDGE[numStr];
-      if (info) {
-        return `⚔️ **${info.name.toUpperCase()}**\n\n` +
-          `• **Target Anatomical Area:** ${info.target}\n` +
-          `• **Calibrated Elbow Range:** ${info.elbowRange}\n` +
-          `• **Chamber Position (Kasa):** ${info.chamber}\n\n` +
-          `🥋 **Grandmaster Coaching Tip:**\n${info.tip}`;
+    const strikeKey = `strike_${numStr}`;
+    if (
+      q.includes(`strike ${numStr}`) ||
+      q.includes(`strike${numStr}`) ||
+      (q.includes(numStr) && (q.includes('strike') || q.includes('technique')))
+    ) {
+      const rule = getStrikeRule(strikeKey);
+      if (rule) {
+        return (
+          `⚔️ **STRIKE ${rule.strikeNumber} — ${rule.target.split('/')[0].trim().toUpperCase()}**\n\n` +
+          `• **Target Area:** ${rule.target}\n` +
+          `• **Target Description:** ${rule.desc}\n` +
+          `• **Calibrated Elbow Range:** ${rule.right_min}° - ${rule.right_max}°\n` +
+          `• **Defensive Guard:** ${rule.guard_label}\n\n` +
+          `🥋 **Coach's Tip:**\n${rule.coachTip}\n\n` +
+          `⚠️ **Common Mistake:**\n${rule.commonMistake}`
+        );
       }
     }
   }
 
-  // 4. Target Area Keywords (Temple, Torso, Eye, Knee, Crown, Thrust)
-  if (q.includes("crown") || q.includes("overhead") || q.includes("tuktok")) {
-    const info = STRIKE_KNOWLEDGE["12"];
-    return `⚔️ **STRIKE 12: CROWN STRIKE (BASTON SA TUKTOK)**\n\nTarget: ${info.target} | Elbow: ${info.elbowRange}\n\n${info.tip}`;
+  // 8. Target Area Keywords (Temple, Torso, Eye, Knee, Crown)
+  if (q.includes('crown') || q.includes('overhead') || q.includes('tuktok')) {
+    const rule = getStrikeRule('strike_12');
+    return `⚔️ **STRIKE 12: CROWN STRIKE**\n\nTarget: ${rule.target}\n\n${rule.coachTip}\n\n⚠️ ${rule.commonMistake}`;
   }
-  if (q.includes("temple")) {
-    return `⚔️ **TEMPLE STRIKES (STRIKES 1 & 2)**\n\n• **Strike 1 (Left Temple):** Forehand diagonal downward slice (Elbow 110.9° - 156.8°).\n• **Strike 2 (Right Temple):** Backhand diagonal downward slice (Elbow 132.3° - 175.3°).\n\nBoth strikes target the carotid artery and temples. Keep your Kalasag guard up to shield against counter-cuts!`;
+  if (q.includes('temple')) {
+    const r1 = getStrikeRule('strike_1');
+    const r2 = getStrikeRule('strike_2');
+    return (
+      `⚔️ **TEMPLE STRIKES (STRIKES 1 & 2)**\n\n` +
+      `• **Strike 1 (Left Temple):** ${r1.desc} (Elbow: ${r1.right_min}° - ${r1.right_max}°).\n` +
+      `• **Strike 2 (Right Temple):** ${r2.desc} (Elbow: ${r2.right_min}° - ${r2.right_max}°).\n\n` +
+      `Keep your Kalasag guard pinned to your chest on both strikes!`
+    );
   }
-  if (q.includes("torso") || q.includes("ribs")) {
-    return `⚔️ **TORSO & RIB STRIKES (STRIKES 3 & 4)**\n\n• **Strike 3 (Left Torso):** Horizontal forehand slice cutting through the floating ribs (Elbow 87.2° - 114.0°).\n• **Strike 4 (Right Torso):** Horizontal backhand slash to right flank (Elbow 121.1° - 165.8°).\n\nSink your stance by bending the knees to drop your cutting plane into the opponent's core.`;
+  if (q.includes('torso') || q.includes('ribs')) {
+    const r3 = getStrikeRule('strike_3');
+    const r4 = getStrikeRule('strike_4');
+    return (
+      `⚔️ **TORSO & RIB STRIKES (STRIKES 3 & 4)**\n\n` +
+      `• **Strike 3 (Left Torso):** ${r3.desc}.\n` +
+      `• **Strike 4 (Right Torso):** ${r4.desc}.\n\n` +
+      `Lower your center of gravity by bending both knees into a solid forward stance.`
+    );
   }
-  if (q.includes("knee") || q.includes("low strike")) {
-    return `⚔️ **LOW KNEE CUTS (STRIKES 8 & 9)**\n\n• **Strike 8 (Left Knee):** Low diagonal downward forehand (Elbow 165.5° - 178.0°).\n• **Strike 9 (Right Knee):** Low diagonal backhand (Elbow 170.3° - 176.3°).\n\n⚠️ **Common Fault:** Do not bend at the waist! Drop down through knee flexion (Tindig) to keep your head high and protected.`;
+  if (q.includes('knee') || q.includes('low strike')) {
+    const r8 = getStrikeRule('strike_8');
+    const r9 = getStrikeRule('strike_9');
+    return (
+      `⚔️ **LOW KNEE STRIKES (STRIKES 8 & 9)**\n\n` +
+      `• **Strike 8 (Left Knee):** ${r8.desc}.\n` +
+      `• **Strike 9 (Right Knee):** ${r9.desc}.\n\n` +
+      `⚠️ **Important:** Do not bend at your waist! Drop down by bending your knees (Tindig) to keep your head protected.`
+    );
   }
-  if (q.includes("eye") || q.includes("thrust to eye")) {
-    return `⚔️ **EYE-LEVEL THRUSTS (STRIKES 10 & 11)**\n\n• **Strike 10 (Left Eye Thrust):** High direct forehand thrust (Elbow 161.9° - 179.1°).\n• **Strike 11 (Right Eye Thrust):** High backhand thrust (Elbow 151.9° - 178.9°).\n\nThese are lightning thrusts targeting facial nerve clusters. Deliver with minimal wind-up and immediate retraction (Bawi).`;
-  }
-
-  // 5. Biomechanical Pillar: Check Hand (Kalasag)
-  if (q.includes("kalasag") || q.includes("guard") || q.includes("check hand") || q.includes("left hand") || q.includes("shield")) {
-    return `🛡️ **THE KALASAG (CHECK HAND) PILLAR**\n\n` +
-      `In authentic Filipino Martial Arts (FMA), the weapon hand delivers the cut while the "live hand" (Kalasag) ensures your survival.\n\n` +
-      `• **Target Position:** Center of chest / solar plexus (normalized distance $\\le 0.45$ of torso length).\n` +
-      `• **Tactical Purpose:** Deflect counter-strikes, parry opponent blades, check the enemy's weapon arm, and prevent disarms.\n` +
-      `• **System Evaluation:** If your non-striking hand drops below hip level or extends aimlessly, the system flags **GUARD_LOW** and deducts points from the 25% Guard Pillar!`;
-  }
-
-  // 6. Biomechanical Pillar: Stance (Tindig)
-  if (q.includes("stance") || q.includes("tindig") || q.includes("knees") || q.includes("legs") || q.includes("footwork")) {
-    return `🦵 **THE TINDIG (MARTIAL BASE & STANCE) PILLAR**\n\n` +
-      `A powerful strike is born from the ground up through the kinetic chain.\n\n` +
-      `• **Ideal Lead Knee Flexion:** Between **135° and 165°** (forward fighting stance).\n` +
-      `• **Center of Mass:** Lowered and balanced between both feet to absorb recoil and transfer kinetic torque.\n` +
-      `• **System Warning:** Standing upright with locked knees (> 170°) triggers the **STANCE_HIGH** penalty, reducing stance stability score!`;
-  }
-
-  // 7. Kinetic Chain & Anti-Static Gaming: Kasa, Tudla, Bawi
-  if (q.includes("kasa") || q.includes("tudla") || q.includes("bawi") || q.includes("kinetic") || q.includes("phases") || q.includes("sequence") || q.includes("static")) {
-    return `⚡ **THE ARNIS KINETIC CHAIN: KASA · TUDLA · BAWI**\n\n` +
-      `Our evaluator does not grade static mannequin poses—it tracks the full dynamic kinetic chain:\n\n` +
-      `1. **KASA (Chambering):** Weapon is cocked by the ear or hip; potential energy stored ($v < 0.12$).\n` +
-      `2. **TUDLA (Drive & Apex):** Arm and weapon accelerate along the trajectory arc ($v > 0.18$) culminating in a high-velocity apex hit.\n` +
-      `3. **BAWI (Recovery):** Instant retraction back into ready defensive guard.\n\n` +
-      `⚠️ **Anti-Static Detection:** Freezing in place without swinging triggers the **STATIC_HOLD_DETECTED** penalty. You must execute the full strike motion!`;
-  }
-
-  // 8. Wrist Snap & Alignment (Pitik / Abaniko)
-  if (q.includes("wrist") || q.includes("pitik") || q.includes("abaniko") || q.includes("snap") || q.includes("power")) {
-    return `⚡ **WRIST MECHANICS: PITIK & ALIGNMENT**\n\n` +
-      `In Arnis, the final 30% of striking power comes from the wrist snap (*Pitik*):\n\n` +
-      `• **Alignment Criterion:** Wrist deviation relative to forearm vector should be **under 15°** at apex impact.\n` +
-      `• **Weak Wrist Danger:** Letting your wrist sag or bend backwards triggers the **WRIST_WEAK** flag and causes severe kinetic energy dissipation (and wrist injury in real combat).\n` +
-      `• **Abaniko (Fan Strike):** Rapid wrist-driven oscillating slashes used for unpredictable angle transitions.`;
+  if (q.includes('eye') || q.includes('thrust')) {
+    const r5 = getStrikeRule('strike_5');
+    const r10 = getStrikeRule('strike_10');
+    return (
+      `⚔️ **THRUSTING TECHNIQUES (STRIKES 5, 10, 11)**\n\n` +
+      `• **Strike 5 (Solar Plexus):** ${r5?.desc || 'Direct core thrust'}.\n` +
+      `• **Strikes 10 & 11 (Eyes):** ${r10?.desc || 'High facial nerve thrusts'}.\n\n` +
+      `Deliver with linear acceleration and immediately pull back into Kalasag guard (*Bawi*).`
+    );
   }
 
-  // 9. Stick Tracking & Color Engine
-  if (q.includes("stick") || q.includes("baston") || q.includes("tracking") || q.includes("ribbon") || q.includes("color")) {
-    return `🎋 **THE SCALE-ADAPTIVE STICK TRACKING ENGINE**\n\n` +
-      `• **Dynamic Reach:** Calibrates detection distance dynamically based on your screen-space forearm length ($1.65\\times$ forearm), adapting perfectly whether you stand 1 meter or 3 meters away.\n` +
-      `• **Motion-Blur Compensation:** During high-speed swings (>400°/s), kinematic forearm projection seamlessly maintains the stick tip trajectory.\n` +
-      `• **Motion Ribbon:** Color-coded velocity trail (Yellow = Cruising, Orange = Acceleration, Bright Red/Crimson = High-Velocity Apex Strike).\n` +
-      `• **Color Modes:** Supports Traditional Rattan, Red, Blue, Green, and Auto-Detect.`;
+  // 9. Biomechanical Pillars: Kalasag & Tindig
+  if (q.includes('kalasag') || q.includes('guard') || q.includes('check hand') || q.includes('shield')) {
+    return (
+      `🛡️ **THE KALASAG (CHECK HAND) PILLAR**\n\n` +
+      `In authentic Filipino Martial Arts, your weapon hand strikes while your live hand (*Kalasag*) protects your life.\n\n` +
+      `• **Target Position:** Center of chest / solar plexus.\n` +
+      `• **Purpose:** Parries counter-attacks and checks the opponent's weapon arm.\n` +
+      `• **In the Evaluator:** 25% of your score depends on keeping your check hand high. If it drops, points are deducted!`
+    );
   }
 
-  // 10. Academic / Thesis / Architecture: AlphaPose vs MediaPipe
-  if (q.includes("alphapose") || q.includes("mediapipe") || q.includes("architecture") || q.includes("ground truth") || q.includes("dataset")) {
-    return `🔬 **SYSTEM ARCHITECTURE: ALPHAPOSE VS. MEDIAPIPE**\n\n` +
-      `• **AlphaPose (Offline Research Baseline):** Processed expert reference video footage offline to extract ground-truth 2D skeletal coordinates and populate **arnis_dataset_v2.csv** (14,766 frames across all 12 strikes).\n` +
-      `• **MediaPipe Tasks-Vision (Edge Runtime):** Runs on-device inside the sandboxed WebView canvas at 30+ FPS, providing 33 3D landmarks with depth perception without requiring a cloud GPU server.\n` +
-      `• **3D Metric Normalization:** Torso-scaled coordinate alignment ensures angles remain invariant to camera height, tilt, and perspective foreshortening.`;
+  if (q.includes('stance') || q.includes('tindig') || q.includes('knee bend') || q.includes('legs')) {
+    return (
+      `🦵 **THE TINDIG (MARTIAL BASE & STANCE) PILLAR**\n\n` +
+      `Striking power travels from the ground up through your kinetic chain.\n\n` +
+      `• **Ideal Lead Knee Flexion:** Between **135° and 165°** (athletic forward fighting stance).\n` +
+      `• **Center of Gravity:** Lowered and balanced between both feet.\n` +
+      `• **Common Mistake:** Standing stiffly with locked knees reduces stability score!`
+    );
   }
 
-  // 11. Academic Metrics: PCK, MPJPE, OKS
-  if (q.includes("metric") || q.includes("pck") || q.includes("mpjpe") || q.includes("oks") || q.includes("validation") || q.includes("formula")) {
-    return `📐 **SCIENTIFIC VALIDATION METRICS**\n\n` +
-      `• **PCK@0.2 (Percentage of Correct Keypoints):** Keypoint is deemed accurate if euclidean distance to ground truth is $\\le 0.2\\times$ torso scale. PoseFix achieves **>94% PCK** on key striking joints.\n` +
-      `• **MPJPE (Mean Per Joint Position Error):** Average pixel/normalized distance deviation across all 12 joints between prediction and ground truth.\n` +
-      `• **OKS (Object Keypoint Similarity):** COCO-standard scale-normalized similarity score (exceeding 0.88 indicates exceptional model agreement).`;
+  // 10. Fallback with guidance
+  if (activeStrikeId) {
+    const rule = getStrikeRule(activeStrikeId);
+    return (
+      `🥋 **GUIDANCE FOR ${rule.name.toUpperCase()}**\n\n` +
+      `• **Target:** ${rule.target}\n` +
+      `• **Key Tip:** ${rule.coachTip}\n` +
+      `• **Guard:** ${rule.guard_label}\n\n` +
+      `What would you like to refine? Ask about grip, chamber, stance, or timing!`
+    );
   }
 
-  // 12. Philippine Cultural Heritage & Republic Act 9850
-  if (q.includes("ra 9850") || q.includes("republic act") || q.includes("national sport") || q.includes("culture") || q.includes("fma") || q.includes("kali") || q.includes("eskrima")) {
-    return `🇵🇭 **REPUBLIC ACT 9850 & ARNIS HERITAGE**\n\n` +
-      `Signed in 2009, **Republic Act No. 9850** declared Arnis as the **National Martial Art and Sport of the Philippines**.\n\n` +
-      `Known historically as *Eskrima* and *Kali*, the art emphasizes weapon-first mastery before empty-hand combat (*Kamayan/Panantukan*). The 12 strikes form the foundational canon taught across Philippine educational and athletic curriculums. PoseFix-Arnis was engineered to preserve, standardize, and democratize access to authentic FMA coaching!`;
-  }
-
-  // Default Fallback with Adaptive Guidance
-  return `🥋 **AI GRANDMASTER COACH**\n\n` +
-    `I can analyze your performance or explain any technical aspect of Arnis:\n\n` +
-    `• **Specific Strikes:** Ask about any strike (e.g., *"How do I execute Strike 5?"* or *"Strike 12 form"*)\n` +
-    `• **Biomechanical Pillars:** Ask about **Kalasag** (check hand), **Tindig** (stance), or **Pitik** (wrist snap)\n` +
-    `• **Kinetic Execution:** Learn how **Kasa · Tudla · Bawi** works and how to avoid the static hold penalty\n` +
-    `• **Research Metrics:** Ask about **AlphaPose vs MediaPipe** or our **PCK & MPJPE** validation benchmarks\n\n` +
-    `What would you like to drill today?`;
+  return (
+    `🥋 **ARNIS COACH AT YOUR SERVICE**\n\n` +
+    `I can guide your technique, explain any strike, or help you understand your evaluation scores.\n\n` +
+    `• Ask about any strike (e.g., *"How do I practice Strike 3?"*)\n` +
+    `• Ask about form (**Kalasag** guard, **Tindig** stance, **Pitik** wrist snap)\n` +
+    `• Ask how to improve your score\n\n` +
+    `What would you like to work on?`
+  );
 }
 
 function extractReferencedStrikes(text: string): { strikeKey: string; strikeName: string }[] {
@@ -276,7 +322,7 @@ function extractReferencedStrikes(text: string): { strikeKey: string; strikeName
       });
     }
   }
-  return matches.filter((v, idx, arr) => arr.findIndex(t => t.strikeKey === v.strikeKey) === idx).slice(0, 2);
+  return matches.filter((v, idx, arr) => arr.findIndex((t) => t.strikeKey === v.strikeKey) === idx).slice(0, 2);
 }
 
 function FormattedMessageText({ text, isUser }: { text: string; isUser: boolean }) {
@@ -291,11 +337,10 @@ function FormattedMessageText({ text, isUser }: { text: string; isUser: boolean 
       {lines.map((line, lineIdx) => {
         const trimmed = line.trim();
         if (!trimmed) {
-          return <View key={lineIdx} style={{ height: 6 }} />;
+          return <View key={lineIdx} style={{ height: 4 }} />;
         }
 
-        const isHeader = /^[📊🎯⚔️🛡️⚡🥋🔬📐🇵🇭🎋🦵]/.test(line);
-        const isBullet = line.startsWith('• ') || line.startsWith('- ');
+        const isHeader = /^[📊🎯⚔️🛡️⚡🥋🔬📐🇵🇭🎋🦵💡⚠️•\-]/.test(trimmed);
         const parts = line.split(/(\*\*.*?\*\*)/g);
 
         return (
@@ -304,20 +349,13 @@ function FormattedMessageText({ text, isUser }: { text: string; isUser: boolean 
             style={[
               styles.bubbleText,
               isHeader && styles.headerLineText,
-              isBullet && styles.bulletLineText,
             ]}
           >
             {parts.map((part, partIdx) => {
               if (part.startsWith('**') && part.endsWith('**')) {
                 const boldContent = part.slice(2, -2);
                 return (
-                  <Text
-                    key={partIdx}
-                    style={[
-                      styles.boldSpan,
-                      isHeader && { color: '#F59E0B' },
-                    ]}
-                  >
+                  <Text key={partIdx} style={styles.boldSpan}>
                     {boldContent}
                   </Text>
                 );
@@ -340,6 +378,7 @@ export default function CoachChatScreen() {
     weakness?: string;
     lessonId?: string;
     query?: string;
+    source?: string;
   }>();
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -348,62 +387,70 @@ export default function CoachChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([
-    "🎯 What does Strike 3 target?",
-    "📉 Why am I getting a low score?",
-    "🎋 How do I hold the stick?",
-    "⚔️ Difference between Strike 1 and Strike 2?",
-    "🐣 Explain this like I'm a beginner",
-    "📊 Analyze my performance history",
-    "🛡️ Why is Kalasag guard so important?",
-    "⚡ Explain Kasa, Tudla, and Bawi",
-    "🦵 What is proper Tindig stance?",
-    "🔬 Why AlphaPose vs MediaPipe?",
+    'Explain this simply',
+    'How can I improve?',
+    'What am I doing wrong?',
+    'How should I practice?',
+    "What's my weakest strike?",
   ]);
+
+  // Keep refs to avoid recreating callbacks or triggering effect cascades
+  const userSessionsRef = useRef<SessionItem[]>(userSessions);
+  userSessionsRef.current = userSessions;
+
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+
+  const initializedContextKeyRef = useRef<string>('');
 
   const formatTime = () => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  const buildInitialGreeting = (history: SessionItem[] | null) => {
-    let initialGreeting = "Mabuhay! I am your AI Virtual Grandmaster Coach. Complete an Evaluate session to receive real-time kinematic diagnostics!";
-
-    if (history && history.length > 0) {
-      const count = history.length;
-      const avgScore = Math.round(history.reduce((a, b) => a + b.score, 0) / count);
-
-      const strikeScores: Record<string, number[]> = {};
-      history.forEach(item => {
-        if (!strikeScores[item.strikeName]) strikeScores[item.strikeName] = [];
-        strikeScores[item.strikeName].push(item.score);
-      });
-
-      let lowestStrike = '';
-      let lowestAvg = 100;
-      let highestStrike = '';
-      let highestAvg = 0;
-
-      Object.keys(strikeScores).forEach(name => {
-        const avg = Math.round(strikeScores[name].reduce((a, b) => a + b, 0) / strikeScores[name].length);
-        if (avg < lowestAvg) {
-          lowestAvg = avg;
-          lowestStrike = name;
-        }
-        if (avg > highestAvg) {
-          highestAvg = avg;
-          highestStrike = name;
-        }
-      });
-
-      initialGreeting = `Mabuhay! I analyzed your ${count} practice sessions (Overall Average: ${avgScore}%).\n\n` +
-        `• ⚔️ Mastered Strike: ${highestStrike || 'Strike 1'} (${highestAvg}% avg)\n` +
-        `• 🎯 Focus Area: ${lowestStrike || 'Strike 3'} (${lowestAvg}% avg)\n\n` +
-        `Tap a question below or ask me how to refine your Kalasag guard, stance, or strike trajectory!`;
+  const handleSendMessage = useCallback((text: string) => {
+    if (!text.trim()) return;
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    return initialGreeting;
-  };
 
-  // Load history and initialize personalized coach message
+    const userMsg: Message = {
+      id: 'msg_user_' + Date.now(),
+      sender: 'user',
+      text: text,
+      time: formatTime(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setInputText('');
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+
+    setIsTyping(true);
+    setTimeout(() => {
+      const responseText = generateSemanticCoachResponse(
+        text,
+        userSessionsRef.current,
+        paramsRef.current.weakness,
+        paramsRef.current.strikeId
+      );
+
+      const coachMsg: Message = {
+        id: 'msg_coach_' + Date.now(),
+        sender: 'coach',
+        text: responseText,
+        time: formatTime(),
+      };
+
+      setIsTyping(false);
+      setMessages((prev) => [...prev, coachMsg]);
+
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }, 500);
+  }, []);
+
+  // Refresh practice history whenever screen is focused (safe empty dependency array)
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
@@ -411,79 +458,54 @@ export default function CoachChatScreen() {
         if (!isMounted) return;
         const list = history || [];
         setUserSessions(list);
+        userSessionsRef.current = list;
+      });
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
 
-        // Check if navigated with specific lesson context
-        if (params.lessonId) {
-          const lesson = ALL_CURRICULUM_LESSONS.find(l => l.id === params.lessonId);
-          if (lesson) {
-            const lessonMsg = `Mabuhay! I see you are learning **${lesson.title}** (${lesson.subtitle}).\n\n` +
-              `🥋 **Lesson Focus:** ${lesson.beginnerSummary || lesson.description}\n\n` +
-              `Ask me any questions about stance, grip, camera setup, or technique!`;
+  // Initialize contextual coach greeting on mount or when context params change
+  useEffect(() => {
+    let isMounted = true;
+    const contextKey = `${params.source || ''}_${params.lessonId || ''}_${params.strikeId || ''}_${params.recentScore || ''}_${params.weakness || ''}_${params.query || ''}`;
 
-            setMessages([
-              {
-                id: 'msg_lesson_' + Date.now(),
-                sender: 'coach',
-                text: lessonMsg,
-                time: formatTime(),
-              },
-            ]);
+    if (initializedContextKeyRef.current === contextKey) {
+      return;
+    }
+    initializedContextKeyRef.current = contextKey;
 
-            setSuggestions([
-              "🦵 Why is my stance wrong?",
-              "🎋 What does Tindig mean?",
-              "🐣 Can you explain this simply?",
-              "🛡️ How do I hold the check hand (Kalasag)?",
-              "🎋 How do I hold the stick (Hawak)?",
-            ]);
+    getHistory().then((history) => {
+      if (!isMounted) return;
+      const list = history || [];
+      setUserSessions(list);
+      userSessionsRef.current = list;
 
-            if (params.query) {
-              setTimeout(() => {
-                handleSendMessage(params.query!);
-              }, 400);
-            }
-            return;
-          }
-        }
-
-        // Check if navigated with specific strike/weakness context
-        if (params.strikeId || params.weakness) {
-          const strikeNum = params.strikeId ? params.strikeId.replace('strike_', '') : '';
-          const strikeTitle = params.strikeName || (strikeNum ? `Strike ${strikeNum}` : 'your strike');
-
-          let contextualMsg = `Mabuhay! I see you just trained **${strikeTitle}**`;
-          if (params.recentScore) {
-            contextualMsg += ` and scored **${params.recentScore}%**`;
-          }
-          contextualMsg += `.\n\n`;
-
-          if (params.weakness) {
-            contextualMsg += `🎯 **Target Focus Area:**\n"${params.weakness}"\n\n`;
-          }
-          contextualMsg += `I am here to guide your form. Ask me for biomechanical tips or tap a question below!`;
+      // CASE 1: Arrived from a Lesson
+      if (params.lessonId) {
+        const lesson = ALL_CURRICULUM_LESSONS.find((l) => l.id === params.lessonId);
+        if (lesson) {
+          const lessonMsg =
+            `Mabuhay! I see you are learning **${lesson.title}** (${lesson.subtitle}).\n\n` +
+            `🥋 **Lesson Focus:** ${lesson.beginnerSummary || lesson.description}\n\n` +
+            `What questions do you have about this technique?`;
 
           setMessages([
             {
-              id: 'msg_contextual_' + Date.now(),
+              id: 'msg_lesson_' + Date.now(),
               sender: 'coach',
-              text: contextualMsg,
+              text: lessonMsg,
               time: formatTime(),
-            }
+            },
           ]);
 
-          const contextualSuggestions: string[] = [];
-          if (params.weakness) {
-            contextualSuggestions.push(`💡 How do I fix this weakness?`);
-          }
-          if (strikeNum) {
-            contextualSuggestions.push(`📐 Target angles for Strike ${strikeNum}`);
-            contextualSuggestions.push(`🎋 How do I chamber Strike ${strikeNum}?`);
-          }
-          contextualSuggestions.push(`🛡️ How do I keep my Kalasag guard up?`);
-          contextualSuggestions.push(`🦵 What is proper Tindig stance?`);
-          contextualSuggestions.push(`🐣 Explain Strike ${strikeNum || '1'} like I'm a beginner`);
-
-          setSuggestions(contextualSuggestions);
+          setSuggestions([
+            'Explain this simply',
+            'Why is this important?',
+            'What should I remember?',
+            "I'm ready to practice",
+          ]);
 
           if (params.query) {
             setTimeout(() => {
@@ -492,102 +514,135 @@ export default function CoachChatScreen() {
           }
           return;
         }
+      }
 
-        const initialGreeting = buildInitialGreeting(list);
+      // CASE 2: Arrived from Practice Result (with recentScore and weakness)
+      if (params.recentScore || (params.source === 'result' && params.strikeId)) {
+        const rule = getStrikeRule(params.strikeId || 'strike_1');
+        const strikeTitle = params.strikeName || rule.name;
+        const score = params.recentScore || '75';
+        const weaknessText = params.weakness || 'arm extension and recovery';
 
-        if (list.length > 0) {
-          const strikeScores: Record<string, number[]> = {};
-          list.forEach(item => {
-            if (!strikeScores[item.strikeName]) strikeScores[item.strikeName] = [];
-            strikeScores[item.strikeName].push(item.score);
-          });
-
-          let lowestStrike = '';
-          let lowestAvg = 100;
-          Object.keys(strikeScores).forEach(name => {
-            const avg = Math.round(strikeScores[name].reduce((a, b) => a + b, 0) / strikeScores[name].length);
-            if (avg < lowestAvg) {
-              lowestAvg = avg;
-              lowestStrike = name;
-            }
-          });
-
-          setSuggestions([
-            `🎯 How do I fix my ${lowestStrike || 'Strike 3'}?`,
-            "📉 Why am I getting a low score?",
-            "🎋 How do I hold the stick?",
-            "⚔️ Difference between Strike 1 and Strike 2?",
-            "🐣 Explain this like I'm a beginner",
-            "📊 Analyze my performance history",
-            "🛡️ Why is Kalasag guard so important?",
-            "⚡ Explain Kasa, Tudla, and Bawi",
-            "🦵 What is proper Tindig stance?",
-          ]);
-        }
+        const resultMsg =
+          `I saw your **${strikeTitle}** attempt. You scored **${score}%**.\n\n` +
+          `🎯 **Main Area to Improve:**\n"${weaknessText}"\n\n` +
+          `Want to work on that together?`;
 
         setMessages([
           {
-            id: 'msg_welcome',
+            id: 'msg_result_' + Date.now(),
             sender: 'coach',
-            text: initialGreeting,
-            time: formatTime()
-          }
+            text: resultMsg,
+            time: formatTime(),
+          },
         ]);
-      });
 
-      return () => {
-        isMounted = false;
-      };
-    }, [params.strikeId, params.weakness, params.recentScore, params.strikeName])
-  );
+        setSuggestions([
+          'Why did I get this score?',
+          'How do I fix this?',
+          'What should I practice next?',
+          'Try again',
+        ]);
+
+        if (params.query) {
+          setTimeout(() => {
+            handleSendMessage(params.query!);
+          }, 400);
+        }
+        return;
+      }
+
+      // CASE 3: Arrived from Practice Selection / In-Practice
+      if (params.strikeId) {
+        const rule = getStrikeRule(params.strikeId);
+        const strikeTitle = params.strikeName || rule.name;
+
+        const practiceMsg =
+          `Ready to practice **${strikeTitle}** (${rule.target})!\n\n` +
+          `💡 **Key Form Focus:** ${rule.coachTip}\n\n` +
+          `Ask me anything about chambering, guard hand, or strike path!`;
+
+        setMessages([
+          {
+            id: 'msg_practice_' + Date.now(),
+            sender: 'coach',
+            text: practiceMsg,
+            time: formatTime(),
+          },
+        ]);
+
+        setSuggestions([
+          'Help me with this strike',
+          'What should I focus on?',
+          'Why is my form wrong?',
+          'How can I improve?',
+        ]);
+
+        if (params.query) {
+          setTimeout(() => {
+            handleSendMessage(params.query!);
+          }, 400);
+        }
+        return;
+      }
+
+      // CASE 4: Default / General Overview
+      let overviewMsg =
+        'Mabuhay! I am your Arnis Coach. Ask me any question about the 12 strikes, Kalasag guard, stance, or how to improve your score!';
+
+      if (list.length > 0) {
+        const count = list.length;
+        const avgScore = Math.round(list.reduce((a, b) => a + b.score, 0) / count);
+        overviewMsg =
+          `Mabuhay! I reviewed your ${count} practice sessions (Overall Average: ${avgScore}%).\n\n` +
+          `Tap a question below or ask me how to refine your Kalasag guard, stance, or strike trajectory!`;
+      }
+
+      setMessages([
+        {
+          id: 'msg_welcome',
+          sender: 'coach',
+          text: overviewMsg,
+          time: formatTime(),
+        },
+      ]);
+
+      setSuggestions([
+        'Explain this simply',
+        'How can I improve?',
+        'What am I doing wrong?',
+        'How should I practice?',
+        "What's my weakest strike?",
+        'Show me what to focus on',
+      ]);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    params.lessonId,
+    params.strikeId,
+    params.strikeName,
+    params.recentScore,
+    params.weakness,
+    params.source,
+    params.query,
+    handleSendMessage,
+  ]);
 
   const handleResetChat = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const greeting = buildInitialGreeting(userSessions);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     setMessages([
       {
-        id: 'msg_welcome_' + Date.now(),
+        id: 'msg_reset_' + Date.now(),
         sender: 'coach',
-        text: greeting,
-        time: formatTime()
-      }
+        text: 'Mabuhay! How can I help you with your Arnis training today?',
+        time: formatTime(),
+      },
     ]);
-  };
-
-  const handleSendMessage = (text: string) => {
-    if (!text.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const userMsg: Message = {
-      id: 'msg_user_' + Date.now(),
-      sender: 'user',
-      text: text,
-      time: formatTime()
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    setInputText('');
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-
-    // Trigger semantic coach response
-    setIsTyping(true);
-    setTimeout(() => {
-      const responseText = generateSemanticCoachResponse(text, userSessions, params.weakness);
-
-      const coachMsg: Message = {
-        id: 'msg_coach_' + Date.now(),
-        sender: 'coach',
-        text: responseText,
-        time: formatTime()
-      };
-
-      setIsTyping(false);
-      setMessages(prev => [...prev, coachMsg]);
-
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }, 600);
   };
 
   return (
@@ -605,19 +660,23 @@ export default function CoachChatScreen() {
             }}
             style={styles.backBtn}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+            <Ionicons name="chevron-back" size={24} color={MartialTheme.colors.text} />
           </TouchableOpacity>
+
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>🥋 Ask Coach</Text>
-            <Text style={styles.headerSubtitle}>Virtual Arnis Mentor & Kinematics</Text>
+            <Text style={styles.headerTitle}>🥋 Arnis Coach</Text>
+            <Text style={styles.headerSubtitle}>Your training companion</Text>
           </View>
+
           <TouchableOpacity
             style={styles.refreshBtn}
             onPress={handleResetChat}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={16} color="#94A3B8" />
+            <Ionicons name="refresh" size={18} color={MartialTheme.colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -636,19 +695,19 @@ export default function CoachChatScreen() {
               key={item.id}
               style={[
                 styles.messageRow,
-                item.sender === 'user' ? styles.userRow : styles.coachRow
+                item.sender === 'user' ? styles.userRow : styles.coachRow,
               ]}
             >
               {item.sender === 'coach' && (
                 <View style={styles.avatarContainer}>
-                  <MaterialCommunityIcons name="sword" size={15} color="#FFFFFF" />
+                  <CoachCharacter pose="thinking" size={36} />
                 </View>
               )}
 
               {item.sender === 'user' ? (
                 <View style={[styles.bubble, styles.userBubble]}>
                   <Text style={styles.userBubbleText}>{item.text}</Text>
-                  <Text style={[styles.bubbleTime, { color: '#FFFFFF80' }]}>{item.time}</Text>
+                  <Text style={styles.userBubbleTime}>{item.time}</Text>
                 </View>
               ) : (
                 <View style={styles.coachBubbleWrapper}>
@@ -657,7 +716,7 @@ export default function CoachChatScreen() {
                     <Text style={styles.bubbleTime}>{item.time}</Text>
                   </View>
 
-                  {/* Direct Action Chips */}
+                  {/* Direct Practice Action Chips */}
                   {(() => {
                     const referenced = extractReferencedStrikes(item.text);
                     if (referenced.length === 0) return null;
@@ -667,18 +726,20 @@ export default function CoachChatScreen() {
                           <TouchableOpacity
                             key={s.strikeKey}
                             style={styles.actionChipBtn}
-                            activeOpacity={0.7}
+                            activeOpacity={0.75}
                             onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
                               router.push({
                                 pathname: '/evaluate',
-                                params: { strikeId: s.strikeKey }
+                                params: { strikeId: s.strikeKey, mode: 'guided' },
                               });
                             }}
                           >
-                            <MaterialCommunityIcons name="sword" size={13} color="#F59E0B" style={{ marginRight: 5 }} />
+                            <MaterialCommunityIcons name="sword" size={14} color={MartialTheme.colors.primaryDark} style={{ marginRight: 6 }} />
                             <Text style={styles.actionChipText}>Practice {s.strikeName} Now</Text>
-                            <Ionicons name="arrow-forward" size={12} color="#F59E0B" style={{ marginLeft: 4 }} />
+                            <Ionicons name="arrow-forward" size={13} color={MartialTheme.colors.primaryDark} style={{ marginLeft: 4 }} />
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -692,24 +753,28 @@ export default function CoachChatScreen() {
           {isTyping && (
             <View style={[styles.messageRow, styles.coachRow]}>
               <View style={styles.avatarContainer}>
-                <MaterialCommunityIcons name="sword" size={15} color="#FFFFFF" />
+                <CoachCharacter pose="thinking" size={36} />
               </View>
               <View style={[styles.bubble, styles.coachBubble, styles.typingBubble]}>
-                <Text style={styles.typingText}>Coach is analyzing kinematics...</Text>
+                <Text style={styles.typingText}>Coach is thinking...</Text>
               </View>
             </View>
           )}
         </ScrollView>
 
-        {/* Suggestions Row */}
+        {/* Contextual Suggestions Carousel */}
         <View style={styles.suggestionsContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.suggestionsScroll}
+          >
             {suggestions.map((item, idx) => (
               <TouchableOpacity
                 key={idx}
                 style={styles.suggestionChip}
                 onPress={() => handleSendMessage(item)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
                 <Text style={styles.suggestionChipText}>{item}</Text>
               </TouchableOpacity>
@@ -721,8 +786,8 @@ export default function CoachChatScreen() {
         <View style={styles.inputBar}>
           <TextInput
             style={styles.textInput}
-            placeholder="Ask about strikes, guard, stance, metrics..."
-            placeholderTextColor="#64748B"
+            placeholder="Ask your coach anything..."
+            placeholderTextColor={MartialTheme.colors.textMuted}
             value={inputText}
             onChangeText={setInputText}
             onSubmitEditing={() => handleSendMessage(inputText)}
@@ -732,7 +797,7 @@ export default function CoachChatScreen() {
             onPress={() => handleSendMessage(inputText)}
             activeOpacity={0.8}
           >
-            <Ionicons name="send" size={17} color="#FFFFFF" />
+            <Ionicons name="send" size={16} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -743,13 +808,14 @@ export default function CoachChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0C16',
+    backgroundColor: MartialTheme.colors.background,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#161930',
+    borderBottomColor: MartialTheme.colors.border,
   },
   headerContent: {
     flexDirection: 'row',
@@ -759,29 +825,25 @@ const styles = StyleSheet.create({
   backBtn: {
     marginRight: 10,
     padding: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 19,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   headerSubtitle: {
-    fontSize: 11,
-    color: '#F59E0B',
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginTop: 2,
+    fontSize: 11.5,
+    color: MartialTheme.colors.primaryDark,
+    fontWeight: '700',
+    marginTop: 1,
   },
   refreshBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#161930',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: MartialTheme.colors.background,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -790,7 +852,7 @@ const styles = StyleSheet.create({
   },
   chatContent: {
     padding: 16,
-    paddingBottom: 10,
+    paddingBottom: 16,
   },
   messageRow: {
     flexDirection: 'row',
@@ -810,68 +872,77 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   avatarContainer: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#D24B38',
-    justifyContent: 'center',
+    width: 36,
+    height: 40,
     alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 8,
     marginTop: 2,
   },
   bubble: {
-    borderRadius: 16,
+    borderRadius: 18,
     paddingHorizontal: 15,
     paddingVertical: 12,
   },
   userBubble: {
-    backgroundColor: '#D24B38',
+    backgroundColor: MartialTheme.colors.primary,
     borderBottomRightRadius: 4,
     maxWidth: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   userBubbleText: {
     color: '#FFFFFF',
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: '600',
+  },
+  userBubbleTime: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 9.5,
+    alignSelf: 'flex-end',
+    marginTop: 4,
   },
   coachBubble: {
-    backgroundColor: '#161930',
-    borderWidth: 1,
-    borderColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
     borderTopLeftRadius: 4,
   },
   formattedTextContainer: {
-    gap: 2,
+    gap: 3,
   },
   bubbleText: {
-    color: '#CBD5E1',
+    color: MartialTheme.colors.text,
     fontSize: 13.5,
     lineHeight: 20,
   },
   headerLineText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginBottom: 2,
-  },
-  bulletLineText: {
-    paddingLeft: 4,
+    color: MartialTheme.colors.text,
+    fontWeight: '800',
+    fontSize: 13.5,
   },
   boldSpan: {
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
   },
   bubbleTime: {
-    color: '#64748B',
-    fontSize: 10,
+    color: MartialTheme.colors.textMuted,
+    fontSize: 9.5,
     alignSelf: 'flex-end',
     marginTop: 6,
   },
   typingBubble: {
     paddingVertical: 10,
+    paddingHorizontal: 14,
   },
   typingText: {
-    color: '#64748B',
+    color: MartialTheme.colors.textMuted,
     fontSize: 12.5,
     fontStyle: 'italic',
   },
@@ -885,68 +956,68 @@ const styles = StyleSheet.create({
   actionChipBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F59E0B15',
+    backgroundColor: MartialTheme.colors.primaryMuted,
     borderWidth: 1,
-    borderColor: '#F59E0B50',
+    borderColor: '#BBF7D0',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 14,
   },
   actionChipText: {
-    color: '#F59E0B',
-    fontSize: 11.5,
-    fontWeight: 'bold',
+    color: MartialTheme.colors.primaryDark,
+    fontSize: 12,
+    fontWeight: '800',
   },
   suggestionsContainer: {
     borderTopWidth: 1,
-    borderTopColor: '#161930',
+    borderTopColor: MartialTheme.colors.border,
     paddingVertical: 10,
-    backgroundColor: '#0A0C16',
+    backgroundColor: '#FFFFFF',
   },
   suggestionsScroll: {
     paddingHorizontal: 16,
     gap: 8,
   },
   suggestionChip: {
-    backgroundColor: '#161930',
-    borderRadius: 18,
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
     paddingHorizontal: 13,
     paddingVertical: 7,
     justifyContent: 'center',
   },
   suggestionChipText: {
-    color: '#E2E8F0',
+    color: MartialTheme.colors.text,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '700',
   },
   inputBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#0A0C16',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#161930',
+    borderTopColor: MartialTheme.colors.border,
     gap: 10,
     alignItems: 'center',
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#161930',
+    backgroundColor: MartialTheme.colors.background,
     borderWidth: 1,
-    borderColor: '#1E293B',
+    borderColor: MartialTheme.colors.border,
     borderRadius: 20,
     paddingHorizontal: 16,
     height: 42,
-    color: '#FFFFFF',
+    color: MartialTheme.colors.text,
     fontSize: 13.5,
   },
   sendButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#D24B38',
+    backgroundColor: MartialTheme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },

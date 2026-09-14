@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -142,6 +142,17 @@ export default function HomeDashboardScreen() {
           <View style={styles.heroSpeechBubble}>
             <Text style={styles.greetingTitle}>{greeting}</Text>
             <Text style={styles.greetingSubtitle}>Ready to train today?</Text>
+            <TouchableOpacity
+              style={styles.heroAskCoachBtn}
+              activeOpacity={0.75}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/chat' as any);
+              }}
+            >
+              <Text style={styles.heroAskCoachText}>🥋 Ask Coach</Text>
+              <Ionicons name="chevron-forward" size={12} color={MartialTheme.colors.primaryDark} />
+            </TouchableOpacity>
             <View style={styles.speechBubbleArrow} />
           </View>
 
@@ -377,6 +388,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: MartialTheme.colors.textSecondary,
     marginTop: 2,
+  },
+  heroAskCoachBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    marginTop: 8,
+    gap: 4,
+  },
+  heroAskCoachText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
   },
   heroCoach: {
     marginRight: -4,

@@ -380,7 +380,28 @@ export default function ProgressHistoryScreen() {
 
             {/* Coach Speech Bubble */}
             <View style={styles.focusCoachBubble}>
-              <Text style={styles.focusCoachBubbleLabel}>COACH SAYS</Text>
+              <View style={styles.focusCoachBubbleHeader}>
+                <Text style={styles.focusCoachBubbleLabel}>COACH SAYS</Text>
+                <TouchableOpacity
+                  style={styles.focusAskCoachBtn}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push({
+                      pathname: '/chat' as any,
+                      params: {
+                        strikeId: currentFocusStrike.id,
+                        strikeName: `Strike ${currentFocusStrike.strikeNumber} (${currentFocusStrike.name})`,
+                        weakness: coachFocusAdvice || currentFocusStrike.target,
+                        recentScore: currentFocusStrike.bestScore > 0 ? currentFocusStrike.bestScore.toString() : undefined,
+                        source: 'progress',
+                      },
+                    });
+                  }}
+                >
+                  <Text style={styles.focusAskCoachBtnText}>🥋 Ask Coach</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.focusCoachBubbleText}>{`"${coachFocusAdvice}"`}</Text>
             </View>
 
@@ -1126,6 +1147,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: MartialTheme.colors.border,
     marginBottom: 8,
+  },
+  focusCoachBubbleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  focusAskCoachBtn: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  focusAskCoachBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
   },
   focusCoachBubbleLabel: {
     fontSize: 8.5,

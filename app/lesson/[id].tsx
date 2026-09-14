@@ -131,6 +131,28 @@ export default function LessonScreen() {
         onClose={() => router.back()}
       />
 
+      <View style={styles.lessonSubHeader}>
+        <Text style={styles.lessonStepIndicator}>
+          STEP {currentStepIndex + 1} OF {steps.length}
+        </Text>
+        <TouchableOpacity
+          style={styles.askCoachLessonBtn}
+          activeOpacity={0.8}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({
+              pathname: '/chat' as any,
+              params: {
+                lessonId: lesson.id,
+              },
+            });
+          }}
+        >
+          <Text style={styles.askCoachLessonBtnText}>🥋 Ask Coach</Text>
+          <Ionicons name="chatbubble-ellipses-outline" size={13} color={MartialTheme.colors.primaryDark} />
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -427,6 +449,35 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+  },
+  lessonSubHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  lessonStepIndicator: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+    letterSpacing: 0.5,
+  },
+  askCoachLessonBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  askCoachLessonBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
   },
   scrollContent: {
     flexGrow: 1,

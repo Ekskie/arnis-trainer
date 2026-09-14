@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
+import { useRouter } from 'expo-router';
 
 import { MartialTheme } from '@/constants/theme';
 import { StrikeRule } from '@/constants/strikeRules';
@@ -44,6 +45,7 @@ export function PracticeResult({
   onExit,
   onContinueLesson,
 }: PracticeResultProps) {
+  const router = useRouter();
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [showWhyModal, setShowWhyModal] = useState(false);
 
@@ -180,6 +182,27 @@ export function PracticeResult({
               )}
             </View>
           </View>
+
+          {/* Ask Coach Contextual Advice Button */}
+          <TouchableOpacity
+            style={styles.askCoachResultBtn}
+            activeOpacity={0.8}
+            onPress={() => {
+              router.push({
+                pathname: '/chat' as any,
+                params: {
+                  strikeId: strikeRule.id,
+                  strikeName: strikeRule.name,
+                  recentScore: result.score.toString(),
+                  weakness: result.feedback.improvements[0] || 'form alignment and recovery',
+                  source: 'result',
+                },
+              });
+            }}
+          >
+            <Ionicons name="chatbubble-ellipses" size={16} color="#065F46" style={{ marginRight: 6 }} />
+            <Text style={styles.askCoachResultBtnText}>💬 Ask Coach About This Score</Text>
+          </TouchableOpacity>
 
           {/* Primary Action Buttons */}
           <View style={styles.actionButtonsCol}>
@@ -579,6 +602,26 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: MartialTheme.colors.text,
     flex: 1,
+  },
+
+  askCoachResultBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    borderRadius: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    width: '100%',
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  askCoachResultBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
   },
 
   // ACTION BUTTONS
