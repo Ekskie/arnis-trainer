@@ -14,7 +14,7 @@
     "android": {
       "package": "com.pose.arnistrainer",
       "adaptiveIcon": {
-        "backgroundColor": "#0A0C16",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -36,11 +36,11 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 240,
           "resizeMode": "contain",
-          "backgroundColor": "#0A0C16",
+          "backgroundColor": "#FFFFFF",
           "dark": {
-            "backgroundColor": "#0A0C16"
+            "backgroundColor": "#FFFFFF"
           }
         }
       ],

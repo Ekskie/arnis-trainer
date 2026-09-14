@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -102,7 +103,11 @@ export default function HomeDashboardScreen() {
       {/* --- TOP STATUS BAR (Gamification Badges) --- */}
       <View style={styles.topBar}>
         <View style={styles.logoRow}>
-          <Text style={styles.logoIcon}>🥋</Text>
+          <Image
+            source={require('@/assets/images/Logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.logoText}>POSEFIX</Text>
         </View>
 
@@ -256,10 +261,12 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
-  logoIcon: {
-    fontSize: 20,
+  logoImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
   },
   logoText: {
     fontSize: 16,
