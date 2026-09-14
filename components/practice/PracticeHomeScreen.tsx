@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+
 import { MartialTheme } from '@/constants/theme';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
@@ -42,7 +43,7 @@ export function PracticeHomeScreen({
   voiceFeedbackEnabled,
   setVoiceFeedbackEnabled,
 }: PracticeHomeScreenProps) {
-  const [streakDays, setStreakDays] = useState(3);
+  const [streakDays, setStreakDays] = useState(1);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [showAllStrikes, setShowAllStrikes] = useState(false);
@@ -53,49 +54,47 @@ export function PracticeHomeScreen({
       const gStats = await getGamificationStats();
       setStreakDays(gStats.streakDays || 1);
       const hist = await getHistory();
-      setHistoryList(hist);
-      setMasteryStats(getStrikeMasteryStats(hist));
+      setHistoryList(hist || []);
+      setMasteryStats(getStrikeMasteryStats(hist || []));
     }
     loadData();
   }, []);
 
-  // Determine the recommended strike
-  const recommendedStrike = React.useMemo(() => {
-    if (historyList.length === 0) {
+  // Determine the recommended strike from actual mastery stats
+  const recommendedStrike = useMemo(() => {
+    const strikes = masteryStats.strikes;
+    if (historyList.length === 0 || strikes.length === 0) {
       return {
         id: 'strike_1',
         strikeNumber: 1,
         name: 'Strike 1 — Left Temple',
-        filipinoName: 'Pang-una (Kaliwang Sintido)',
         target: 'Left Temple / Neck',
         isNew: true,
         lastScore: null,
         stars: 0,
-        coachTip: "Welcome to practice! Let's start with Strike 1. We'll guide you through your chamber, check hand, and slice.",
+        coachTip: "Welcome to practice! Let's start with Strike 1. We'll guide your chamber, check hand, and slice.",
       };
     }
 
-    // Find the strike that needs the most attention (attempted but low score, or next unpracticed)
-    const strikes = masteryStats.strikes;
     const attempted = strikes.filter((s) => s.attempts > 0);
     const unattempted = strikes.filter((s) => s.attempts === 0);
 
     let target = strikes[0];
 
-    // If there's an attempted strike that hasn't reached 85%, focus on lowest
+    // Priority 1: attempted but unmastered (< 85), pick lowest bestScore to polish
     const imperfect = attempted.filter((s) => s.bestScore < 85);
     if (imperfect.length > 0) {
       imperfect.sort((a, b) => a.bestScore - b.bestScore);
       target = imperfect[0];
     } else if (unattempted.length > 0) {
+      // Priority 2: next unattempted strike in canonical order
       target = unattempted[0];
     } else {
-      // All mastered, pick lowest best score to polish
+      // All mastered, pick lowest to maintain sharpness
       const sorted = [...strikes].sort((a, b) => a.bestScore - b.bestScore);
       target = sorted[0];
     }
 
-    // Calculate stars from bestScore
     let stars = 0;
     if (target.bestScore >= 95) stars = 5;
     else if (target.bestScore >= 85) stars = 4;
@@ -103,20 +102,19 @@ export function PracticeHomeScreen({
     else if (target.bestScore >= 60) stars = 2;
     else if (target.bestScore > 0) stars = 1;
 
-    let coachTip = "Focus on your form. Pin your check hand (Kalasag) firmly to your chest.";
+    let coachTip = "Focus on clean body alignment and pin your Kalasag guard firmly to your chest.";
     if (target.bestScore > 0 && target.bestScore < 75) {
-      coachTip = "Let's work on your recovery back to guard position. Don't let your stick drop after the slice!";
+      coachTip = "Let's make this one smoother. Keep your recovery controlled back to guard position.";
     } else if (target.bestScore >= 75 && target.bestScore < 85) {
-      coachTip = "You're close to mastery! Keep your lead knee bent at an athletic 145° angle.";
+      coachTip = "You're close to mastery! Concentrate on sharp wrist snap (Pitik) at impact.";
     } else if (target.bestScore >= 85) {
-      coachTip = "Master level technique! Practice with speed and explosive wrist snap (Pitik).";
+      coachTip = "Master level execution! Practice with speed, rhythm, and explosive flow.";
     }
 
     return {
       id: target.id,
       strikeNumber: target.strikeNumber,
-      name: `${target.name} — ${target.target.split('/')[0].trim()}`,
-      filipinoName: target.name,
+      name: `Strike ${target.strikeNumber} — ${target.target.split('/')[0].trim()}`,
       target: target.target,
       isNew: target.attempts === 0,
       lastScore: target.bestScore > 0 ? target.bestScore : null,
@@ -125,14 +123,14 @@ export function PracticeHomeScreen({
     };
   }, [historyList, masteryStats]);
 
-  const renderStars = (count: number) => {
+  const renderStars = (count: number, size = 16) => {
     return (
       <View style={styles.starsRow}>
         {[1, 2, 3, 4, 5].map((s) => (
           <Ionicons
             key={s}
             name={s <= count ? 'star' : 'star-outline'}
-            size={16}
+            size={size}
             color={s <= count ? MartialTheme.colors.bamboo : '#D1D5DB'}
             style={{ marginRight: 2 }}
           />
@@ -155,7 +153,7 @@ export function PracticeHomeScreen({
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>PRACTICE</Text>
-          <Text style={styles.headerSubtitle}>Keep building your martial skills</Text>
+          <Text style={styles.headerSubtitle}>Keep your momentum going!</Text>
         </View>
 
         <View style={styles.headerRightGroup}>
@@ -167,45 +165,51 @@ export function PracticeHomeScreen({
             style={styles.helpButton}
             onPress={onOpenTutorial}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="help-circle-outline" size={22} color={MartialTheme.colors.textMuted} />
+            <Ionicons name="help-circle-outline" size={24} color={MartialTheme.colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* --- 1. THE ONE DOMINANT RECOMMENDED PRACTICE CARD --- */}
-      <View style={styles.recommendedCard}>
-        <View style={styles.recommendedHeaderRow}>
-          <View style={styles.badgePill}>
-            <Text style={styles.badgePillText}>
-              {recommendedStrike.isNew ? '⭐ START HERE' : '⭐ CONTINUE PRACTICING'}
+      {/* --- 1. TODAY'S PRACTICE / CONTINUE PRACTICING (DOMINANT HERO) --- */}
+      <View style={styles.heroCard}>
+        <View style={styles.heroHeaderRow}>
+          <View style={styles.heroBadgePill}>
+            <Text style={styles.heroBadgePillText}>
+              {recommendedStrike.isNew ? '⭐ START HERE' : "⭐ TODAY'S PRACTICE"}
             </Text>
           </View>
 
           {recommendedStrike.lastScore !== null && (
-            <View style={styles.scorePill}>
-              <Text style={styles.scorePillText}>Last: {recommendedStrike.lastScore}%</Text>
+            <View style={styles.heroScorePill}>
+              <Text style={styles.heroScorePillText}>Best: {recommendedStrike.lastScore}%</Text>
             </View>
           )}
         </View>
 
-        <Text style={styles.recommendedTitle}>{recommendedStrike.name}</Text>
-        <Text style={styles.recommendedSub}>{recommendedStrike.target}</Text>
+        <Text style={styles.heroStrikeTitle}>{recommendedStrike.name}</Text>
+        <Text style={styles.heroStrikeTarget}>{recommendedStrike.target}</Text>
 
-        {renderStars(recommendedStrike.stars)}
+        <View style={styles.heroStarsRow}>
+          {renderStars(recommendedStrike.stars, 18)}
+          {recommendedStrike.lastScore !== null && (
+            <Text style={styles.heroAccuracyText}>{recommendedStrike.lastScore}%</Text>
+          )}
+        </View>
 
         {/* Coach Advice Speech Bubble */}
-        <View style={styles.coachBubble}>
-          <View style={styles.coachBubbleAvatar}>
-            <CoachCharacter pose="thinking" size={44} />
+        <View style={styles.coachSpeechBubble}>
+          <View style={styles.coachAvatarWrapper}>
+            <CoachCharacter pose="thinking" size={46} />
           </View>
-          <View style={styles.coachBubbleTextWrap}>
-            <Text style={styles.coachBubbleLabel}>COACH SAYS</Text>
-            <Text style={styles.coachBubbleText}>{`"${recommendedStrike.coachTip}"`}</Text>
+          <View style={styles.coachSpeechContent}>
+            <Text style={styles.coachSpeechLabel}>COACH SAYS</Text>
+            <Text style={styles.coachSpeechText}>{`"${recommendedStrike.coachTip}"`}</Text>
           </View>
         </View>
 
-        {/* Single Dominant Action Button */}
+        {/* Single Dominant CTA Button */}
         <TactileButton
           title={`PRACTICE STRIKE ${recommendedStrike.strikeNumber}`}
           onPress={() => {
@@ -215,16 +219,24 @@ export function PracticeHomeScreen({
           variant="primary"
           size="lg"
           icon={<Ionicons name="play" size={18} color="#FFFFFF" />}
-          style={{ width: '100%', marginTop: 8 }}
+          style={{ width: '100%', marginTop: 6 }}
         />
       </View>
 
-      {/* --- 2. QUICK PRACTICE — CHOOSE A SKILL --- */}
-      <View style={styles.sectionContainer}>
+      {/* --- 2. YOUR STRIKES (MASTERY PROGRESSION LIST) --- */}
+      <View style={styles.sectionWrap}>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>QUICK SKILL PRACTICE</Text>
+          <View>
+            <Text style={styles.sectionTitle}>YOUR STRIKES</Text>
+            <Text style={styles.sectionSub}>
+              {masteryStats.masteredCount} of 12 Mastered
+            </Text>
+          </View>
           <TouchableOpacity
-            onPress={() => setShowAllStrikes(!showAllStrikes)}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowAllStrikes(!showAllStrikes);
+            }}
             activeOpacity={0.7}
           >
             <Text style={styles.seeAllText}>
@@ -233,7 +245,7 @@ export function PracticeHomeScreen({
           </TouchableOpacity>
         </View>
 
-        <View style={styles.skillsList}>
+        <View style={styles.strikesListCard}>
           {displayedStrikes.map((s) => {
             let starCount = 0;
             if (s.bestScore >= 95) starCount = 5;
@@ -242,49 +254,93 @@ export function PracticeHomeScreen({
             else if (s.bestScore >= 60) starCount = 2;
             else if (s.bestScore > 0) starCount = 1;
 
+            const isCurrentFocus = s.id === recommendedStrike.id;
+            const isPracticed = s.attempts > 0;
+
             return (
               <TouchableOpacity
                 key={s.id}
-                style={styles.skillRow}
-                activeOpacity={0.7}
+                style={[
+                  styles.strikeRow,
+                  isCurrentFocus && styles.strikeRowFocus,
+                ]}
+                activeOpacity={0.75}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onStartStrike(s.id, 'guided');
                 }}
               >
+                {/* State Badge: Mastered (green check), Practiced (gold star), or Neutral */}
                 <View
                   style={[
-                    styles.skillNumBadge,
-                    s.isMastered && styles.skillNumBadgeMastered,
+                    styles.strikeStateBadge,
+                    s.isMastered && styles.strikeStateBadgeMastered,
+                    !s.isMastered && isPracticed && styles.strikeStateBadgePracticed,
+                    isCurrentFocus && styles.strikeStateBadgeFocus,
+                  ]}
+                >
+                  {s.isMastered ? (
+                    <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                  ) : isPracticed ? (
+                    <Text style={styles.strikeNumTextPracticed}>{s.strikeNumber}</Text>
+                  ) : (
+                    <Text style={styles.strikeNumTextNeutral}>{s.strikeNumber}</Text>
+                  )}
+                </View>
+
+                {/* Strike Information */}
+                <View style={styles.strikeDetails}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.strikeTitleText}>
+                      Strike {s.strikeNumber} — {s.target.split('/')[0].trim()}
+                    </Text>
+                    {isCurrentFocus && (
+                      <View style={styles.focusPill}>
+                        <Text style={styles.focusPillText}>FOCUS</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.strikeMetaRow}>
+                    {isPracticed ? (
+                      <>
+                        {renderStars(starCount, 13)}
+                        <Text style={styles.strikeScoreText}>{s.bestScore}%</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.notPracticedText}>○ Not practiced</Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Tap Action */}
+                <View
+                  style={[
+                    styles.rowActionBtn,
+                    s.isMastered && styles.rowActionBtnMastered,
+                    isCurrentFocus && styles.rowActionBtnFocus,
                   ]}
                 >
                   <Text
                     style={[
-                      styles.skillNumText,
-                      s.isMastered && styles.skillNumTextMastered,
+                      styles.rowActionBtnText,
+                      s.isMastered && styles.rowActionBtnTextMastered,
+                      isCurrentFocus && styles.rowActionBtnTextFocus,
                     ]}
                   >
-                    {s.strikeNumber}
+                    {s.isMastered ? 'POLISH' : isPracticed ? 'PRACTICE' : 'TRY'}
                   </Text>
-                </View>
-
-                <View style={styles.skillDetails}>
-                  <Text style={styles.skillTitle}>
-                    Strike {s.strikeNumber} — {s.target.split('/')[0].trim()}
-                  </Text>
-                  <View style={styles.skillMetaRow}>
-                    {renderStars(starCount)}
-                    <Text style={styles.skillScoreText}>
-                      {s.attempts > 0 ? `${s.bestScore}%` : 'Not practiced'}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.skillActionBtn}>
-                  <Text style={styles.skillActionBtnText}>
-                    {s.attempts > 0 ? 'PRACTICE' : 'TRY'}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={14} color={MartialTheme.colors.primary} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={
+                      s.isMastered
+                        ? MartialTheme.colors.primaryDark
+                        : isCurrentFocus
+                        ? MartialTheme.colors.primaryDark
+                        : MartialTheme.colors.textMuted
+                    }
+                  />
                 </View>
               </TouchableOpacity>
             );
@@ -292,57 +348,63 @@ export function PracticeHomeScreen({
         </View>
       </View>
 
-      {/* --- 3. TRAINING MODES WITH COACH --- */}
-      <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>TRAINING MODES</Text>
+      {/* --- 3. TRAINING MODES (LEARNER-FIRST HIERARCHY) --- */}
+      <View style={styles.sectionWrap}>
+        <Text style={styles.sectionTitle}>HOW DO YOU WANT TO PRACTICE?</Text>
+        <Text style={styles.sectionSub}>Choose your practice style for {recommendedStrike.name}</Text>
 
-        <View style={styles.modesGrid}>
-          {/* Mode 1: Follow the Coach */}
+        <View style={styles.modesContainer}>
+          {/* Mode 1: Guided Practice (RECOMMENDED / DEFAULT PATH) */}
+          <TouchableOpacity
+            style={[styles.modeCard, styles.modeCardRecommended]}
+            activeOpacity={0.8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onStartStrike(recommendedStrike.id, 'guided');
+            }}
+          >
+            <View style={[styles.modeIconCircle, { backgroundColor: '#DCFCE7' }]}>
+              <Ionicons name="sparkles" size={22} color={MartialTheme.colors.primary} />
+            </View>
+            <View style={styles.modeCardContent}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.modeCardTitle}>Guided Practice</Text>
+                <View style={styles.recommendedPill}>
+                  <Text style={styles.recommendedPillText}>RECOMMENDED</Text>
+                </View>
+              </View>
+              <Text style={styles.modeCardDesc}>
+                Live coach feedback for Chamber, Strike, and Recovery
+              </Text>
+            </View>
+            <Ionicons name="play-circle" size={24} color={MartialTheme.colors.primary} />
+          </TouchableOpacity>
+
+          {/* Mode 2: Follow the Coach */}
           <TouchableOpacity
             style={styles.modeCard}
-            activeOpacity={0.75}
+            activeOpacity={0.8}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onStartStrike(recommendedStrike.id, 'follow');
             }}
           >
-            <View style={[styles.modeIconCircle, { backgroundColor: '#DCFCE7' }]}>
-              <Ionicons name="eye" size={20} color={MartialTheme.colors.primary} />
+            <View style={[styles.modeIconCircle, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="eye" size={20} color={MartialTheme.colors.bambooDark} />
             </View>
             <View style={styles.modeCardContent}>
               <Text style={styles.modeCardTitle}>Follow the Coach</Text>
               <Text style={styles.modeCardDesc}>
-                Watch video instructor and mirror their fluid strike in real time
+                Mirror instructor video demonstrations in real time
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={MartialTheme.colors.border3D} />
-          </TouchableOpacity>
-
-          {/* Mode 2: Guided Practice */}
-          <TouchableOpacity
-            style={styles.modeCard}
-            activeOpacity={0.75}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onStartStrike(recommendedStrike.id, 'guided');
-            }}
-          >
-            <View style={[styles.modeIconCircle, { backgroundColor: '#FEF3C7' }]}>
-              <Ionicons name="mic" size={20} color={MartialTheme.colors.bambooDark} />
-            </View>
-            <View style={styles.modeCardContent}>
-              <Text style={styles.modeCardTitle}>Guided Practice</Text>
-              <Text style={styles.modeCardDesc}>
-                Live feedback for Chamber (Kasa), Strike (Tudla), & Recovery (Bawi)
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={MartialTheme.colors.border3D} />
+            <Ionicons name="chevron-forward" size={18} color={MartialTheme.colors.border3D} />
           </TouchableOpacity>
 
           {/* Mode 3: Test Yourself */}
           <TouchableOpacity
             style={styles.modeCard}
-            activeOpacity={0.75}
+            activeOpacity={0.8}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onStartStrike(recommendedStrike.id, 'test');
@@ -354,17 +416,20 @@ export function PracticeHomeScreen({
             <View style={styles.modeCardContent}>
               <Text style={styles.modeCardTitle}>Test Yourself</Text>
               <Text style={styles.modeCardDesc}>
-                3-2-1 countdown exam testing 4-pillar biomechanical precision
+                Timed 3-2-1 challenge to test your muscle memory
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={MartialTheme.colors.border3D} />
+            <Ionicons name="chevron-forward" size={18} color={MartialTheme.colors.border3D} />
           </TouchableOpacity>
 
           {/* Mode 4: Anyo & Combos */}
           <TouchableOpacity
             style={styles.modeCard}
-            activeOpacity={0.75}
-            onPress={() => setShowAnyoPicker(!showAnyoPicker)}
+            activeOpacity={0.8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowAnyoPicker(!showAnyoPicker);
+            }}
           >
             <View style={[styles.modeIconCircle, { backgroundColor: '#F3E8FF' }]}>
               <MaterialCommunityIcons name="sword-cross" size={20} color="#8B5CF6" />
@@ -372,12 +437,12 @@ export function PracticeHomeScreen({
             <View style={styles.modeCardContent}>
               <Text style={styles.modeCardTitle}>Anyo & Combos</Text>
               <Text style={styles.modeCardDesc}>
-                Chain canonical strikes in seamless martial flow combinations
+                Chain canonical strikes in fluid martial combinations
               </Text>
             </View>
             <Ionicons
               name={showAnyoPicker ? 'chevron-up' : 'chevron-down'}
-              size={16}
+              size={18}
               color={MartialTheme.colors.border3D}
             />
           </TouchableOpacity>
@@ -411,25 +476,25 @@ export function PracticeHomeScreen({
         </View>
       </View>
 
-      {/* --- 4. VIDEO DEMONSTRATIONS & GEAR PREFERENCES --- */}
-      <View style={styles.footerOptions}>
+      {/* --- 4. FOOTER OPTIONS (VIDEO GUIDE & GEAR) --- */}
+      <View style={styles.footerWrap}>
         {/* Watch Demo Video Button */}
         <TouchableOpacity
-          style={styles.videoDemoBtn}
+          style={styles.videoGuideBtn}
           activeOpacity={0.8}
           onPress={() => onOpenVideoGuide(recommendedStrike.id)}
         >
-          <MaterialCommunityIcons name="play-circle" size={22} color={MartialTheme.colors.bamboo} style={{ marginRight: 10 }} />
+          <MaterialCommunityIcons name="play-circle" size={24} color={MartialTheme.colors.bamboo} style={{ marginRight: 10 }} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.videoDemoBtnTitle}>Watch Instructor Demonstrations</Text>
-            <Text style={styles.videoDemoBtnSub}>All 12 strikes with slow-motion angle breakdown</Text>
+            <Text style={styles.videoGuideTitle}>Watch Instructor Demonstrations</Text>
+            <Text style={styles.videoGuideSub}>All 12 strikes with slow-motion angle breakdown</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={MartialTheme.colors.bambooDark} />
         </TouchableOpacity>
 
         {/* Secondary Gear & Voice Selector Strip */}
         <View style={styles.gearStrip}>
-          <View style={styles.gearStickCol}>
+          <View style={styles.gearGroup}>
             <Text style={styles.gearLabel}>WEAPON</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
               {[
@@ -483,6 +548,8 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+
+  // HEADER
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -521,11 +588,11 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.flame,
   },
   helpButton: {
-    padding: 6,
+    padding: 4,
   },
 
-  // RECOMMENDED HERO CARD
-  recommendedCard: {
+  // HERO CARD: TODAY'S PRACTICE
+  heroCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 18,
@@ -535,13 +602,13 @@ const styles = StyleSheet.create({
     borderBottomColor: MartialTheme.colors.border3D,
     marginBottom: 20,
   },
-  recommendedHeaderRow: {
+  heroHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  badgePill: {
+  heroBadgePill: {
     backgroundColor: MartialTheme.colors.primaryMuted,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -549,44 +616,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#BBF7D0',
   },
-  badgePillText: {
-    fontSize: 10.5,
+  heroBadgePillText: {
+    fontSize: 11,
     fontWeight: '900',
     color: MartialTheme.colors.primaryDark,
     letterSpacing: 0.5,
   },
-  scorePill: {
+  heroScorePill: {
     backgroundColor: MartialTheme.colors.bambooMuted,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
   },
-  scorePillText: {
+  heroScorePillText: {
     fontSize: 11,
     fontWeight: '800',
     color: MartialTheme.colors.bambooDark,
   },
-  recommendedTitle: {
-    fontSize: 20,
+  heroStrikeTitle: {
+    fontSize: 21,
     fontWeight: '900',
     color: MartialTheme.colors.text,
     marginTop: 2,
   },
-  recommendedSub: {
+  heroStrikeTarget: {
     fontSize: 13,
     color: MartialTheme.colors.textMuted,
     fontWeight: '600',
     marginTop: 2,
-    marginBottom: 8,
+    marginBottom: 6,
+  },
+  heroStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  heroAccuracyText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.bambooDark,
   },
   starsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
   },
 
-  // COACH BUBBLE
-  coachBubble: {
+  // COACH SPEECH BUBBLE
+  coachSpeechBubble: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: MartialTheme.colors.background,
@@ -594,34 +671,34 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: MartialTheme.colors.border,
-    marginBottom: 14,
+    marginBottom: 12,
     gap: 12,
   },
-  coachBubbleAvatar: {
-    width: 44,
-    height: 48,
+  coachAvatarWrapper: {
+    width: 46,
+    height: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coachBubbleTextWrap: {
+  coachSpeechContent: {
     flex: 1,
   },
-  coachBubbleLabel: {
+  coachSpeechLabel: {
     fontSize: 9,
     fontWeight: '900',
     color: MartialTheme.colors.bambooDark,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
     marginBottom: 2,
   },
-  coachBubbleText: {
+  coachSpeechText: {
     fontSize: 12.5,
     color: MartialTheme.colors.text,
     lineHeight: 18,
     fontWeight: '600',
   },
 
-  // SECTION HEADERS
-  sectionContainer: {
+  // SECTIONS
+  sectionWrap: {
     marginBottom: 20,
   },
   sectionHeaderRow: {
@@ -632,10 +709,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   sectionTitle: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: '900',
-    color: MartialTheme.colors.bambooDark,
-    letterSpacing: 1.2,
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 1,
+  },
+  sectionSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: MartialTheme.colors.textMuted,
+    marginTop: 1,
   },
   seeAllText: {
     fontSize: 12,
@@ -643,8 +726,8 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.primary,
   },
 
-  // SKILL ROWS LIST
-  skillsList: {
+  // STRIKES MASTERY LIST
+  strikesListCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1.5,
@@ -653,7 +736,7 @@ const styles = StyleSheet.create({
     borderBottomColor: MartialTheme.colors.border3D,
     overflow: 'hidden',
   },
-  skillRow: {
+  strikeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
@@ -661,67 +744,112 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: MartialTheme.colors.border,
   },
-  skillNumBadge: {
+  strikeRowFocus: {
+    backgroundColor: '#F0FDF4',
+  },
+  strikeStateBadge: {
     width: 32,
     height: 32,
     borderRadius: 10,
     backgroundColor: MartialTheme.colors.background,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  skillNumBadgeMastered: {
-    backgroundColor: MartialTheme.colors.primaryMuted,
+  strikeStateBadgeMastered: {
+    backgroundColor: MartialTheme.colors.primary,
+    borderColor: MartialTheme.colors.primaryDark,
+  },
+  strikeStateBadgePracticed: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  strikeStateBadgeFocus: {
     borderColor: MartialTheme.colors.primary,
   },
-  skillNumText: {
+  strikeNumTextNeutral: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+  },
+  strikeNumTextPracticed: {
     fontSize: 13,
     fontWeight: '900',
-    color: MartialTheme.colors.text,
+    color: MartialTheme.colors.bambooDark,
   },
-  skillNumTextMastered: {
-    color: MartialTheme.colors.primary,
-  },
-  skillDetails: {
+  strikeDetails: {
     flex: 1,
   },
-  skillTitle: {
+  strikeTitleText: {
     fontSize: 14,
     fontWeight: '800',
     color: MartialTheme.colors.text,
   },
-  skillMetaRow: {
+  focusPill: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  focusPillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
+  },
+  strikeMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginTop: 3,
   },
-  skillScoreText: {
+  strikeScoreText: {
     fontSize: 11,
     fontWeight: '700',
     color: MartialTheme.colors.textMuted,
   },
-  skillActionBtn: {
+  notPracticedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: MartialTheme.colors.textMuted,
+  },
+  rowActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: MartialTheme.colors.primaryMuted,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 8,
+    backgroundColor: MartialTheme.colors.background,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
     gap: 2,
   },
-  skillActionBtnText: {
+  rowActionBtnMastered: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    borderColor: '#BBF7D0',
+  },
+  rowActionBtnFocus: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    borderColor: '#BBF7D0',
+  },
+  rowActionBtnText: {
     fontSize: 10.5,
     fontWeight: '900',
-    color: MartialTheme.colors.primaryDark,
+    color: MartialTheme.colors.textMuted,
     letterSpacing: 0.3,
   },
+  rowActionBtnTextMastered: {
+    color: MartialTheme.colors.primaryDark,
+  },
+  rowActionBtnTextFocus: {
+    color: MartialTheme.colors.primaryDark,
+  },
 
-  // MODES GRID
-  modesGrid: {
+  // TRAINING MODES
+  modesContainer: {
     gap: 8,
+    marginTop: 8,
   },
   modeCard: {
     flexDirection: 'row',
@@ -734,9 +862,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 3,
     borderBottomColor: MartialTheme.colors.border3D,
   },
+  modeCardRecommended: {
+    borderColor: '#86EFAC',
+    borderBottomColor: MartialTheme.colors.primaryDark,
+    backgroundColor: '#F7FDF9',
+  },
   modeIconCircle: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -756,6 +889,18 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.textMuted,
     lineHeight: 16,
     marginTop: 2,
+  },
+  recommendedPill: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  recommendedPillText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
+    letterSpacing: 0.5,
   },
 
   // ANYO DRAWER
@@ -802,12 +947,12 @@ const styles = StyleSheet.create({
     color: '#8B5CF6',
   },
 
-  // FOOTER OPTIONS
-  footerOptions: {
+  // FOOTER WRAP
+  footerWrap: {
     gap: 12,
     marginTop: 4,
   },
-  videoDemoBtn: {
+  videoGuideBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -818,12 +963,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.bamboo,
   },
-  videoDemoBtnTitle: {
+  videoGuideTitle: {
     fontSize: 13.5,
     fontWeight: '800',
     color: MartialTheme.colors.text,
   },
-  videoDemoBtnSub: {
+  videoGuideSub: {
     fontSize: 11,
     color: MartialTheme.colors.textMuted,
     marginTop: 2,
@@ -841,7 +986,7 @@ const styles = StyleSheet.create({
     borderBottomColor: MartialTheme.colors.border3D,
     gap: 10,
   },
-  gearStickCol: {
+  gearGroup: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',

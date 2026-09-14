@@ -47,137 +47,178 @@ export function PracticeResult({
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [showWhyModal, setShowWhyModal] = useState(false);
 
+  const isMastered = improvement.isMastered || result.score >= 85;
+
   const getScoreColor = (score: number) => {
-    if (score >= 90) return '#10B981';
-    if (score >= 75) return '#3B82F6';
-    if (score >= 60) return '#F59E0B';
+    if (score >= 85) return MartialTheme.colors.primary;
+    if (score >= 70) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
-
-  const isMastered = improvement.isMastered || result.score >= 85;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Top Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Practice Results</Text>
+        <Text style={styles.headerTitle}>
+          {isMastered ? 'Mastery Achieved! 🏆' : 'Practice Results'}
+        </Text>
         <TouchableOpacity onPress={onExit} style={styles.closeHeaderBtn}>
           <Ionicons name="close" size={24} color={MartialTheme.colors.text} />
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 1. COACH RESULT HERO CARD */}
-        <View style={styles.resultHeroCard}>
-          <CoachCharacter pose={isMastered ? 'celebrating' : 'stance'} size={110} />
+        {/* --- 1. CELEBRATION REWARD HERO CARD --- */}
+        <View style={[styles.rewardCard, isMastered && styles.rewardCardMastered]}>
+          {/* Coach Character Celebration or Encouragement */}
+          <CoachCharacter
+            pose={isMastered ? 'celebrating' : 'stance'}
+            size={110}
+            style={{ marginBottom: 6 }}
+          />
 
-          <Text style={styles.feedbackGreeting}>{result.feedback.greeting}</Text>
-
-          <Text style={styles.strikeTitle}>
-            {strikeRule.name} — {strikeRule.target}
+          {/* Mastered / Nice Work Heading */}
+          <Text style={[styles.rewardHeading, isMastered && styles.rewardHeadingMastered]}>
+            {isMastered ? '🎉 STRIKE MASTERED!' : '🎉 NICE WORK!'}
           </Text>
 
-          {/* Big Score Row */}
-          <View style={styles.scoreRow}>
-            <Text style={[styles.bigScore, { color: getScoreColor(result.score) }]}>
-              {result.score}%
-            </Text>
-            <View style={[styles.gradeBadge, { backgroundColor: getScoreColor(result.score) + '20' }]}>
-              <Text style={[styles.gradeBadgeText, { color: getScoreColor(result.score) }]}>
-                {result.grade}
-              </Text>
-            </View>
-          </View>
-
-          {/* Star Rating */}
-          <View style={styles.starsRow}>
-            {[1, 2, 3, 4, 5].map((st) => (
-              <Ionicons
-                key={st}
-                name={st <= result.stars ? 'star' : 'star-outline'}
-                size={22}
-                color={st <= result.stars ? '#F59E0B' : '#D1D5DB'}
-              />
-            ))}
-          </View>
-
-          {/* Improvement Delta Banner */}
-          {improvement.previousBest > 0 && (
-            <View style={styles.deltaBanner}>
-              <Text style={styles.deltaBannerText}>
-                Previous: {improvement.previousBest}% → Current: {result.score}%
-                {improvement.delta > 0 && (
-                  <Text style={{ color: '#15803D', fontWeight: '900' }}>
-                    {' '}(↑ +{improvement.delta} points!)
-                  </Text>
-                )}
+          {isMastered && (
+            <View style={styles.masteredBanner}>
+              <Text style={styles.masteredBannerText}>
+                {"You've unlocked the next technique!"}
               </Text>
             </View>
           )}
 
-          {/* Coach Advice Speech Bubble */}
-          <View style={styles.coachBubble}>
-            <Text style={styles.coachBubbleLabel}>YOUR COACH SAYS</Text>
-            <Text style={styles.coachBubbleText}>{`"${result.feedback.advice}"`}</Text>
+          <Text style={styles.strikeTitle}>
+            Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
+          </Text>
+
+          {/* Big Score & Stars Row */}
+          <View style={styles.scoreContainer}>
+            <Text style={[styles.bigScoreText, { color: getScoreColor(result.score) }]}>
+              {result.score}%
+            </Text>
+
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((st) => (
+                <Ionicons
+                  key={st}
+                  name={st <= result.stars ? 'star' : 'star-outline'}
+                  size={24}
+                  color={st <= result.stars ? MartialTheme.colors.bamboo : '#D1D5DB'}
+                  style={{ marginHorizontal: 2 }}
+                />
+              ))}
+            </View>
+
+            {/* Score Delta or Personal Best */}
+            {improvement.previousBest > 0 && (
+              <View style={styles.deltaPill}>
+                {improvement.delta > 0 ? (
+                  <Text style={styles.deltaPillPositive}>
+                    ↑ +{improvement.delta} points from last time!
+                  </Text>
+                ) : improvement.delta === 0 ? (
+                  <Text style={styles.deltaPillNeutral}>= Steady performance</Text>
+                ) : (
+                  <Text style={styles.deltaPillNeutral}>
+                    Previous best: {improvement.previousBest}%
+                  </Text>
+                )}
+              </View>
+            )}
+            {improvement.isNewPersonalBest && (
+              <View style={styles.personalBestBadge}>
+                <Ionicons name="sparkles" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.personalBestText}>NEW PERSONAL BEST!</Text>
+              </View>
+            )}
           </View>
 
-          {/* Pedagogical Checklist: Good vs. Improve */}
-          <View style={styles.checklistCard}>
-            <Text style={styles.checklistHeading}>FORM ANALYSIS</Text>
+          {/* Coach Advice Speech Bubble */}
+          <View style={styles.coachQuoteBubble}>
+            <Text style={styles.coachQuoteLabel}>COACH SAYS</Text>
+            <Text style={styles.coachQuoteText}>{`"${result.feedback.advice}"`}</Text>
+          </View>
 
-            {result.feedback.positives.map((pos, idx) => (
-              <View key={`pos_${idx}`} style={styles.checklistItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#15803D" style={{ marginRight: 6 }} />
-                <Text style={styles.checklistPosText}>{pos}</Text>
-              </View>
-            ))}
+          {/* Pedagogical Form Checklist: What Went Well & Try This Next */}
+          <View style={styles.feedbackSection}>
+            {/* What Went Well */}
+            <View style={styles.feedbackGroup}>
+              <Text style={styles.feedbackGroupTitle}>WHAT WENT WELL</Text>
+              {result.feedback.positives.length > 0 ? (
+                result.feedback.positives.map((pos, idx) => (
+                  <View key={`pos_${idx}`} style={styles.feedbackItem}>
+                    <Ionicons name="checkmark-circle" size={18} color="#15803D" style={{ marginRight: 8 }} />
+                    <Text style={styles.feedbackItemPosText}>{pos}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.feedbackItem}>
+                  <Ionicons name="checkmark-circle" size={18} color="#15803D" style={{ marginRight: 8 }} />
+                  <Text style={styles.feedbackItemPosText}>Solid effort and chamber engagement</Text>
+                </View>
+              )}
+            </View>
 
-            {result.feedback.improvements.map((imp, idx) => (
-              <View key={`imp_${idx}`} style={styles.checklistItem}>
-                <Ionicons name="alert-circle" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
-                <Text style={styles.checklistImpText}>{imp}</Text>
-              </View>
-            ))}
+            {/* Try This Next */}
+            <View style={styles.feedbackGroup}>
+              <Text style={styles.feedbackGroupTitle}>TRY THIS NEXT</Text>
+              {result.feedback.improvements.length > 0 ? (
+                result.feedback.improvements.map((imp, idx) => (
+                  <View key={`imp_${idx}`} style={styles.feedbackItem}>
+                    <Ionicons name="arrow-forward-circle" size={18} color={MartialTheme.colors.bambooDark} style={{ marginRight: 8 }} />
+                    <Text style={styles.feedbackItemImpText}>{imp}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.feedbackItem}>
+                  <Ionicons name="arrow-forward-circle" size={18} color={MartialTheme.colors.bambooDark} style={{ marginRight: 8 }} />
+                  <Text style={styles.feedbackItemImpText}>Practice with fluid speed and flow</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Primary Action Buttons */}
-          <View style={{ width: '100%', gap: 10, marginTop: 14 }}>
-            {isFromLesson && onContinueLesson ? (
+          <View style={styles.actionButtonsCol}>
+            {isFromLesson && onContinueLesson && (
               <TactileButton
                 title="CONTINUE LESSON →"
                 variant="primary"
                 size="lg"
                 onPress={onContinueLesson}
               />
-            ) : null}
+            )}
 
             <TactileButton
-              title="TRY AGAIN"
+              title={isMastered ? 'PRACTICE AGAIN' : 'TRY AGAIN'}
               variant={isFromLesson ? 'secondary' : 'primary'}
               size="lg"
-              icon={<Ionicons name="refresh" size={18} color="#FFFFFF" />}
+              icon={<Ionicons name="refresh" size={18} color={isFromLesson ? MartialTheme.colors.text : '#FFFFFF'} />}
               onPress={onRetry}
             />
 
             {onNextStrike && !isFromLesson && (
               <TactileButton
                 title={`NEXT: STRIKE ${strikeRule.strikeNumber >= 12 ? 1 : strikeRule.strikeNumber + 1} →`}
-                variant="secondary"
+                variant={isMastered ? 'primary' : 'bamboo'}
                 size="md"
                 onPress={onNextStrike}
               />
             )}
 
-            <TouchableOpacity style={styles.outlineBtn} activeOpacity={0.8} onPress={onExit}>
-              <Text style={styles.outlineBtnText}>Back to Practice Menu</Text>
+            <TouchableOpacity style={styles.outlineExitBtn} activeOpacity={0.8} onPress={onExit}>
+              <Text style={styles.outlineExitBtnText}>Back to Practice Menu</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* 2. COLLAPSIBLE BIOMECHANICAL DETAILS */}
+        {/* --- 2. COLLAPSIBLE DETAILED BIOMECHANICAL ANALYSIS --- */}
         <TouchableOpacity
-          style={styles.toggleBreakdownBtn}
-          activeOpacity={0.7}
+          style={styles.toggleDetailsBtn}
+          activeOpacity={0.75}
           onPress={() => setShowTechnicalDetails(!showTechnicalDetails)}
         >
           <Ionicons
@@ -186,14 +227,14 @@ export function PracticeResult({
             color={MartialTheme.colors.textMuted}
             style={{ marginRight: 6 }}
           />
-          <Text style={styles.toggleBreakdownBtnText}>
-            {showTechnicalDetails ? 'Hide Biomechanical Details' : 'View Detailed Biomechanical Analysis'}
+          <Text style={styles.toggleDetailsBtnText}>
+            {showTechnicalDetails ? 'Hide Detailed Analysis' : 'View Detailed Analysis'}
           </Text>
         </TouchableOpacity>
 
         {showTechnicalDetails && (
-          <View style={styles.detailsCard}>
-            <Text style={styles.detailsHeading}>4-Pillar Kinetic Alignment</Text>
+          <View style={styles.technicalCard}>
+            <Text style={styles.technicalCardTitle}>4-Pillar Biomechanical Alignment</Text>
 
             {/* Pillar 1: Striking Arm */}
             <View style={styles.pillarItem}>
@@ -202,7 +243,7 @@ export function PracticeResult({
                   <MaterialCommunityIcons name="sword" size={16} color="#3B82F6" style={{ marginRight: 6 }} />
                   <Text style={styles.pillarLabel}>Striking Arm Trajectory</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(result.pillarScores.strikingArm) }]}>
+                <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.strikingArm) }]}>
                   {result.pillarScores.strikingArm}%
                 </Text>
               </View>
@@ -226,7 +267,7 @@ export function PracticeResult({
                   <MaterialCommunityIcons name="shield-check" size={16} color="#10B981" style={{ marginRight: 6 }} />
                   <Text style={styles.pillarLabel}>Check Hand Defense (Kalasag)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(result.pillarScores.guard) }]}>
+                <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.guard) }]}>
                   {result.pillarScores.guard}%
                 </Text>
               </View>
@@ -250,7 +291,7 @@ export function PracticeResult({
                   <MaterialCommunityIcons name="human-male-height" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
                   <Text style={styles.pillarLabel}>Base Stability (Tindig)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(result.pillarScores.stance) }]}>
+                <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.stance) }]}>
                   {result.pillarScores.stance}%
                 </Text>
               </View>
@@ -274,7 +315,7 @@ export function PracticeResult({
                   <MaterialCommunityIcons name="flash" size={16} color="#8B5CF6" style={{ marginRight: 6 }} />
                   <Text style={styles.pillarLabel}>Wrist Snap & Alignment (Pitik)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(result.pillarScores.wrist) }]}>
+                <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.wrist) }]}>
                   {result.pillarScores.wrist}%
                 </Text>
               </View>
@@ -291,7 +332,7 @@ export function PracticeResult({
               </View>
             </View>
 
-            {/* Video Replay if available */}
+            {/* Video Motion Replay if available */}
             {lastReplayVideo && (
               <View style={styles.mediaContainer}>
                 <Text style={styles.mediaHeading}>VIDEO MOTION REPLAY</Text>
@@ -384,238 +425,275 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
     paddingBottom: 40,
   },
-  resultHeroCard: {
+
+  // REWARD HERO CARD
+  rewardCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 20,
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.border3D,
-    marginBottom: 14,
+    marginBottom: 16,
   },
-  feedbackGreeting: {
-    fontSize: 18,
+  rewardCardMastered: {
+    borderColor: '#86EFAC',
+    borderBottomColor: MartialTheme.colors.primaryDark,
+  },
+  rewardHeading: {
+    fontSize: 22,
     fontWeight: '900',
     color: MartialTheme.colors.text,
-    marginTop: 10,
-    marginBottom: 4,
-    textAlign: 'center',
+    letterSpacing: 0.5,
+    marginTop: 4,
+  },
+  rewardHeadingMastered: {
+    color: MartialTheme.colors.primaryDark,
+  },
+  masteredBanner: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  masteredBannerText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
   },
   strikeTitle: {
-    fontSize: 13.5,
+    fontSize: 15,
     fontWeight: '800',
-    color: '#64748B',
-    marginBottom: 8,
-    textAlign: 'center',
+    color: MartialTheme.colors.textSecondary,
+    marginTop: 6,
   },
-  scoreRow: {
-    flexDirection: 'row',
+
+  // SCORE CONTAINER
+  scoreContainer: {
     alignItems: 'center',
-    gap: 10,
-    marginVertical: 4,
+    marginVertical: 12,
   },
-  bigScore: {
+  bigScoreText: {
     fontSize: 48,
     fontWeight: '900',
-  },
-  gradeBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  gradeBadgeText: {
-    fontSize: 13,
-    fontWeight: '900',
+    lineHeight: 54,
   },
   starsRow: {
     flexDirection: 'row',
-    gap: 4,
-    marginVertical: 8,
+    marginTop: 4,
+    marginBottom: 6,
   },
-  deltaBanner: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    marginBottom: 10,
-    width: '100%',
+  deltaPill: {
+    marginTop: 4,
   },
-  deltaBannerText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#92400E',
-    textAlign: 'center',
-  },
-  coachBubble: {
-    width: '100%',
-    backgroundColor: '#FAF8F3',
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E5E0D3',
-    marginBottom: 12,
-  },
-  coachBubbleLabel: {
-    fontSize: 9.5,
+  deltaPillPositive: {
+    fontSize: 13,
     fontWeight: '900',
-    color: MartialTheme.colors.primary,
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  coachBubbleText: {
-    fontSize: 12.5,
-    color: MartialTheme.colors.text,
-    lineHeight: 18,
-    fontWeight: '500',
-  },
-  checklistCard: {
-    width: '100%',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  checklistHeading: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#64748B',
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  checklistItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checklistPosText: {
-    fontSize: 12,
-    fontWeight: '700',
     color: '#15803D',
   },
-  checklistImpText: {
+  deltaPillNeutral: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#B45309',
+    fontWeight: '600',
+    color: MartialTheme.colors.textMuted,
   },
-  outlineBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 2,
-    borderBottomColor: MartialTheme.colors.border3D,
-  },
-  outlineBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: MartialTheme.colors.text,
-  },
-  toggleBreakdownBtn: {
+  personalBestBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    marginBottom: 10,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    backgroundColor: MartialTheme.colors.flame,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  personalBestText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  // COACH QUOTE BUBBLE
+  coachQuoteBubble: {
+    width: '100%',
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 16,
+    padding: 12,
     borderWidth: 1,
     borderColor: MartialTheme.colors.border,
+    marginBottom: 16,
   },
-  toggleBreakdownBtnText: {
+  coachQuoteLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 1,
+    marginBottom: 3,
+  },
+  coachQuoteText: {
+    fontSize: 13,
+    color: MartialTheme.colors.text,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+
+  // FEEDBACK SECTION (WHAT WENT WELL / TRY THIS NEXT)
+  feedbackSection: {
+    width: '100%',
+    backgroundColor: '#FAFAF9',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    marginBottom: 16,
+    gap: 12,
+  },
+  feedbackGroup: {},
+  feedbackGroupTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  feedbackItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  feedbackItemPosText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#166534',
+    flex: 1,
+  },
+  feedbackItemImpText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: MartialTheme.colors.text,
+    flex: 1,
+  },
+
+  // ACTION BUTTONS
+  actionButtonsCol: {
+    width: '100%',
+    gap: 10,
+  },
+  outlineExitBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  outlineExitBtnText: {
     fontSize: 13,
     fontWeight: '800',
     color: MartialTheme.colors.textMuted,
   },
-  detailsCard: {
+
+  // TOGGLE DETAILS
+  toggleDetailsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  toggleDetailsBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+  },
+
+  // TECHNICAL CARD
+  technicalCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 3,
     borderBottomColor: MartialTheme.colors.border3D,
-    marginBottom: 20,
-    gap: 12,
+    marginBottom: 16,
+    gap: 10,
   },
-  detailsHeading: {
-    fontSize: 13,
+  technicalCardTitle: {
+    fontSize: 12,
     fontWeight: '900',
-    color: MartialTheme.colors.text,
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
-  pillarItem: {},
+  pillarItem: {
+    gap: 4,
+  },
   pillarTextRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
   },
   pillarLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: MartialTheme.colors.text,
   },
-  pillarScoreText: {
-    fontSize: 12.5,
+  pillarScore: {
+    fontSize: 12,
     fontWeight: '900',
   },
   pillarTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F1F5F9',
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#F3F4F6',
     overflow: 'hidden',
   },
   pillarFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 4,
   },
   mediaContainer: {
-    marginTop: 6,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: MartialTheme.colors.border,
+    paddingTop: 10,
   },
   mediaHeading: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '900',
-    color: '#64748B',
-    letterSpacing: 1,
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 0.8,
     marginBottom: 6,
   },
   videoWrapper: {
-    width: '100%',
-    height: 180,
+    height: 200,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#000000',
   },
   snapshotImg: {
     width: '100%',
-    height: 160,
+    height: 200,
     borderRadius: 12,
+    backgroundColor: '#000000',
   },
   whyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E0F2FE',
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    backgroundColor: '#F0F9FF',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#BAE6FD',
     marginTop: 4,
   },
   whyBtnText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '800',
     color: '#0284C7',
   },

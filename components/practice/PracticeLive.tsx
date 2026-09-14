@@ -63,12 +63,15 @@ export function PracticeLive({
   onExit,
   onChangeMode,
 }: PracticeLiveProps) {
-  // Telemetry drawer toggle
-  const [showTelemetryDrawer, setShowTelemetryDrawer] = useState(false);
+  // Collapsible Technical Analysis drawer (collapsed by default)
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+  // Sound toggle override locally
+  const [voiceActive, setVoiceActive] = useState(evaluationConfig.voiceEnabled);
 
   // Real-time HUD states
   const [liveAccuracy, setLiveAccuracy] = useState(0);
-  const [coachPrompt, setCoachPrompt] = useState<string | null>(null);
+  const [coachPrompt, setCoachPrompt] = useState<string>('Get into ready stance (Tindig)');
   const [livePillars, setLivePillars] = useState({
     strikingArm: 0,
     guard: 0,
@@ -76,9 +79,10 @@ export function PracticeLive({
     wrist: 0,
   });
 
-  // Countdown and evaluation timing states
+  // Countdown & evaluation states
   const [countdownState, setCountdownState] = useState<'waiting_for_person' | 'counting' | 'evaluating'>('waiting_for_person');
   const [countdownValue, setCountdownValue] = useState<number | string>(3);
+  const [countdownSubtext, setCountdownSubtext] = useState<string>('GET READY');
   const isCountingRef = useRef(false);
   const recordingIntervalRef = useRef<any>(null);
 
@@ -109,9 +113,9 @@ export function PracticeLive({
   // Voice speech throttling
   const lastSpokenTimestampRef = useRef(0);
   const speakCorrection = (text: string) => {
-    if (!evaluationConfig.voiceEnabled) return;
+    if (!voiceActive) return;
     const now = Date.now();
-    if (now - lastSpokenTimestampRef.current > 4000) {
+    if (now - lastSpokenTimestampRef.current > 3800) {
       lastSpokenTimestampRef.current = now;
       Speech.speak(text, { language: 'en-US', rate: 1.05 });
     }
@@ -134,8 +138,10 @@ export function PracticeLive({
     handleMessage,
   } = usePoseEngine({
     onReady: () => {
-      // Send initial configuration to WebView once ready
-      sendSessionConfig(evaluationConfig);
+      sendSessionConfig({
+        ...evaluationConfig,
+        voiceEnabled: voiceActive,
+      });
     },
     onPoseData: (persons: RawPersonPose[]) => {
       if (persons.length === 0) {
@@ -152,9 +158,12 @@ export function PracticeLive({
       setLiveAccuracy(frameResult.accuracy);
       setLivePillars(frameResult.pillars);
 
+      // Present only ONE prioritized coach correction at a time
       if (frameResult.correctionPrompt) {
         setCoachPrompt(frameResult.correctionPrompt);
         speakCorrection(frameResult.correctionPrompt);
+      } else if (frameResult.accuracy >= 85) {
+        setCoachPrompt('Sharp form! Keep your speed and snap!');
       }
 
       // Track best scores during evaluating window
@@ -180,10 +189,10 @@ export function PracticeLive({
       setDetectedStrike({ name, confidence });
       detectedOpacity.setValue(1);
       Animated.sequence([
-        Animated.delay(2600),
+        Animated.delay(2400),
         Animated.timing(detectedOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
       ]).start();
-      if (evaluationConfig.voiceEnabled) {
+      if (voiceActive) {
         Speech.speak(`${name} detected`, { language: 'en-US' });
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -192,25 +201,25 @@ export function PracticeLive({
       if (phase === 'chamber') {
         setCoachPhase('impact');
         setFormCoachPhase('impact');
-        if (evaluationConfig.voiceEnabled) {
-          Speech.speak('Chamber locked! Slice through the target line!');
+        if (voiceActive) {
+          Speech.speak('Chamber locked! Slice through!');
         }
       } else if (phase === 'impact') {
         setCoachPhase('recovery');
         setFormCoachPhase('recovery');
-        if (evaluationConfig.voiceEnabled) {
-          Speech.speak('Impact peak hit! Recover back to guard!');
+        if (voiceActive) {
+          Speech.speak('Impact hit! Recover back to guard!');
         }
       } else if (phase === 'recovery') {
         setCoachPhase('completed');
         setCoachRepsCompleted((r) => r + 1);
-        if (evaluationConfig.voiceEnabled) {
-          Speech.speak('Masterful execution! Rep complete!');
+        if (voiceActive) {
+          Speech.speak('Rep complete! Great work!');
         }
         setTimeout(() => {
           setCoachPhase('chamber');
           setFormCoachPhase('chamber');
-        }, 2200);
+        }, 2000);
       }
     },
   });
@@ -218,11 +227,14 @@ export function PracticeLive({
   // Sync configuration to WebView when rule or options change
   useEffect(() => {
     if (webReady) {
-      sendSessionConfig(evaluationConfig);
+      sendSessionConfig({
+        ...evaluationConfig,
+        voiceEnabled: voiceActive,
+      });
     }
-  }, [webReady, evaluationConfig, sendSessionConfig]);
+  }, [webReady, evaluationConfig, voiceActive, sendSessionConfig]);
 
-  // Video player for Mode: Follow Me
+  // Video player for Mode: Follow the Coach
   const followVideoSource = LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
   const followPlayer = useVideoPlayer(followVideoSource, (p) => {
     p.loop = true;
@@ -232,22 +244,30 @@ export function PracticeLive({
     }
   });
 
-  // Countdown timer logic
+  // Countdown timer logic: 3 -> 2 -> 1 -> GO!
   const startCountdown = () => {
     isCountingRef.current = true;
     setCountdownState('counting');
+    setCountdownSubtext('GET READY');
     setCountdownValue(3);
 
     setTimeout(() => {
-      if (isCountingRef.current) setCountdownValue(2);
+      if (isCountingRef.current) {
+        setCountdownValue(2);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     }, 1000);
 
     setTimeout(() => {
-      if (isCountingRef.current) setCountdownValue(1);
+      if (isCountingRef.current) {
+        setCountdownValue(1);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     }, 2000);
 
     setTimeout(() => {
       if (isCountingRef.current) {
+        setCountdownSubtext('STRIKE NOW!');
         setCountdownValue('GO! ⚔️');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         startEvaluationWindow();
@@ -261,8 +281,8 @@ export function PracticeLive({
     bestScoreRef.current = 0;
     startVideoRecording();
 
-    // Evaluation window: 10s for test mode, 5s for guided practice
-    const evaluationDurationMs = mode === 'test' ? 10000 : 5000;
+    // Evaluation window: 10s for test mode, 6s for guided practice
+    const evaluationDurationMs = mode === 'test' ? 10000 : 6000;
     let timeLeft = Math.round(evaluationDurationMs / 1000);
 
     recordingIntervalRef.current = setInterval(() => {
@@ -281,7 +301,7 @@ export function PracticeLive({
     isCountingRef.current = false;
     stopVideoRecording();
 
-    const finalScore = bestScoreRef.current > 0 ? bestScoreRef.current : liveAccuracy || 75;
+    const finalScore = bestScoreRef.current > 0 ? bestScoreRef.current : liveAccuracy || 78;
 
     // Check if Anyo mode is active
     if (activeRoutine) {
@@ -340,54 +360,72 @@ export function PracticeLive({
   }, []);
 
   const getScoreColor = (score: number) => {
-    if (score >= 90) return '#10B981';
-    if (score >= 75) return '#3B82F6';
-    if (score >= 60) return '#F59E0B';
+    if (score >= 85) return MartialTheme.colors.primary;
+    if (score >= 70) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
 
-  // Base URL for model loading
   const modelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
   const webBaseUrl = Platform.OS === 'android' ? 'https://localhost' : 'http://localhost';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* 1. TOP CONTROL BAR */}
-      <View style={styles.topControlBar}>
-        <TouchableOpacity style={styles.exitButton} onPress={onExit} activeOpacity={0.7}>
-          <Ionicons name="close" size={24} color={MartialTheme.colors.text} />
+      {/* --- 1. CLEAN TOP APP BAR --- */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={onExit}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="arrow-back" size={24} color={MartialTheme.colors.text} />
         </TouchableOpacity>
 
-        <View style={styles.strikeTitleBox}>
-          <Text style={styles.strikeTitleText}>{strikeRule.name}</Text>
-          <Text style={styles.strikeTargetText} numberOfLines={1}>
-            {strikeRule.target}
+        <View style={styles.techniqueHeaderBox}>
+          <Text style={styles.techniqueTitleText}>
+            Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
           </Text>
+          <View style={styles.techniqueStarRow}>
+            {[1, 2, 3, 4, 5].map((s) => (
+              <Ionicons
+                key={s}
+                name={s <= 3 ? 'star' : 'star-outline'}
+                size={11}
+                color={s <= 3 ? MartialTheme.colors.bamboo : '#D1D5DB'}
+              />
+            ))}
+            <Text style={styles.techniqueModeTag}>
+              {mode === 'guided' ? 'Guided' : mode === 'follow' ? 'Mirror' : 'Test'}
+            </Text>
+          </View>
         </View>
 
-        {/* Live Mode Toggle Pill */}
-        <View style={styles.modeToggleGroup}>
-          {(['guided', 'follow', 'test'] as const).map((m) => (
-            <TouchableOpacity
-              key={m}
-              style={[styles.modeToggleBtn, mode === m && styles.modeToggleBtnActive]}
-              onPress={() => onChangeMode?.(m)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.modeToggleBtnText, mode === m && styles.modeToggleBtnTextActive]}>
-                {m === 'guided' ? 'Guided' : m === 'follow' ? 'Mirror' : 'Test'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* Audio / Voice Feedback Toggle Button */}
+        <TouchableOpacity
+          style={[styles.audioToggleBtn, voiceActive && styles.audioToggleBtnActive]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setVoiceActive(!voiceActive);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={voiceActive ? 'volume-high' : 'volume-mute'}
+            size={20}
+            color={voiceActive ? MartialTheme.colors.primary : MartialTheme.colors.textMuted}
+          />
+        </TouchableOpacity>
       </View>
 
-      {/* 2. CAMERA & VIDEO VIEWPORT */}
-      <View style={styles.viewportContainer}>
-        {/* If in Follow Me Mirror mode: Side-by-Side Video Demonstration */}
+      {/* --- 2. IMMERSIVE CAMERA VIEWPORT --- */}
+      <View style={styles.cameraViewport}>
+        {/* If in Follow the Coach mode: Split upper instructor video view */}
         {mode === 'follow' && (
-          <View style={styles.followVideoBox}>
-            <Text style={styles.followVideoHeading}>TEACHER MIRROR</Text>
+          <View style={styles.followVideoHeader}>
+            <View style={styles.followBadge}>
+              <Ionicons name="eye" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.followBadgeText}>COACH DEMO</Text>
+            </View>
             <VideoView
               style={styles.followVideo}
               player={followPlayer}
@@ -398,7 +436,7 @@ export function PracticeLive({
           </View>
         )}
 
-        {/* Camera WebView */}
+        {/* Real-time Pose WebView */}
         <View style={{ flex: 1 }}>
           <WebView
             ref={webViewRef}
@@ -425,134 +463,160 @@ export function PracticeLive({
           />
 
           {!webReady && (
-            <View style={styles.loaderOverlay}>
+            <View style={styles.loadingBackdrop}>
               <ActivityIndicator size="large" color={MartialTheme.colors.primary} />
-              <Text style={styles.loaderText}>{errorMsg || statusMsg}</Text>
+              <Text style={styles.loadingText}>{errorMsg || statusMsg || 'Preparing camera...'}</Text>
             </View>
           )}
 
-          {/* Snapshot saved pill */}
+          {/* Snapshot Confirmation Pill */}
           {snapshotBannerVisible && (
-            <View style={styles.snapshotPill}>
-              <Ionicons name="camera" size={13} color="#10B981" style={{ marginRight: 5 }} />
-              <Text style={styles.snapshotPillText}>📸 Impact Snapshot Captured</Text>
+            <View style={styles.snapshotBadge}>
+              <Ionicons name="camera" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.snapshotBadgeText}>Impact Snapshot Captured 📸</Text>
             </View>
           )}
 
-          {/* Real-time AI Identified Strike Banner */}
+          {/* AI Identified Strike Toast */}
           {detectedStrike && (
-            <Animated.View style={[styles.detectedPill, { opacity: detectedOpacity }]}>
+            <Animated.View style={[styles.aiDetectedBadge, { opacity: detectedOpacity }]}>
               <MaterialCommunityIcons name="lightning-bolt" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
-              <Text style={styles.detectedPillText}>
+              <Text style={styles.aiDetectedText}>
                 {detectedStrike.name} ({detectedStrike.confidence}%)
               </Text>
             </Animated.View>
           )}
 
-          {/* Form Coach Phase Indicator (Chamber -> Impact -> Recovery) */}
+          {/* Guided Mode 3-Phase Stepper */}
           {mode === 'guided' && (
-            <View style={styles.formCoachPillsRow}>
-              {(['chamber', 'impact', 'recovery'] as const).map((step, idx) => (
-                <View
-                  key={step}
-                  style={[
-                    styles.formCoachStepPill,
-                    coachPhase === step && styles.formCoachStepPillActive,
-                  ]}
-                >
-                  <Text
+            <View style={styles.phaseGuideRow}>
+              {(['chamber', 'impact', 'recovery'] as const).map((step, idx) => {
+                const isActive = coachPhase === step;
+                return (
+                  <View
+                    key={step}
                     style={[
-                      styles.formCoachStepText,
-                      coachPhase === step && styles.formCoachStepTextActive,
+                      styles.phaseStepPill,
+                      isActive && styles.phaseStepPillActive,
                     ]}
                   >
-                    {idx + 1}. {step.toUpperCase()}
-                  </Text>
-                </View>
-              ))}
+                    <Text
+                      style={[
+                        styles.phaseStepText,
+                        isActive && styles.phaseStepTextActive,
+                      ]}
+                    >
+                      {idx + 1}. {step.toUpperCase()}
+                    </Text>
+                  </View>
+                );
+              })}
               {coachRepsCompleted > 0 && (
-                <View style={[styles.formCoachStepPill, { backgroundColor: MartialTheme.colors.primary, borderColor: MartialTheme.colors.primary }]}>
-                  <Text style={[styles.formCoachStepText, { color: '#FFFFFF' }]}>
-                    REPS: {coachRepsCompleted}
-                  </Text>
+                <View style={[styles.phaseStepPill, styles.repsCounterPill]}>
+                  <Text style={styles.repsCounterText}>REPS: {coachRepsCompleted}</Text>
                 </View>
               )}
             </View>
           )}
 
-          {/* Countdown / Timer Floating Badge */}
-          {countdownState !== 'waiting_for_person' && (
-            <View style={styles.countdownBadge}>
-              <Text style={styles.countdownBadgeText}>{countdownValue}</Text>
+          {/* Countdown Overlay (3 -> 2 -> 1 -> GO!) */}
+          {countdownState === 'counting' && (
+            <View style={styles.countdownCenterOverlay}>
+              <View style={styles.countdownBox}>
+                <Text style={styles.countdownSubtext}>{countdownSubtext}</Text>
+                <Text style={styles.countdownNumber}>{countdownValue}</Text>
+              </View>
             </View>
           )}
 
-          {/* Live Score Circle & Coach Prompt HUD */}
-          <View style={styles.hudOverlayBottom}>
-            <View style={styles.scoreCircleBox}>
-              <Text style={[styles.scoreCircleText, { color: getScoreColor(liveAccuracy) }]}>
+          {/* Active Timer Pill when evaluating */}
+          {countdownState === 'evaluating' && (
+            <View style={styles.evaluatingTimerPill}>
+              <Ionicons name="timer-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.evaluatingTimerText}>{countdownValue}</Text>
+            </View>
+          )}
+
+          {/* Real-time Score Gauge & Single Coach Correction Bubble */}
+          <View style={styles.inCameraHudBottom}>
+            {/* Live Precision Score */}
+            <View style={styles.scoreGaugeCircle}>
+              <Text style={[styles.scoreGaugeValue, { color: getScoreColor(liveAccuracy) }]}>
                 {liveAccuracy}%
               </Text>
-              <Text style={styles.scoreCircleLabel}>PRECISION</Text>
+              <Text style={styles.scoreGaugeLabel}>PRECISION</Text>
             </View>
 
-            <View style={styles.coachPromptBubble}>
-              <Text style={styles.coachPromptTag}>COACH</Text>
-              <Text style={styles.coachPromptText} numberOfLines={2}>
-                {coachPrompt || 'Assume ready fighting stance (Tindig) with check hand up.'}
+            {/* ONLY ONE Single Coach Guidance Correction */}
+            <View style={styles.coachGuidanceBubble}>
+              <View style={styles.coachGuidanceHeader}>
+                <Ionicons name="shield-checkmark" size={13} color={MartialTheme.colors.primary} style={{ marginRight: 4 }} />
+                <Text style={styles.coachGuidanceTag}>COACH TIP</Text>
+              </View>
+              <Text style={styles.coachGuidanceText} numberOfLines={2}>
+                {coachPrompt}
               </Text>
             </View>
           </View>
         </View>
       </View>
 
-      {/* 3. BOTTOM CONTROL DRAWER */}
+      {/* --- 3. BOTTOM CONTROL DRAWER --- */}
       <View style={styles.bottomDrawer}>
-        <View style={styles.drawerActionsRow}>
+        <View style={styles.drawerRow}>
+          {/* Collapsible Technical Analysis Toggle */}
           <TouchableOpacity
-            style={styles.telemetryToggleBtn}
-            onPress={() => setShowTelemetryDrawer(!showTelemetryDrawer)}
+            style={styles.technicalToggleBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowTechnicalDetails(!showTechnicalDetails);
+            }}
             activeOpacity={0.7}
           >
             <Ionicons
-              name={showTelemetryDrawer ? 'chevron-down' : 'bar-chart-outline'}
+              name={showTechnicalDetails ? 'chevron-down' : 'stats-chart-outline'}
               size={16}
-              color={MartialTheme.colors.text}
+              color={MartialTheme.colors.textSecondary}
               style={{ marginRight: 6 }}
             />
-            <Text style={styles.telemetryToggleText}>
-              {showTelemetryDrawer ? 'Hide Telemetry' : '4-Pillar Telemetry'}
+            <Text style={styles.technicalToggleText}>
+              {showTechnicalDetails ? 'Hide Details' : 'Technical Analysis'}
             </Text>
           </TouchableOpacity>
 
+          {/* Primary Action Button: Finish Rep */}
           <TouchableOpacity
-            style={styles.stopPracticeBtn}
-            onPress={() => finishEvaluation(3000)}
-            activeOpacity={0.8}
+            style={styles.finishRepBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              finishEvaluation(3500);
+            }}
+            activeOpacity={0.85}
           >
             <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.stopPracticeBtnText}>Finish Rep</Text>
+            <Text style={styles.finishRepBtnText}>Finish Rep</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Collapsible 4-Pillar Bars */}
-        {showTelemetryDrawer && (
-          <View style={styles.telemetryGrid}>
+        {/* Secondary Collapsible 4-Pillar Alignment Bars */}
+        {showTechnicalDetails && (
+          <View style={styles.technicalDrawerContent}>
+            <Text style={styles.technicalHeading}>BIOMECHANICAL ALIGNMENT</Text>
             {[
               { label: 'Trajectory (Elbow)', score: livePillars.strikingArm, color: '#3B82F6' },
-              { label: 'Kalasag Guard', score: livePillars.guard, color: '#10B981' },
-              { label: 'Tindig Stance', score: livePillars.stance, color: '#F59E0B' },
-              { label: 'Pitik Wrist', score: livePillars.wrist, color: '#8B5CF6' },
+              { label: 'Kalasag Guard Hand', score: livePillars.guard, color: '#10B981' },
+              { label: 'Tindig Stance Base', score: livePillars.stance, color: '#F59E0B' },
+              { label: 'Pitik Wrist Snap', score: livePillars.wrist, color: '#8B5CF6' },
             ].map((pillar) => (
-              <View key={pillar.label} style={styles.telemetryBarItem}>
+              <View key={pillar.label} style={styles.pillarBarRow}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                  <Text style={styles.telemetryBarLabel}>{pillar.label}</Text>
-                  <Text style={[styles.telemetryBarScore, { color: pillar.color }]}>{pillar.score}%</Text>
+                  <Text style={styles.pillarBarLabel}>{pillar.label}</Text>
+                  <Text style={[styles.pillarBarScore, { color: pillar.color }]}>{pillar.score}%</Text>
                 </View>
-                <View style={styles.telemetryBarTrack}>
+                <View style={styles.pillarBarTrack}>
                   <View
                     style={[
-                      styles.telemetryBarFill,
+                      styles.pillarBarFill,
                       { width: `${pillar.score}%`, backgroundColor: pillar.color },
                     ]}
                   />
@@ -569,85 +633,90 @@ export function PracticeLive({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#0F172A',
   },
-  topControlBar: {
+
+  // TOP BAR
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: MartialTheme.colors.border,
   },
-  exitButton: {
-    padding: 6,
+  backBtn: {
+    padding: 4,
   },
-  strikeTitleBox: {
+  techniqueHeaderBox: {
     flex: 1,
-    marginHorizontal: 10,
+    marginHorizontal: 12,
   },
-  strikeTitleText: {
-    fontSize: 15,
+  techniqueTitleText: {
+    fontSize: 16,
     fontWeight: '900',
     color: MartialTheme.colors.text,
   },
-  strikeTargetText: {
-    fontSize: 11,
-    color: MartialTheme.colors.textSecondary,
-  },
-  modeToggleGroup: {
+  techniqueStarRow: {
     flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    padding: 2,
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 2,
   },
-  modeToggleBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+  techniqueModeTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+    marginLeft: 6,
   },
-  modeToggleBtnActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  audioToggleBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: MartialTheme.colors.background,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
   },
-  modeToggleBtnText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#6B7280',
+  audioToggleBtnActive: {
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    borderColor: '#BBF7D0',
   },
-  modeToggleBtnTextActive: {
-    color: MartialTheme.colors.primary,
-    fontWeight: '900',
-  },
-  viewportContainer: {
+
+  // CAMERA VIEWPORT
+  cameraViewport: {
     flex: 1,
     position: 'relative',
     backgroundColor: '#000000',
   },
-  followVideoBox: {
+  followVideoHeader: {
     height: 180,
-    backgroundColor: '#111827',
+    backgroundColor: '#1E293B',
+    position: 'relative',
     borderBottomWidth: 2,
-    borderBottomColor: '#374151',
+    borderBottomColor: '#334155',
   },
-  followVideoHeading: {
+  followBadge: {
     position: 'absolute',
-    top: 6,
+    top: 8,
     left: 8,
     zIndex: 10,
-    fontSize: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  followBadgeText: {
+    fontSize: 10,
     fontWeight: '900',
     color: '#F59E0B',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    letterSpacing: 0.5,
   },
   followVideo: {
     flex: 1,
@@ -657,96 +726,143 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
-  loaderOverlay: {
+  loadingBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loaderText: {
+  loadingText: {
     fontSize: 13,
-    color: '#E2E8F0',
+    color: '#CBD5E1',
     marginTop: 10,
     fontWeight: '600',
   },
-  snapshotPill: {
+
+  // BADGES & OVERLAYS
+  snapshotBadge: {
     position: 'absolute',
-    top: 12,
+    top: 14,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.9)',
-    paddingHorizontal: 12,
+    backgroundColor: MartialTheme.colors.primary,
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  snapshotPillText: {
-    fontSize: 11.5,
-    fontWeight: '800',
+  snapshotBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
     color: '#FFFFFF',
   },
-  detectedPill: {
+  aiDetectedBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 14,
+    right: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.9)',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#F59E0B',
   },
-  detectedPillText: {
+  aiDetectedText: {
     fontSize: 11,
     fontWeight: '800',
     color: '#FDE68A',
   },
-  formCoachPillsRow: {
+  phaseGuideRow: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 14,
+    left: 14,
     flexDirection: 'row',
     gap: 4,
   },
-  formCoachStepPill: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  phaseStepPill: {
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  formCoachStepPillActive: {
+  phaseStepPillActive: {
     backgroundColor: MartialTheme.colors.primary,
-    borderColor: '#FFFFFF',
+    borderColor: '#86EFAC',
   },
-  formCoachStepText: {
+  phaseStepText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
-  formCoachStepTextActive: {
+  phaseStepTextActive: {
     color: '#FFFFFF',
   },
-  countdownBadge: {
-    position: 'absolute',
-    top: '35%',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    borderWidth: 2,
+  repsCounterPill: {
+    backgroundColor: MartialTheme.colors.primaryDark,
     borderColor: MartialTheme.colors.primary,
   },
-  countdownBadgeText: {
-    fontSize: 36,
+  repsCounterText: {
+    fontSize: 9.5,
     fontWeight: '900',
     color: '#FFFFFF',
   },
-  hudOverlayBottom: {
+
+  // COUNTDOWN OVERLAY
+  countdownCenterOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  countdownBox: {
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    paddingHorizontal: 36,
+    paddingVertical: 20,
+    borderRadius: 24,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: MartialTheme.colors.primary,
+  },
+  countdownSubtext: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: MartialTheme.colors.bamboo,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  countdownNumber: {
+    fontSize: 52,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  evaluatingTimerPill: {
+    position: 'absolute',
+    top: 14,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(234, 88, 12, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  evaluatingTimerText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+
+  // IN-CAMERA HUD BOTTOM
+  inCameraHudBottom: {
     position: 'absolute',
     bottom: 12,
     left: 12,
@@ -755,45 +871,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  scoreCircleBox: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+  scoreGaugeCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 2.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
   },
-  scoreCircleText: {
-    fontSize: 16,
+  scoreGaugeValue: {
+    fontSize: 17,
     fontWeight: '900',
   },
-  scoreCircleLabel: {
+  scoreGaugeLabel: {
     fontSize: 7.5,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#94A3B8',
     letterSpacing: 0.5,
   },
-  coachPromptBubble: {
+  coachGuidanceBubble: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
+    paddingVertical: 9,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  coachPromptTag: {
-    fontSize: 8.5,
+  coachGuidanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  coachGuidanceTag: {
+    fontSize: 9,
     fontWeight: '900',
-    color: MartialTheme.colors.primary,
-    letterSpacing: 0.8,
+    color: MartialTheme.colors.primaryDark,
+    letterSpacing: 0.5,
   },
-  coachPromptText: {
-    fontSize: 12,
+  coachGuidanceText: {
+    fontSize: 12.5,
     fontWeight: '700',
     color: MartialTheme.colors.text,
-    marginTop: 1,
+    lineHeight: 17,
   },
+
+  // BOTTOM DRAWER
   bottomDrawer: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
@@ -801,63 +929,74 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: MartialTheme.colors.border,
   },
-  drawerActionsRow: {
+  drawerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  telemetryToggleBtn: {
+  technicalToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 12,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: MartialTheme.colors.background,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
   },
-  telemetryToggleText: {
+  technicalToggleText: {
     fontSize: 12,
     fontWeight: '800',
-    color: MartialTheme.colors.text,
+    color: MartialTheme.colors.textSecondary,
   },
-  stopPracticeBtn: {
+  finishRepBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: MartialTheme.colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
     borderRadius: 14,
-    borderBottomWidth: 3,
+    borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.primaryDark,
   },
-  stopPracticeBtnText: {
-    fontSize: 13,
+  finishRepBtnText: {
+    fontSize: 14,
     fontWeight: '900',
     color: '#FFFFFF',
   },
-  telemetryGrid: {
+
+  // COLLAPSIBLE TECHNICAL DRAWER
+  technicalDrawerContent: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: MartialTheme.colors.border,
     gap: 8,
   },
-  telemetryBarItem: {},
-  telemetryBarLabel: {
+  technicalHeading: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  pillarBarRow: {},
+  pillarBarLabel: {
     fontSize: 10.5,
     fontWeight: '700',
-    color: '#64748B',
+    color: MartialTheme.colors.textSecondary,
   },
-  telemetryBarScore: {
+  pillarBarScore: {
     fontSize: 11,
     fontWeight: '900',
   },
-  telemetryBarTrack: {
+  pillarBarTrack: {
     height: 6,
     borderRadius: 3,
     backgroundColor: '#F1F5F9',
     overflow: 'hidden',
   },
-  telemetryBarFill: {
+  pillarBarFill: {
     height: '100%',
     borderRadius: 3,
   },

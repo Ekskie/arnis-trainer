@@ -30,27 +30,26 @@ import {
   MasteryStats,
   SessionItem,
 } from '@/constants/historyStore';
-import { getCurriculumProgress } from '@/constants/curriculumStore';
+import { getGamificationStats } from '@/constants/gamificationStore';
 
 const { width } = Dimensions.get('window');
 
 export default function ProgressHistoryScreen() {
   const router = useRouter();
-  const [showDetailedRadar, setShowDetailedRadar] = useState(false);
+  const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
+  const [streakDays, setStreakDays] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
-  const [selectedRadarStrikeId, setSelectedRadarStrikeId] = useState<string | null>(null);
-  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
-  const [timelineFilter, setTimelineFilter] = useState<'all' | 'single' | 'anyo' | 'mastered'>('all');
+
   const [stats, setStats] = useState({
     avgScore: 0,
     bestScore: 0,
     sessionsCount: 0,
   });
 
-  // Calculate 4-pillar averages across all recorded sessions
+  // Calculate 4-pillar averages across recorded sessions
   const pillarAverages = useMemo(() => {
     if (historyList.length === 0) {
       return { stance: 82, elbow: 85, guard: 88, wrist: 86 };
@@ -76,7 +75,7 @@ export default function ProgressHistoryScreen() {
     };
   }, [historyList]);
 
-  // Load history whenever screen gains focus
+  // Load history & gamification data whenever screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       let isMounted = true;
@@ -100,9 +99,9 @@ export default function ProgressHistoryScreen() {
         }
       });
 
-      getCurriculumProgress().then((prog) => {
+      getGamificationStats().then((g) => {
         if (isMounted) {
-          setCompletedLessonIds(prog.completedLessonIds);
+          setStreakDays(g.streakDays || 1);
         }
       });
 
@@ -132,14 +131,12 @@ export default function ProgressHistoryScreen() {
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 95) return '#10B981'; // Green
-    if (score >= 85) return '#3B82F6'; // Blue
-    if (score >= 70) return '#F59E0B'; // Orange
-    if (score > 0) return '#EF4444'; // Red
-    return '#64748B';
+    if (score >= 85) return MartialTheme.colors.primary;
+    if (score >= 70) return MartialTheme.colors.bamboo;
+    return '#EF4444';
   };
 
-  // Derive the Current Focus strike (weakest attempted or next unattempted)
+  // Derive Current Focus strike
   const currentFocusStrike = useMemo(() => {
     const unmastered = masteryStats.strikes.filter((s) => !s.isMastered && s.attempts > 0);
     if (unmastered.length > 0) {
@@ -153,29 +150,56 @@ export default function ProgressHistoryScreen() {
   }, [masteryStats]);
 
   const coachFocusAdvice = useMemo(() => {
-    if (!currentFocusStrike) return 'Practice regularly to build martial discipline and muscle memory!';
+    if (!currentFocusStrike) return 'Practice regularly to build martial discipline!';
     if (currentFocusStrike.attempts === 0) {
-      return `Start with Strike ${currentFocusStrike.strikeNumber} to lock in the proper chamber angle and strike trajectory.`;
+      return `Start Strike ${currentFocusStrike.strikeNumber} to lock in the proper chamber and slicing angle.`;
     }
     if (currentFocusStrike.bestScore < 70) {
-      return `Focus on keeping your Kalasag check hand pinned firmly to your chest and maintain a 45° diagonal slice.`;
+      return `Pin your Kalasag guard hand to your chest and keep your diagonal path consistent.`;
     }
     if (currentFocusStrike.bestScore < 85) {
-      return `You're close to mastery! Concentrate on sharp wrist lock (Pitik) at the impact zone.`;
+      return `You're close to mastery! Concentrate on sharp wrist snap (Pitik) at the impact zone.`;
     }
-    return 'Technique mastered! Keep up your repetition to maintain muscle memory.';
+    return 'Master level technique! Practice your rhythm and flow.';
   }, [currentFocusStrike]);
 
-  // Chronological list sorted newest first for the timeline
-  const sortedSessions = useMemo(() => {
-    return [...historyList].reverse();
+  // Group practice history by recency (TODAY, YESTERDAY, EARLIER)
+  const timelineGroups = useMemo(() => {
+    const today: SessionItem[] = [];
+    const yesterday: SessionItem[] = [];
+    const earlier: SessionItem[] = [];
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayStart = todayStart - 86400000;
+
+    historyList.forEach((item) => {
+      const ts = parseInt(item.id.replace('session_', ''), 10);
+      if (!isNaN(ts)) {
+        if (ts >= todayStart) {
+          today.push(item);
+        } else if (ts >= yesterdayStart) {
+          yesterday.push(item);
+        } else {
+          earlier.push(item);
+        }
+      } else {
+        today.push(item);
+      }
+    });
+
+    return [
+      { title: 'TODAY', items: today },
+      { title: 'YESTERDAY', items: yesterday },
+      { title: 'EARLIER', items: earlier },
+    ].filter((g) => g.items.length > 0);
   }, [historyList]);
 
-  // Handle Clear History with confirmation
+  // Reset history handler
   const handleClearAll = () => {
     Alert.alert(
       'Reset Practice History',
-      'Are you sure you want to clear your recorded session history? Your curriculum progress will remain intact.',
+      'Are you sure you want to clear your recorded session history?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -192,9 +216,9 @@ export default function ProgressHistoryScreen() {
     );
   };
 
-  // Render SVG Line Chart based on scores
+  // SVG Trend Line Chart
   const renderTrendChart = () => {
-    const dataPoints = historyList.slice(-6); // Last 6 items
+    const dataPoints = historyList.slice(0, 6).reverse();
     if (dataPoints.length === 0) return null;
 
     const chartWidth = width - 72;
@@ -205,7 +229,7 @@ export default function ProgressHistoryScreen() {
     const spacingX =
       dataPoints.length > 1 ? (chartWidth - 2 * paddingX) / (dataPoints.length - 1) : 0;
 
-    const minYVal = 60;
+    const minYVal = 50;
     const maxYVal = 100;
 
     const points = dataPoints.map((item, index) => {
@@ -222,12 +246,12 @@ export default function ProgressHistoryScreen() {
 
     return (
       <View style={styles.chartContainer}>
-        <Text style={styles.chartHeading}>PERFORMANCE TRAJECTORY (LAST SESSIONS)</Text>
+        <Text style={styles.chartHeading}>PERFORMANCE TRAJECTORY</Text>
         <View style={styles.svgWrapper}>
           <Svg width={chartWidth} height={chartHeight}>
             {/* Guide line at 85% (Mastery threshold) */}
             <Path
-              d={`M ${paddingX - 10} ${chartHeight - paddingY - 0.625 * (chartHeight - 2 * paddingY)} L ${chartWidth - paddingX + 10} ${chartHeight - paddingY - 0.625 * (chartHeight - 2 * paddingY)}`}
+              d={`M ${paddingX - 10} ${chartHeight - paddingY - 0.7 * (chartHeight - 2 * paddingY)} L ${chartWidth - paddingX + 10} ${chartHeight - paddingY - 0.7 * (chartHeight - 2 * paddingY)}`}
               stroke="#BBF7D0"
               strokeWidth={1}
               strokeDasharray="4,4"
@@ -256,31 +280,34 @@ export default function ProgressHistoryScreen() {
     );
   };
 
-  const attemptedCount = masteryStats.strikes.filter((s) => s.attempts > 0).length;
-
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/')} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={22} color={MartialTheme.colors.text} />
-          <Text style={styles.headerTitle}>Your Progress</Text>
-        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>YOUR PROGRESS</Text>
+          <Text style={styles.headerSubtitle}>Keep advancing your martial path</Text>
+        </View>
+        <View style={styles.streakPill}>
+          <Text style={styles.streakPillText}>🔥 {streakDays}d</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 1. HERO PROGRESS CARD */}
-        <View style={styles.masterySummaryCard}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.progressSuperTag}>{"LOOK HOW FAR YOU'VE COME"}</Text>
-              <Text style={styles.progressHeroText}>
-                {masteryStats.masteredCount} of 12 Techniques Mastered
+        {/* --- 1. OVERALL PROGRESS HERO --- */}
+        <View style={styles.progressHeroCard}>
+          <View style={styles.progressHeroTopRow}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={styles.progressSuperTag}>OVERALL MASTERY</Text>
+              <Text style={styles.progressHeroCount}>
+                {masteryStats.masteredCount} of 12 strikes mastered
               </Text>
-              <View style={[styles.rankPill, { marginTop: 6 }]}>
+
+              {/* Rank Sash Badge */}
+              <View style={styles.rankPill}>
                 <View
                   style={[
-                    styles.sashColorDot,
+                    styles.sashDot,
                     { backgroundColor: getRankSashColor(masteryStats.rankTitle) },
                   ]}
                 />
@@ -289,59 +316,75 @@ export default function ProgressHistoryScreen() {
                 </Text>
               </View>
             </View>
-            <CoachCharacter pose={masteryStats.masteredCount >= 3 ? 'celebrating' : 'stance'} size={85} />
+
+            <CoachCharacter
+              pose={masteryStats.masteredCount >= 3 ? 'celebrating' : 'stance'}
+              size={85}
+            />
           </View>
 
-          {/* Mastery Progress Bar */}
+          {/* Progress Bar */}
           <View style={{ marginTop: 14 }}>
             <ProgressBar
-              progress={masteryStats.overallMastery}
+              progress={Math.round((masteryStats.masteredCount / 12) * 100)}
               showPercentage={true}
               color={MartialTheme.colors.primary}
               height={10}
             />
           </View>
+
+          {/* Coach Quote */}
+          <View style={styles.heroCoachQuoteBox}>
+            <Text style={styles.heroCoachQuoteText}>
+              {masteryStats.masteredCount >= 6
+                ? '"You\'re becoming a true martial artist!"'
+                : '"You\'re getting stronger with every session!"'}
+            </Text>
+          </View>
         </View>
 
-        {/* 2. CURRENT FOCUS CARD */}
+        {/* --- 2. CURRENT FOCUS CARD --- */}
         {currentFocusStrike && (
           <View style={styles.focusHeroCard}>
-            <View style={styles.focusHeroHeaderRow}>
+            <View style={styles.focusHeaderRow}>
               <View style={styles.focusBadge}>
                 <Ionicons name="sparkles" size={13} color="#B45309" style={{ marginRight: 5 }} />
                 <Text style={styles.focusBadgeText}>CURRENT FOCUS</Text>
               </View>
-              <View style={styles.focusScorePill}>
-                <Text style={styles.focusScorePillText}>
-                  {currentFocusStrike.bestScore > 0 ? `${currentFocusStrike.bestScore}%` : 'Not Attempted'}
-                </Text>
-              </View>
+              {currentFocusStrike.bestScore > 0 && (
+                <View style={styles.focusScorePill}>
+                  <Text style={styles.focusScorePillText}>
+                    {currentFocusStrike.bestScore}%
+                  </Text>
+                </View>
+              )}
             </View>
 
             <Text style={styles.focusStrikeTitle}>
               Strike {currentFocusStrike.strikeNumber} — {currentFocusStrike.name}
             </Text>
-            <Text style={styles.focusStrikeTarget}>Target: {currentFocusStrike.target}</Text>
+            <Text style={styles.focusStrikeTarget}>{currentFocusStrike.target}</Text>
 
             {/* Stars */}
-            <View style={{ flexDirection: 'row', gap: 4, marginVertical: 8 }}>
+            <View style={styles.focusStarsRow}>
               {[1, 2, 3, 4, 5].map((s) => (
                 <Ionicons
                   key={s}
                   name={s <= getStarCount(currentFocusStrike.bestScore) ? 'star' : 'star-outline'}
-                  size={16}
-                  color={s <= getStarCount(currentFocusStrike.bestScore) ? '#F59E0B' : '#D1D5DB'}
+                  size={17}
+                  color={s <= getStarCount(currentFocusStrike.bestScore) ? MartialTheme.colors.bamboo : '#D1D5DB'}
+                  style={{ marginRight: 3 }}
                 />
               ))}
             </View>
 
             {/* Coach Speech Bubble */}
             <View style={styles.focusCoachBubble}>
-              <Text style={styles.focusCoachBubbleLabel}>{"COACH'S ADVICE"}</Text>
+              <Text style={styles.focusCoachBubbleLabel}>COACH SAYS</Text>
               <Text style={styles.focusCoachBubbleText}>{`"${coachFocusAdvice}"`}</Text>
             </View>
 
-            {/* Action Button */}
+            {/* Dominant CTA Button */}
             <TactileButton
               title={`PRACTICE STRIKE ${currentFocusStrike.strikeNumber}`}
               onPress={() => {
@@ -359,12 +402,12 @@ export default function ProgressHistoryScreen() {
           </View>
         )}
 
-        {/* 3. YOUR STRIKES (12 CANONICAL TECHNIQUES) */}
-        <View style={{ marginTop: 20, marginBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        {/* --- 3. 12 STRIKES GAME PROGRESSION GRID --- */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeaderRow}>
             <View>
-              <Text style={styles.sectionHeaderTitle}>YOUR STRIKES</Text>
-              <Text style={styles.sectionHeaderSub}>The 12 Canonical Arnis Strikes</Text>
+              <Text style={styles.sectionTitle}>THE 12 STRIKES</Text>
+              <Text style={styles.sectionSub}>Tap any technique to practice</Text>
             </View>
             <View style={styles.masteryCounterBadge}>
               <Text style={styles.masteryCounterText}>
@@ -373,475 +416,413 @@ export default function ProgressHistoryScreen() {
             </View>
           </View>
 
-          {masteryStats.strikes.map((st) => {
-            const stars = getStarCount(st.bestScore);
-            return (
-              <View key={st.id} style={styles.strikeRowCard}>
-                <View style={styles.strikeRowLeft}>
+          {/* Compact 3-column game progression grid */}
+          <View style={styles.masteryGrid}>
+            {masteryStats.strikes.map((st) => {
+              const isFocus = st.id === currentFocusStrike?.id;
+              const isPracticed = st.attempts > 0;
+              const isMastered = st.isMastered;
+
+              return (
+                <TouchableOpacity
+                  key={st.id}
+                  style={[
+                    styles.gridNode,
+                    isFocus && styles.gridNodeFocus,
+                    isMastered && styles.gridNodeMastered,
+                  ]}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push({
+                      pathname: '/evaluate',
+                      params: { strikeId: st.id, mode: 'guided' },
+                    });
+                  }}
+                >
+                  {/* Status Circle Badge */}
                   <View
                     style={[
-                      styles.strikeNumberCircle,
-                      {
-                        backgroundColor: st.isMastered
-                          ? '#DCFCE7'
-                          : st.bestScore > 0
-                          ? '#FEF3C7'
-                          : '#F3F4F6',
-                        borderColor: st.isMastered
-                          ? '#86EFAC'
-                          : st.bestScore > 0
-                          ? '#FDE68A'
-                          : '#E5E7EB',
-                      },
+                      styles.nodeCircle,
+                      isMastered && styles.nodeCircleMastered,
+                      !isMastered && isPracticed && styles.nodeCirclePracticed,
+                      isFocus && styles.nodeCircleFocus,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.strikeNumberText,
-                        {
-                          color: st.isMastered
-                            ? '#15803D'
-                            : st.bestScore > 0
-                            ? '#B45309'
-                            : '#6B7280',
-                        },
-                      ]}
-                    >
-                      {st.strikeNumber}
-                    </Text>
+                    {isMastered ? (
+                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                    ) : isPracticed ? (
+                      <Ionicons name="star" size={16} color={MartialTheme.colors.bambooDark} />
+                    ) : (
+                      <Text style={styles.nodeCircleNeutralText}>{st.strikeNumber}</Text>
+                    )}
                   </View>
 
-                  <View style={{ flex: 1, paddingRight: 8 }}>
-                    <Text style={styles.strikeRowName}>{st.name}</Text>
-                    <Text style={styles.strikeRowTarget}>{st.target}</Text>
-                    <View style={{ flexDirection: 'row', gap: 3, marginTop: 4 }}>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Ionicons
-                          key={s}
-                          name={s <= stars ? 'star' : 'star-outline'}
-                          size={12}
-                          color={s <= stars ? '#F59E0B' : '#E5E7EB'}
-                        />
-                      ))}
-                    </View>
-                  </View>
-                </View>
+                  <Text style={styles.nodeTitle} numberOfLines={1}>
+                    Strike {st.strikeNumber}
+                  </Text>
+                  <Text style={styles.nodeTarget} numberOfLines={1}>
+                    {st.target.split('/')[0].trim()}
+                  </Text>
 
-                <View style={styles.strikeRowRight}>
-                  {st.bestScore > 0 && (
-                    <Text
-                      style={[
-                        styles.strikeRowScore,
-                        { color: getScoreColor(st.bestScore) },
-                      ]}
-                    >
-                      {st.bestScore}%
-                    </Text>
-                  )}
-
-                  {st.isMastered ? (
-                    <View style={styles.masteredBadge}>
-                      <Ionicons name="checkmark-circle" size={14} color="#15803D" style={{ marginRight: 4 }} />
-                      <Text style={styles.masteredBadgeText}>MASTERED</Text>
-                    </View>
+                  {/* Score or Status indicator */}
+                  {isMastered ? (
+                    <Text style={styles.nodeScoreMastered}>Mastered ✓</Text>
+                  ) : isPracticed ? (
+                    <Text style={styles.nodeScorePracticed}>{st.bestScore}%</Text>
                   ) : (
-                    <TouchableOpacity
-                      style={styles.practiceStrikeBtn}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        router.push({
-                          pathname: '/evaluate',
-                          params: { strikeId: st.id, mode: 'guided' },
-                        });
-                      }}
-                    >
-                      <Ionicons name="play" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                      <Text style={styles.practiceStrikeBtnText}>PRACTICE</Text>
-                    </TouchableOpacity>
+                    <Text style={styles.nodeScoreNeutral}>○ Not tried</Text>
                   )}
-                </View>
-              </View>
-            );
-          })}
+
+                  {isFocus && (
+                    <View style={styles.focusBadgeSmall}>
+                      <Text style={styles.focusBadgeSmallText}>FOCUS</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
-        {/* 4. LEARNING MILESTONES */}
-        <View style={styles.milestonesCard}>
-          <Text style={styles.milestonesTag}>MILESTONES</Text>
-          <Text style={styles.milestonesTitle}>Purok Training Achievements</Text>
+        {/* --- 4. MILESTONES & ACHIEVEMENTS --- */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
+          <Text style={styles.sectionSub}>Milestones on your journey to mastery</Text>
 
-          <View style={{ gap: 10, marginTop: 12 }}>
+          <View style={styles.achievementsCard}>
             {[
               {
-                id: 'm1',
-                title: 'First Repetition Completed',
-                desc: 'Complete your first camera evaluation',
+                id: 'a1',
+                emoji: '🏅',
+                title: 'First Practice',
+                desc: 'Completed your first evaluation rep',
                 completed: historyList.length > 0,
-                icon: 'trophy',
               },
               {
-                id: 'm2',
-                title: '3 Canonical Strikes Mastered',
-                desc: 'Score 85%+ on at least 3 distinct strikes',
+                id: 'a2',
+                emoji: '🔥',
+                title: '3-Day Streak',
+                desc: 'Trained 3 days in a row',
+                completed: streakDays >= 3,
+              },
+              {
+                id: 'a3',
+                emoji: '⭐',
+                title: '3 Strikes Mastered',
+                desc: 'Scored 85%+ on at least 3 strikes',
                 completed: masteryStats.masteredCount >= 3,
-                icon: 'ribbon',
               },
               {
-                id: 'm3',
-                title: 'Anyo Kata Combination',
-                desc: 'Successfully complete a multi-strike Anyo routine',
+                id: 'a4',
+                emoji: '🥋',
+                title: 'First Anyo',
+                desc: 'Completed a multi-strike combination',
                 completed: historyList.some((h) => !!h.routineId),
-                icon: 'sword-cross',
               },
               {
-                id: 'm4',
-                title: 'Intermediate Belt Promotion',
-                desc: 'Master at least 6 canonical strikes (Green Sash)',
+                id: 'a5',
+                emoji: '🏆',
+                title: '6 Strikes Mastered',
+                desc: 'Reached Intermediate Green Sash rank',
                 completed: masteryStats.masteredCount >= 6,
-                icon: 'medal',
               },
               {
-                id: 'm5',
-                title: 'Lakan / Master Practitioner',
-                desc: 'Master all 12 strikes with high motor precision',
+                id: 'a6',
+                emoji: '👑',
+                title: 'All 12 Mastered',
+                desc: 'Achieved Black Belt / Lakan precision',
                 completed: masteryStats.masteredCount >= 12,
-                icon: 'crown',
               },
-            ].map((m) => (
-              <View key={m.id} style={styles.milestoneRow}>
+            ].map((ach) => (
+              <View
+                key={ach.id}
+                style={[
+                  styles.achievementRow,
+                  ach.completed && styles.achievementRowEarned,
+                ]}
+              >
                 <View
                   style={[
-                    styles.milestoneIconBox,
-                    m.completed && styles.milestoneIconBoxComplete,
+                    styles.achievementEmojiBox,
+                    ach.completed && styles.achievementEmojiBoxEarned,
                   ]}
                 >
-                  <Ionicons
-                    name={m.completed ? 'checkmark' : 'lock-closed'}
-                    size={14}
-                    color={m.completed ? '#FFFFFF' : '#9CA3AF'}
-                  />
+                  <Text style={styles.achievementEmoji}>{ach.emoji}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
+
+                <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text
                     style={[
-                      styles.milestoneRowTitle,
-                      m.completed && { color: MartialTheme.colors.text },
+                      styles.achievementTitle,
+                      ach.completed && styles.achievementTitleEarned,
                     ]}
                   >
-                    {m.title}
+                    {ach.title}
                   </Text>
-                  <Text style={styles.milestoneRowDesc}>{m.desc}</Text>
+                  <Text style={styles.achievementDesc}>{ach.desc}</Text>
                 </View>
-                {m.completed && (
-                  <Text style={styles.milestoneCompleteTag}>Earned ✓</Text>
+
+                {ach.completed ? (
+                  <View style={styles.achievementEarnedTag}>
+                    <Ionicons name="checkmark-circle" size={14} color="#15803D" style={{ marginRight: 4 }} />
+                    <Text style={styles.achievementEarnedText}>Earned</Text>
+                  </View>
+                ) : (
+                  <Ionicons name="lock-closed-outline" size={16} color="#9CA3AF" />
                 )}
               </View>
             ))}
           </View>
         </View>
 
-        {/* 5. RECENT PRACTICE TIMELINE */}
-        <View style={{ marginTop: 14 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        {/* --- 5. PRACTICE HISTORY TIMELINE --- */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeaderRow}>
             <View>
-              <Text style={styles.sectionHeaderTitle}>PRACTICE TIMELINE</Text>
-              <Text style={styles.sectionHeaderSub}>Recent sessions & continuous improvement</Text>
+              <Text style={styles.sectionTitle}>PRACTICE HISTORY</Text>
+              <Text style={styles.sectionSub}>Recent sessions & progress</Text>
             </View>
             {historyList.length > 0 && (
-              <TouchableOpacity onPress={handleClearAll}>
-                <Text style={styles.clearAllBtn}>Reset History</Text>
+              <TouchableOpacity onPress={handleClearAll} activeOpacity={0.7}>
+                <Text style={styles.resetHistoryText}>Reset History</Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Filter Chips */}
-          {historyList.length > 0 && (
-            <View style={styles.filterChipsRow}>
-              {[
-                { id: 'all', label: `All (${historyList.length})` },
-                { id: 'single', label: `Strikes (${historyList.filter((h) => !h.routineId).length})` },
-                { id: 'anyo', label: `Anyo (${historyList.filter((h) => !!h.routineId).length})` },
-                { id: 'mastered', label: `Mastered (${historyList.filter((h) => h.score >= 85).length})` },
-              ].map((filter) => (
-                <TouchableOpacity
-                  key={filter.id}
-                  style={[
-                    styles.filterChip,
-                    timelineFilter === filter.id && styles.filterChipActive,
-                  ]}
-                  onPress={() => setTimelineFilter(filter.id as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      timelineFilter === filter.id && styles.filterChipTextActive,
-                    ]}
-                  >
-                    {filter.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+          {timelineGroups.length === 0 ? (
+            <View style={styles.emptyHistoryCard}>
+              <CoachCharacter pose="stance" size={75} />
+              <Text style={styles.emptyHistoryTitle}>No Practice Sessions Yet</Text>
+              <Text style={styles.emptyHistorySub}>
+                Start your first practice session to see your progress and track improvement here!
+              </Text>
+              <TactileButton
+                title="START FIRST PRACTICE"
+                onPress={() => router.push('/evaluate')}
+                variant="primary"
+                size="md"
+                icon={<Ionicons name="play" size={16} color="#FFFFFF" />}
+                style={{ marginTop: 12 }}
+              />
             </View>
-          )}
+          ) : (
+            timelineGroups.map((group) => (
+              <View key={group.title} style={{ marginBottom: 14 }}>
+                <Text style={styles.timelineGroupHeader}>{group.title}</Text>
 
-          {/* Session Cards or Encouraging Empty State */}
-          {(() => {
-            const filteredList = sortedSessions.filter((item) => {
-              if (timelineFilter === 'single') return !item.routineId;
-              if (timelineFilter === 'anyo') return !!item.routineId;
-              if (timelineFilter === 'mastered') return item.score >= 85;
-              return true;
-            });
+                <View style={styles.timelineGroupCard}>
+                  {group.items.map((item, idx) => {
+                    const olderAttempt = historyList.find(
+                      (s, i) => s.strikeId === item.strikeId && i > historyList.indexOf(item)
+                    );
+                    const delta = olderAttempt ? item.score - olderAttempt.score : null;
 
-            if (filteredList.length === 0) {
-              return (
-                <View style={styles.emptyCard}>
-                  <CoachCharacter pose="stance" size={80} />
-                  <Text style={styles.emptyTitle}>No Practice Sessions Yet</Text>
-                  <Text style={styles.emptySubtitle}>
-                    {historyList.length === 0
-                      ? 'Complete your first practice session to see your progress and track improvement here!'
-                      : 'No recorded sessions match the selected filter.'}
-                  </Text>
-                  <TactileButton
-                    title="START FIRST PRACTICE"
-                    onPress={() => router.push('/evaluate')}
-                    variant="primary"
-                    size="md"
-                    icon={<Ionicons name="play" size={16} color="#FFFFFF" />}
-                    style={{ marginTop: 12 }}
-                  />
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[
+                          styles.sessionRow,
+                          idx < group.items.length - 1 && styles.sessionRowBorder,
+                        ]}
+                        activeOpacity={0.75}
+                        onPress={() => setSelectedSession(item)}
+                      >
+                        <View
+                          style={[
+                            styles.sessionScoreCircle,
+                            { borderColor: getScoreColor(item.score) },
+                          ]}
+                        >
+                          <Text style={[styles.sessionScoreText, { color: getScoreColor(item.score) }]}>
+                            {item.score}%
+                          </Text>
+                        </View>
+
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.sessionStrikeName}>{item.strikeName}</Text>
+                            {item.routineId && (
+                              <View style={styles.anyoTag}>
+                                <Text style={styles.anyoTagText}>ANYO</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                            <Text style={styles.sessionDateText}>{item.date.split('·')[1]?.trim() || item.date}</Text>
+                            {delta !== null && delta > 0 && (
+                              <Text style={styles.sessionDeltaPositive}>↑ +{delta}</Text>
+                            )}
+                          </View>
+                        </View>
+
+                        <TouchableOpacity
+                          style={styles.whyBtnSmall}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            setWhySession(item);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.whyBtnSmallText}>Why?</Text>
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              );
-            }
-
-            return filteredList.map((item, idx) => {
-              // Compare with earlier attempt of the same strike
-              const olderAttempt = sortedSessions.slice(idx + 1).find((s) => s.strikeId === item.strikeId);
-              const delta = olderAttempt ? item.score - olderAttempt.score : null;
-
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.logCard}
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedSession(item)}
-                >
-                  <View
-                    style={[
-                      styles.logScoreCircle,
-                      { borderColor: getScoreColor(item.score) },
-                    ]}
-                  >
-                    <Text style={[styles.logScoreText, { color: getScoreColor(item.score) }]}>
-                      {item.score}%
-                    </Text>
-                  </View>
-
-                  <View style={styles.logDetails}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                      <Text style={styles.logTitle}>{item.strikeName}</Text>
-                      {item.routineId && (
-                        <View style={styles.anyoBadge}>
-                          <Text style={styles.anyoBadgeText}>ANYO FORM</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.logSubTitle}>{item.date}</Text>
-
-                    {/* Improvement Delta Badge */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
-                      {delta !== null ? (
-                        delta > 0 ? (
-                          <View style={styles.deltaPositiveBadge}>
-                            <Text style={styles.deltaPositiveText}>↑ +{delta} since last time</Text>
-                          </View>
-                        ) : delta === 0 ? (
-                          <View style={styles.deltaNeutralBadge}>
-                            <Text style={styles.deltaNeutralText}>= Same as last</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.deltaNegativeBadge}>
-                            <Text style={styles.deltaNegativeText}>↓ {Math.abs(delta)} from last</Text>
-                          </View>
-                        )
-                      ) : (
-                        <View style={styles.deltaFirstBadge}>
-                          <Text style={styles.deltaFirstText}>First Attempt ⭐</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-
-                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                    <Text style={[styles.logGrade, { color: getScoreColor(item.score) }]}>
-                      {item.grade.replace('Grade ', '')}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.whySmallBtn}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        setWhySession(item);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="help-circle" size={11} color="#0284C7" style={{ marginRight: 2 }} />
-                      <Text style={styles.whySmallBtnText}>Why?</Text>
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              );
-            });
-          })()}
+              </View>
+            ))
+          )}
         </View>
 
-        {/* 6. COLLAPSIBLE DETAILED BIOMECHANICAL ANALYSIS */}
+        {/* --- 6. COLLAPSIBLE ADVANCED ANALYTICS --- */}
         <TouchableOpacity
-          style={styles.accordionHeaderBtn}
+          style={styles.analyticsAccordionBtn}
           activeOpacity={0.8}
-          onPress={() => setShowDetailedRadar(!showDetailedRadar)}
+          onPress={() => setShowAdvancedAnalytics(!showAdvancedAnalytics)}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             <MaterialCommunityIcons
               name="chart-bell-curve-cumulative"
-              size={18}
+              size={20}
               color={MartialTheme.colors.bambooDark}
               style={{ marginRight: 8 }}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.accordionHeaderBtnText}>
-                {showDetailedRadar ? 'Hide Detailed Analysis' : 'Detailed Biomechanical Analysis'}
+              <Text style={styles.analyticsAccordionTitle}>
+                {showAdvancedAnalytics ? 'Hide Detailed Analysis' : 'Detailed Biomechanical Analysis'}
               </Text>
-              <Text style={styles.accordionHeaderSubText}>
+              <Text style={styles.analyticsAccordionSub}>
                 12-Axis Radar, Kinetic Pillars & Motor Diagnostics
               </Text>
             </View>
           </View>
           <Ionicons
-            name={showDetailedRadar ? 'chevron-up' : 'chevron-down'}
+            name={showAdvancedAnalytics ? 'chevron-up' : 'chevron-down'}
             size={18}
             color={MartialTheme.colors.textMuted}
           />
         </TouchableOpacity>
 
-        {showDetailedRadar && (
-          <View style={styles.detailedAccordionContent}>
+        {showAdvancedAnalytics && (
+          <View style={styles.analyticsContent}>
             {/* Quick Stats Grid */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statMetricItem}>
-                <Text style={styles.statMetricValue}>{stats.avgScore}%</Text>
-                <Text style={styles.statMetricLabel}>AVG SCORE</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statBox}>
+                <Text style={styles.statVal}>{stats.avgScore}%</Text>
+                <Text style={styles.statLbl}>AVG SCORE</Text>
               </View>
-              <View style={styles.statMetricDivider} />
-              <View style={styles.statMetricItem}>
-                <Text style={[styles.statMetricValue, { color: getScoreColor(stats.bestScore) }]}>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={[styles.statVal, { color: getScoreColor(stats.bestScore) }]}>
                   {stats.bestScore}%
                 </Text>
-                <Text style={styles.statMetricLabel}>BEST SCORE</Text>
+                <Text style={styles.statLbl}>BEST SCORE</Text>
               </View>
-              <View style={styles.statMetricDivider} />
-              <View style={styles.statMetricItem}>
-                <Text style={styles.statMetricValue}>{stats.sessionsCount}</Text>
-                <Text style={styles.statMetricLabel}>SESSIONS</Text>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={styles.statVal}>{stats.sessionsCount}</Text>
+                <Text style={styles.statLbl}>SESSIONS</Text>
               </View>
-              <View style={styles.statMetricDivider} />
-              <View style={styles.statMetricItem}>
-                <Text style={[styles.statMetricValue, { color: MartialTheme.colors.bambooDark }]}>
-                  {attemptedCount}/12
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={[styles.statVal, { color: MartialTheme.colors.primary }]}>
+                  {masteryStats.strikes.filter((s) => s.attempts > 0).length}/12
                 </Text>
-                <Text style={styles.statMetricLabel}>ATTEMPTED</Text>
+                <Text style={styles.statLbl}>ATTEMPTED</Text>
               </View>
             </View>
 
-            {/* Score Trend Line Chart */}
+            {/* Performance Trend SVG Chart */}
             {historyList.length > 0 && renderTrendChart()}
 
             {/* 12-Axis Radar Chart */}
             <StrikeRadarChart
               masteryStats={masteryStats}
-              onSelectStrike={(st) => setSelectedRadarStrikeId(st.id)}
+              onSelectStrike={(st) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/evaluate',
+                  params: { strikeId: st.id, mode: 'guided' },
+                });
+              }}
             />
 
             {/* 4-Pillar Kinetic Averages */}
-            <Text style={styles.breakdownSectionHeading}>4-PILLAR KINETIC ALIGNMENT</Text>
-            <Text style={styles.breakdownSectionSub}>
-              Motor precision averaged across all recorded repetitions
+            <Text style={styles.pillarSectionHeading}>4-PILLAR KINETIC POSTURE</Text>
+            <Text style={styles.pillarSectionSub}>
+              Average motor precision across all recorded repetitions
             </Text>
 
             {/* Stance & Tindig */}
             <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
+              <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="human-male-height" size={18} color="#F59E0B" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Stance & Base Stability (Tindig)</Text>
+                  <MaterialCommunityIcons name="human-male-height" size={17} color="#F59E0B" style={{ marginRight: 6 }} />
+                  <Text style={styles.pillarCardTitle}>Stance & Base Stability (Tindig)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.stance) }]}>
+                <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.stance) }]}>
                   {pillarAverages.stance}%
                 </Text>
               </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.stance}%`, backgroundColor: getScoreColor(pillarAverages.stance) }]} />
+              <View style={styles.pillarCardTrack}>
+                <View style={[styles.pillarCardFill, { width: `${pillarAverages.stance}%`, backgroundColor: getScoreColor(pillarAverages.stance) }]} />
               </View>
-              <Text style={styles.pillarDesc}>Lower body base, knee flexion (135°-165°), and core athletic posture</Text>
             </View>
 
             {/* Striking Arm Trajectory */}
             <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
+              <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="sword" size={18} color="#3B82F6" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Strike Trajectory & Slicing Path</Text>
+                  <MaterialCommunityIcons name="sword" size={17} color="#3B82F6" style={{ marginRight: 6 }} />
+                  <Text style={styles.pillarCardTitle}>Strike Trajectory & Slicing Path</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.elbow) }]}>
+                <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.elbow) }]}>
                   {pillarAverages.elbow}%
                 </Text>
               </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.elbow}%`, backgroundColor: getScoreColor(pillarAverages.elbow) }]} />
+              <View style={styles.pillarCardTrack}>
+                <View style={[styles.pillarCardFill, { width: `${pillarAverages.elbow}%`, backgroundColor: getScoreColor(pillarAverages.elbow) }]} />
               </View>
-              <Text style={styles.pillarDesc}>Lead elbow angle following canonical 45° diagonal and horizontal planes</Text>
             </View>
 
             {/* Kalasag Guard Hand */}
             <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
+              <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="shield-check" size={18} color="#10B981" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Check Hand Defense (Kalasag)</Text>
+                  <MaterialCommunityIcons name="shield-check" size={17} color="#10B981" style={{ marginRight: 6 }} />
+                  <Text style={styles.pillarCardTitle}>Check Hand Defense (Kalasag)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.guard) }]}>
+                <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.guard) }]}>
                   {pillarAverages.guard}%
                 </Text>
               </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.guard}%`, backgroundColor: getScoreColor(pillarAverages.guard) }]} />
+              <View style={styles.pillarCardTrack}>
+                <View style={[styles.pillarCardFill, { width: `${pillarAverages.guard}%`, backgroundColor: getScoreColor(pillarAverages.guard) }]} />
               </View>
-              <Text style={styles.pillarDesc}>Shield hand pinned to chest to guard against incoming counter-strikes</Text>
             </View>
 
             {/* Wrist Snap Pitik */}
             <View style={styles.pillarCard}>
-              <View style={styles.pillarHeaderRow}>
+              <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <MaterialCommunityIcons name="flash" size={18} color="#8B5CF6" style={{ marginRight: 8 }} />
-                  <Text style={styles.pillarTitle}>Wrist Snap & Alignment (Pitik)</Text>
+                  <MaterialCommunityIcons name="flash" size={17} color="#8B5CF6" style={{ marginRight: 6 }} />
+                  <Text style={styles.pillarCardTitle}>Wrist Snap & Alignment (Pitik)</Text>
                 </View>
-                <Text style={[styles.pillarScoreText, { color: getScoreColor(pillarAverages.wrist) }]}>
+                <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.wrist) }]}>
                   {pillarAverages.wrist}%
                 </Text>
               </View>
-              <View style={styles.pillarProgressBarTrack}>
-                <View style={[styles.pillarProgressBarFill, { width: `${pillarAverages.wrist}%`, backgroundColor: getScoreColor(pillarAverages.wrist) }]} />
+              <View style={styles.pillarCardTrack}>
+                <View style={[styles.pillarCardFill, { width: `${pillarAverages.wrist}%`, backgroundColor: getScoreColor(pillarAverages.wrist) }]} />
               </View>
-              <Text style={styles.pillarDesc}>Sharp wrist snap at the impact zone with straight alignment (≤ 15° offset)</Text>
             </View>
           </View>
         )}
       </ScrollView>
 
-      {/* Session Replay Modal */}
+      {/* --- SESSION REPLAY MODAL --- */}
       <Modal
         visible={!!selectedSession}
         transparent={true}
@@ -872,7 +853,7 @@ export default function ProgressHistoryScreen() {
                   ]}
                 >
                   <Text style={[styles.replayScoreValue, { color: getScoreColor(selectedSession?.score || 0) }]}>
-                    {selectedSession?.score || 0}
+                    {selectedSession?.score || 0}%
                   </Text>
                 </View>
                 <View style={{ marginLeft: 14 }}>
@@ -887,8 +868,8 @@ export default function ProgressHistoryScreen() {
                 </View>
               </View>
 
-              {/* Video Replay (if available) */}
-              {selectedSession?.replayVideoBase64 ? (
+              {/* Video Replay if available */}
+              {selectedSession?.replayVideoBase64 && (
                 <View style={styles.videoReplayContainer}>
                   <Text style={styles.videoReplayHeading}>SESSION MOTION REPLAY</Text>
                   <View style={styles.videoWrapper}>
@@ -900,14 +881,9 @@ export default function ProgressHistoryScreen() {
                           <html>
                             <head>
                               <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                              <style>
-                                body { margin: 0; background-color: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
-                                video { width: 100%; height: 100%; object-fit: contain; }
-                              </style>
+                              <style>body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; } video { width: 100%; height: 100%; object-fit: contain; }</style>
                             </head>
-                            <body>
-                              <video src="${selectedSession.replayVideoBase64}" autoplay loop muted playsinline controls></video>
-                            </body>
+                            <body><video src="${selectedSession.replayVideoBase64}" autoplay loop muted playsinline controls></video></body>
                           </html>
                         `,
                       }}
@@ -915,42 +891,35 @@ export default function ProgressHistoryScreen() {
                     />
                   </View>
                 </View>
-              ) : selectedSession?.snapshotBase64 ? (
-                <View style={styles.snapshotContainer}>
-                  <Text style={styles.snapshotHeading}>IMPACT ZONE SNAPSHOT</Text>
-                  <Image
-                    source={{ uri: selectedSession.snapshotBase64 }}
-                    style={styles.snapshotImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              ) : null}
+              )}
 
-              {/* Diagnostic Button */}
+              {/* Snapshot if available */}
+              {selectedSession?.snapshotBase64 && !selectedSession?.replayVideoBase64 && (
+                <View style={styles.videoReplayContainer}>
+                  <Text style={styles.videoReplayHeading}>IMPACT ZONE SNAPSHOT</Text>
+                  <Image source={{ uri: selectedSession.snapshotBase64 }} style={styles.snapshotImg} resizeMode="contain" />
+                </View>
+              )}
+
+              {/* Why button */}
               <TouchableOpacity
-                style={styles.whyModalBtn}
-                onPress={() => setWhySession(selectedSession)}
+                style={styles.modalWhyBtn}
+                onPress={() => {
+                  const s = selectedSession;
+                  setSelectedSession(null);
+                  setWhySession(s);
+                }}
                 activeOpacity={0.8}
               >
                 <Ionicons name="help-circle" size={16} color="#0284C7" style={{ marginRight: 6 }} />
-                <Text style={styles.whyModalBtnText}>
-                  Why Did I Get {selectedSession?.score}%? (Diagnosis)
-                </Text>
+                <Text style={styles.modalWhyBtnText}>Why did I get this score? (Diagnosis)</Text>
               </TouchableOpacity>
             </ScrollView>
-
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setSelectedSession(null)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.modalCloseBtnText}>Close Replay</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Why Did I Fail / Diagnostic Modal */}
+      {/* --- WHY FAILED MODAL --- */}
       {whySession && (
         <WhyFailedModal
           visible={!!whySession}
@@ -960,15 +929,18 @@ export default function ProgressHistoryScreen() {
           strikeName={whySession.strikeName}
           strikeId={whySession.strikeId}
           breakdown={{
-            elbowScore: whySession.breakdown?.elbow?.score,
-            bodyScore: whySession.breakdown?.stance?.score || whySession.breakdown?.knee?.score,
-            guardScore: whySession.breakdown?.guard?.score,
-            wristScore: whySession.breakdown?.wrist?.score,
+            directionScore: whySession.breakdown?.elbow?.score || whySession.score,
+            bodyScore: whySession.breakdown?.stance?.score || 80,
+            guardScore: whySession.breakdown?.guard?.score || 80,
+            wristScore: whySession.breakdown?.wrist?.score || 85,
           }}
-          onPracticeLesson={(lessonId) => {
+          onPracticeLesson={() => {
+            const sid = whySession.strikeId;
             setWhySession(null);
-            setSelectedSession(null);
-            router.push({ pathname: '/evaluate', params: { strikeId: lessonId, mode: 'guided' } });
+            router.push({
+              pathname: '/evaluate',
+              params: { strikeId: sid, mode: 'guided' },
+            });
           }}
         />
       )}
@@ -982,63 +954,86 @@ const styles = StyleSheet.create({
     backgroundColor: MartialTheme.colors.background,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: MartialTheme.colors.border,
-    backgroundColor: '#FFFFFF',
-  },
-  backButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: MartialTheme.colors.border,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '900',
     color: MartialTheme.colors.text,
-    marginLeft: 8,
+    letterSpacing: 0.5,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: MartialTheme.colors.textMuted,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  streakPill: {
+    backgroundColor: MartialTheme.colors.flameMuted,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  streakPillText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: MartialTheme.colors.flame,
   },
   scrollContent: {
-    padding: 20,
+    padding: 16,
     paddingBottom: 40,
   },
 
-  // 1. HERO PROGRESS CARD
-  masterySummaryCard: {
+  // PROGRESS HERO CARD
+  progressHeroCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
-    marginBottom: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.border3D,
+    marginBottom: 16,
+  },
+  progressHeroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   progressSuperTag: {
     fontSize: 10,
     fontWeight: '900',
     color: MartialTheme.colors.bambooDark,
-    letterSpacing: 1.2,
-    marginBottom: 4,
+    letterSpacing: 1,
   },
-  progressHeroText: {
+  progressHeroCount: {
     fontSize: 18,
     fontWeight: '900',
     color: MartialTheme.colors.text,
-    letterSpacing: -0.2,
+    marginTop: 2,
   },
   rankPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
+    backgroundColor: MartialTheme.colors.background,
     alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
   },
-  sashColorDot: {
+  sashDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -1047,626 +1042,581 @@ const styles = StyleSheet.create({
   rankPillText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#B45309',
-    letterSpacing: 0.3,
+    color: MartialTheme.colors.text,
   },
-
-  // 2. CURRENT FOCUS HERO CARD
-  focusHeroCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 16,
+  heroCoachQuoteBox: {
+    marginTop: 12,
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 12,
+    padding: 10,
     borderWidth: 1,
     borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 4,
-    borderBottomColor: MartialTheme.colors.border3D,
   },
-  focusHeroHeaderRow: {
+  heroCoachQuoteText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: MartialTheme.colors.textSecondary,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  // CURRENT FOCUS HERO CARD
+  focusHeroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    borderBottomWidth: 4,
+    borderBottomColor: MartialTheme.colors.bamboo,
+    marginBottom: 20,
+  },
+  focusHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 6,
   },
   focusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  focusBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    color: '#B45309',
-    letterSpacing: 0.8,
-  },
-  focusScorePill: {
-    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: 8,
+  },
+  focusBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 0.5,
+  },
+  focusScorePill: {
+    backgroundColor: MartialTheme.colors.bambooMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   focusScorePillText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#64748B',
+    color: MartialTheme.colors.bambooDark,
   },
   focusStrikeTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '900',
     color: MartialTheme.colors.text,
     marginTop: 2,
   },
   focusStrikeTarget: {
     fontSize: 12,
-    color: MartialTheme.colors.textSecondary,
+    color: MartialTheme.colors.textMuted,
+    fontWeight: '600',
     marginTop: 2,
   },
+  focusStarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 6,
+  },
   focusCoachBubble: {
-    backgroundColor: '#FAF8F3',
-    padding: 12,
-    borderRadius: 14,
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 12,
+    padding: 10,
     borderWidth: 1,
-    borderColor: '#E5E0D3',
-    marginVertical: 10,
+    borderColor: MartialTheme.colors.border,
+    marginBottom: 8,
   },
   focusCoachBubbleLabel: {
-    fontSize: 9.5,
+    fontSize: 8.5,
     fontWeight: '900',
-    color: MartialTheme.colors.primary,
-    letterSpacing: 1,
-    marginBottom: 4,
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 0.8,
+    marginBottom: 2,
   },
   focusCoachBubbleText: {
-    fontSize: 12.5,
+    fontSize: 12,
     color: MartialTheme.colors.text,
-    lineHeight: 17,
-    fontWeight: '500',
+    lineHeight: 16,
+    fontWeight: '600',
   },
 
-  // 3. YOUR STRIKES
-  sectionHeaderTitle: {
+  // SECTION CONTAINERS
+  sectionContainer: {
+    marginBottom: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
     fontSize: 12,
     fontWeight: '900',
-    color: '#64748B',
-    letterSpacing: 1.2,
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 1,
   },
-  sectionHeaderSub: {
+  sectionSub: {
     fontSize: 11,
+    fontWeight: '600',
     color: MartialTheme.colors.textMuted,
     marginTop: 1,
   },
   masteryCounterBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
   masteryCounterText: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#15803D',
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
   },
-  strikeRowCard: {
+
+  // 12 STRIKES GAME GRID
+  masteryGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  gridNode: {
+    width: (width - 48) / 3,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
+    padding: 10,
+    alignItems: 'center',
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 3,
     borderBottomColor: MartialTheme.colors.border3D,
-    padding: 12,
-    marginBottom: 8,
+    position: 'relative',
   },
-  strikeRowLeft: {
+  gridNodeMastered: {
+    borderColor: '#BBF7D0',
+  },
+  gridNodeFocus: {
+    borderColor: MartialTheme.colors.primary,
+    backgroundColor: '#F0FDF4',
+  },
+  nodeCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: MartialTheme.colors.background,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  nodeCircleMastered: {
+    backgroundColor: MartialTheme.colors.primary,
+    borderColor: MartialTheme.colors.primaryDark,
+  },
+  nodeCirclePracticed: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  nodeCircleFocus: {
+    borderColor: MartialTheme.colors.primary,
+  },
+  nodeCircleNeutralText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+  },
+  nodeTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+    textAlign: 'center',
+  },
+  nodeTarget: {
+    fontSize: 9.5,
+    color: MartialTheme.colors.textMuted,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  nodeScoreMastered: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: MartialTheme.colors.primary,
+    marginTop: 4,
+  },
+  nodeScorePracticed: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    marginTop: 4,
+  },
+  nodeScoreNeutral: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: MartialTheme.colors.textMuted,
+    marginTop: 4,
+  },
+  focusBadgeSmall: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: MartialTheme.colors.primary,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  focusBadgeSmallText: {
+    fontSize: 7.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+
+  // ACHIEVEMENTS
+  achievementsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    gap: 8,
+  },
+  achievementRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 12,
   },
-  strikeNumberCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
+  achievementRowEarned: {
+    backgroundColor: '#F7FDF9',
+  },
+  achievementEmojiBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: MartialTheme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
   },
-  strikeNumberText: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  strikeRowName: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: MartialTheme.colors.text,
-  },
-  strikeRowTarget: {
-    fontSize: 11,
-    color: MartialTheme.colors.textSecondary,
-    marginTop: 1,
-  },
-  strikeRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  strikeRowScore: {
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  masteredBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  achievementEmojiBoxEarned: {
     backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#86EFAC',
   },
-  masteredBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#15803D',
-    letterSpacing: 0.5,
+  achievementEmoji: {
+    fontSize: 18,
   },
-  practiceStrikeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: MartialTheme.colors.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderBottomWidth: 2,
-    borderBottomColor: MartialTheme.colors.primaryDark,
-  },
-  practiceStrikeBtnText: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-
-  // 4. MILESTONES
-  milestonesCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 4,
-    borderBottomColor: MartialTheme.colors.border3D,
-    marginTop: 14,
-    marginBottom: 16,
-  },
-  milestonesTag: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: MartialTheme.colors.bambooDark,
-    letterSpacing: 1.2,
-  },
-  milestonesTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: MartialTheme.colors.text,
-    marginTop: 2,
-    marginBottom: 4,
-  },
-  milestoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: MartialTheme.colors.divider,
-    gap: 12,
-  },
-  milestoneIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  milestoneIconBoxComplete: {
-    backgroundColor: '#16A34A',
-  },
-  milestoneRowTitle: {
+  achievementTitle: {
     fontSize: 13,
     fontWeight: '800',
     color: MartialTheme.colors.textMuted,
   },
-  milestoneRowDesc: {
-    fontSize: 11,
-    color: MartialTheme.colors.textSecondary,
+  achievementTitleEarned: {
+    color: MartialTheme.colors.text,
+  },
+  achievementDesc: {
+    fontSize: 10.5,
+    color: MartialTheme.colors.textMuted,
     marginTop: 1,
   },
-  milestoneCompleteTag: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#16A34A',
+  achievementEarnedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: MartialTheme.colors.primaryMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  achievementEarnedText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: MartialTheme.colors.primaryDark,
   },
 
-  // 5. PRACTICE TIMELINE
-  clearAllBtn: {
-    fontSize: 12,
+  // TIMELINE
+  resetHistoryText: {
+    fontSize: 11.5,
     fontWeight: '700',
-    color: MartialTheme.colors.textMuted,
+    color: '#EF4444',
   },
-  filterChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-  },
-  filterChipActive: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: MartialTheme.colors.textSecondary,
-  },
-  filterChipTextActive: {
-    color: '#B45309',
-    fontWeight: '800',
-  },
-  emptyCard: {
+  emptyHistoryCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 3,
-    borderBottomColor: MartialTheme.colors.border3D,
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 10,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
   },
-  emptyTitle: {
+  emptyHistoryTitle: {
     fontSize: 16,
     fontWeight: '900',
     color: MartialTheme.colors.text,
-    marginTop: 12,
+    marginTop: 10,
   },
-  emptySubtitle: {
-    fontSize: 12.5,
-    color: MartialTheme.colors.textSecondary,
+  emptyHistorySub: {
+    fontSize: 12,
+    color: MartialTheme.colors.textMuted,
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 18,
   },
-  logCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  timelineGroupHeader: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 1,
+    marginBottom: 6,
+    paddingHorizontal: 4,
+  },
+  timelineGroupCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 18,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 3,
     borderBottomColor: MartialTheme.colors.border3D,
-    padding: 14,
-    marginBottom: 10,
+    overflow: 'hidden',
   },
-  logScoreCircle: {
+  sessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  sessionRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: MartialTheme.colors.border,
+  },
+  sessionScoreCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 3,
-    justifyContent: 'center',
+    borderWidth: 2,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.background,
     marginRight: 12,
   },
-  logScoreText: {
-    fontSize: 14,
+  sessionScoreText: {
+    fontSize: 13,
     fontWeight: '900',
   },
-  logDetails: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  logTitle: {
-    fontSize: 14,
+  sessionStrikeName: {
+    fontSize: 13.5,
     fontWeight: '800',
     color: MartialTheme.colors.text,
   },
-  anyoBadge: {
-    backgroundColor: '#EDE9FE',
-    borderColor: '#DDD6FE',
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  anyoTag: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
   },
-  anyoBadgeText: {
-    color: '#7C3AED',
-    fontSize: 9,
+  anyoTagText: {
+    fontSize: 8.5,
     fontWeight: '900',
+    color: '#8B5CF6',
   },
-  logSubTitle: {
+  sessionDateText: {
     fontSize: 11,
     color: MartialTheme.colors.textMuted,
-    marginTop: 1,
+    fontWeight: '600',
   },
-  deltaPositiveBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  deltaPositiveText: {
-    fontSize: 10,
-    fontWeight: '800',
+  sessionDeltaPositive: {
+    fontSize: 11,
+    fontWeight: '900',
     color: '#15803D',
   },
-  deltaNeutralBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  deltaNeutralText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#6B7280',
-  },
-  deltaNegativeBadge: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  deltaNegativeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#B91C1C',
-  },
-  deltaFirstBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  deltaFirstText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#B45309',
-  },
-  logGrade: {
-    fontSize: 18,
-    fontWeight: '900',
-    marginRight: 2,
-  },
-  whySmallBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E0F2FE',
+  whyBtnSmall: {
+    backgroundColor: '#F0F9FF',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#BAE6FD',
   },
-  whySmallBtnText: {
-    fontSize: 10,
+  whyBtnSmallText: {
+    fontSize: 11,
     fontWeight: '800',
     color: '#0284C7',
   },
 
-  // 6. DETAILED ANALYSIS ACCORDION
-  accordionHeaderBtn: {
+  // ADVANCED ANALYTICS ACCORDION
+  analyticsAccordionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 3,
-    borderBottomColor: MartialTheme.colors.border3D,
-  },
-  accordionHeaderBtnText: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: MartialTheme.colors.text,
-  },
-  accordionHeaderSubText: {
-    fontSize: 11,
-    color: MartialTheme.colors.textSecondary,
-    marginTop: 1,
-  },
-  detailedAccordionContent: {
-    marginTop: 6,
-    marginBottom: 20,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 3,
-    borderBottomColor: MartialTheme.colors.border3D,
-    marginBottom: 14,
-  },
-  statMetricItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statMetricValue: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: MartialTheme.colors.text,
-    marginBottom: 2,
-  },
-  statMetricLabel: {
-    fontSize: 8.5,
-    fontWeight: '800',
-    color: MartialTheme.colors.textMuted,
-    letterSpacing: 0.8,
-  },
-  statMetricDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: MartialTheme.colors.border,
-  },
-  chartContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    borderWidth: 1,
+    padding: 14,
+    borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 3,
     borderBottomColor: MartialTheme.colors.border3D,
-    padding: 16,
     marginBottom: 16,
   },
-  chartHeading: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#64748B',
-    letterSpacing: 1,
-    marginBottom: 14,
-  },
-  svgWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  breakdownSectionHeading: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#64748B',
-    letterSpacing: 1.2,
-    marginTop: 18,
-    marginBottom: 2,
-  },
-  breakdownSectionSub: {
-    fontSize: 11.5,
-    color: MartialTheme.colors.textMuted,
-    marginBottom: 12,
-  },
-  pillarCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
-    borderBottomWidth: 3,
-    borderBottomColor: MartialTheme.colors.border3D,
-  },
-  pillarHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  pillarTitle: {
+  analyticsAccordionTitle: {
     fontSize: 13,
     fontWeight: '800',
     color: MartialTheme.colors.text,
   },
-  pillarScoreText: {
-    fontSize: 14,
+  analyticsAccordionSub: {
+    fontSize: 10.5,
+    color: MartialTheme.colors.textMuted,
+    marginTop: 2,
+  },
+  analyticsContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    marginBottom: 20,
+    gap: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  statBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statVal: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+  },
+  statLbl: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: MartialTheme.colors.textMuted,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: MartialTheme.colors.border,
+    marginVertical: 2,
+  },
+  chartContainer: {
+    marginVertical: 8,
+  },
+  chartHeading: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  svgWrapper: {
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    alignItems: 'center',
+  },
+  pillarSectionHeading: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: MartialTheme.colors.bambooDark,
+    letterSpacing: 0.8,
+    marginTop: 8,
+  },
+  pillarSectionSub: {
+    fontSize: 10.5,
+    color: MartialTheme.colors.textMuted,
+    marginBottom: 4,
+  },
+  pillarCard: {
+    backgroundColor: MartialTheme.colors.background,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    gap: 4,
+  },
+  pillarCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pillarCardTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  pillarCardScore: {
+    fontSize: 12,
     fontWeight: '900',
   },
-  pillarProgressBarTrack: {
+  pillarCardTrack: {
     height: 6,
     borderRadius: 3,
     backgroundColor: '#E5E7EB',
     overflow: 'hidden',
-    marginBottom: 6,
   },
-  pillarProgressBarFill: {
+  pillarCardFill: {
     height: '100%',
     borderRadius: 3,
   },
-  pillarDesc: {
-    fontSize: 11,
-    color: MartialTheme.colors.textSecondary,
-    lineHeight: 15,
-  },
 
-  // MODAL
+  // MODAL OVERLAY
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    borderColor: MartialTheme.colors.border,
-    borderWidth: 1,
-    borderBottomWidth: 4,
-    borderBottomColor: MartialTheme.colors.border3D,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
+    paddingBottom: 36,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: MartialTheme.colors.border,
-    paddingBottom: 10,
   },
   modalTitle: {
-    color: MartialTheme.colors.text,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '900',
+    color: MartialTheme.colors.text,
   },
   modalSub: {
+    fontSize: 12,
     color: MartialTheme.colors.textMuted,
-    fontSize: 11.5,
     marginTop: 2,
   },
   replayScoreHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FAF8F3',
-    borderRadius: 16,
-    padding: 14,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E5E0D3',
   },
   replayScoreCircle: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    borderWidth: 3,
-    justifyContent: 'center',
+    borderWidth: 2.5,
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.background,
   },
   replayScoreValue: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '900',
   },
   replayGradeTitle: {
@@ -1674,83 +1624,45 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   replayGradeDesc: {
-    color: MartialTheme.colors.textSecondary,
-    fontSize: 11.5,
-    marginTop: 2,
+    fontSize: 12,
+    color: MartialTheme.colors.textMuted,
   },
   videoReplayContainer: {
-    backgroundColor: '#FAF8F3',
-    borderRadius: 14,
-    borderColor: '#E5E0D3',
-    borderWidth: 1,
-    padding: 12,
     marginBottom: 14,
-    alignItems: 'center',
   },
   videoReplayHeading: {
-    color: MartialTheme.colors.primary,
+    fontSize: 10,
     fontWeight: '900',
-    fontSize: 11,
-    letterSpacing: 1.0,
-    marginBottom: 8,
+    color: MartialTheme.colors.textSecondary,
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   videoWrapper: {
-    width: '100%',
     height: 200,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: '#000',
   },
-  snapshotContainer: {
-    backgroundColor: '#FAF8F3',
-    borderRadius: 14,
-    borderColor: '#E5E0D3',
-    borderWidth: 1,
-    padding: 12,
-    marginBottom: 14,
-    alignItems: 'center',
-  },
-  snapshotHeading: {
-    color: MartialTheme.colors.primary,
-    fontWeight: '900',
-    fontSize: 11,
-    letterSpacing: 1.0,
-    marginBottom: 8,
-  },
-  snapshotImage: {
+  snapshotImg: {
     width: '100%',
-    height: 180,
-    borderRadius: 10,
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: '#000',
   },
-  whyModalBtn: {
+  modalWhyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E0F2FE',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
+    paddingVertical: 10,
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#BAE6FD',
-    marginVertical: 8,
+    marginTop: 10,
   },
-  whyModalBtnText: {
+  modalWhyBtnText: {
     fontSize: 12.5,
     fontWeight: '800',
     color: '#0284C7',
-  },
-  modalCloseBtn: {
-    backgroundColor: MartialTheme.colors.primary,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 12,
-    borderBottomWidth: 3,
-    borderBottomColor: MartialTheme.colors.primaryDark,
-  },
-  modalCloseBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 14,
-    letterSpacing: 0.5,
   },
 });
