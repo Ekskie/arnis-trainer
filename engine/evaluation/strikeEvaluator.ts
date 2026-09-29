@@ -1,4 +1,4 @@
-import { PillarScores, StrikeEvaluationResult } from './evaluationTypes';
+import { KineticPhaseScores, PillarScores, StrikeEvaluationResult } from './evaluationTypes';
 import {
   calculateJointScore,
   calculateOverallScore,
@@ -134,6 +134,7 @@ export interface BestSessionInput {
   stanceScore: number;
   kneeScore?: number;
   kineticScore?: number;
+  kineticPhases?: KineticPhaseScores;
   durationMs?: number;
   diagnosticFlags?: string[];
 }
@@ -174,6 +175,7 @@ export function compileSessionResult(
     guardScore: data.guardScore,
     stanceScore: data.stanceScore,
     kineticScore: data.kineticScore,
+    kineticPhases: data.kineticPhases,
     pillarScores: pillars,
     feedback,
     diagnosticFlags: data.diagnosticFlags || [],

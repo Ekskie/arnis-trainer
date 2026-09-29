@@ -40,6 +40,7 @@ export interface RawPersonPose {
   normGuardDist?: number;
   isGuardLow?: boolean;
   isStanceHigh?: boolean;
+  isFeetOutOfView?: boolean;
   diagnosticFlags?: string[];
   motionPhase?: PosePhase;
   swingVelocity?: number;

@@ -30,7 +30,11 @@ type LessonStepType = 'concept' | 'visual' | 'remember' | 'interactive_check' | 
 
 export default function LessonScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, completedFromDrill, earnedScore } = useLocalSearchParams<{
+    id: string;
+    completedFromDrill?: string;
+    earnedScore?: string;
+  }>();
 
   const lesson: CurriculumLesson = useMemo(() => {
     const found = ALL_CURRICULUM_LESSONS.find((l) => l.id === id);
@@ -51,6 +55,25 @@ export default function LessonScreen() {
     return ['concept', 'visual', 'remember', 'interactive_check', 'celebration'];
   }, [lesson.isStrike]);
 
+  // Handle return from camera drill
+  useEffect(() => {
+    if (completedFromDrill === '1') {
+      const celebrationIndex = steps.length - 1;
+      setCurrentStepIndex(celebrationIndex);
+      const bonusXp = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
+      addXpAndStreak(bonusXp).then((stats) => {
+        setEarnedXp(bonusXp);
+        setNewStreak(stats.streakDays);
+      });
+      markLessonCompleted(lesson.id);
+    } else if (completedFromDrill === '0') {
+      const rememberIdx = steps.indexOf('remember');
+      if (rememberIdx >= 0) {
+        setCurrentStepIndex(rememberIdx);
+      }
+    }
+  }, [completedFromDrill, earnedScore, steps, lesson.id]);
+
   const currentStep = steps[currentStepIndex] || 'concept';
 
   // Video setup with asset URI resolution for Expo Go / native compatibility
@@ -68,9 +91,10 @@ export default function LessonScreen() {
   }, [lesson.strikeKey]);
 
   const player = useVideoPlayer(videoSource, (p) => {
-    p.loop = true;
-    p.muted = true;
+    if (!p) return;
     try {
+      p.loop = true;
+      p.muted = true;
       p.play();
     } catch {
       // ignore
@@ -96,17 +120,6 @@ export default function LessonScreen() {
       }
     }
   }, [currentStep, player]);
-
-  // Clean up playback on unmount
-  useEffect(() => {
-    return () => {
-      try {
-        player?.pause();
-      } catch {
-        // ignore
-      }
-    };
-  }, [player]);
 
   const togglePlayback = () => {
     if (!player) return;
@@ -145,7 +158,7 @@ export default function LessonScreen() {
     } catch {
       // ignore
     }
-    router.replace('/journey' as any);
+    router.replace('/explore' as any);
   };
 
   const handleStartCameraDrill = (drillMode: 'follow' | 'guided' | 'test') => {
@@ -156,7 +169,7 @@ export default function LessonScreen() {
       // ignore
     }
     const targetStrikeId = lesson.strikeKey || (STRIKE_RULES[lesson.id] ? lesson.id : 'strike_1');
-    router.push({
+    router.navigate({
       pathname: '/evaluate' as any,
       params: {
         strikeId: targetStrikeId,
@@ -199,7 +212,13 @@ export default function LessonScreen() {
       <LessonProgressBar
         currentStep={currentStepIndex + 1}
         totalSteps={steps.length}
-        onClose={() => router.back()}
+        onClose={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/explore' as any);
+          }
+        }}
       />
 
       <View style={styles.lessonSubHeader}>

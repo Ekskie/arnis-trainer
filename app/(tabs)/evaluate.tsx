@@ -60,10 +60,12 @@ export default function EvaluateScreen() {
           mode={practice.mode}
           evaluationConfig={practice.evaluationConfig}
           activeRoutine={practice.activeRoutine}
+          autoStartEval={practice.autoStartEval}
           onComplete={practice.completeSingleStrikeSession}
           onCompleteAnyo={practice.completeAnyoSession}
-          onExit={practice.exitToSetup}
+          onExit={practice.source === 'lesson' ? () => practice.returnToLesson(false) : practice.exitToSetup}
           onChangeMode={practice.setMode}
+          onSelectStrike={practice.setSelectedStrikeId}
         />
       );
 
@@ -81,9 +83,11 @@ export default function EvaluateScreen() {
           lastImpactMeta={practice.lastImpactMeta}
           isFromLesson={practice.source === 'lesson'}
           onRetry={practice.retry}
+          onRetest={practice.retest}
           onNextStrike={practice.nextStrike}
           onExit={practice.exitToSetup}
-          onContinueLesson={practice.returnToLesson}
+          onContinueLesson={() => practice.returnToLesson(true)}
+          onExitLesson={() => practice.returnToLesson(false)}
         />
       );
 

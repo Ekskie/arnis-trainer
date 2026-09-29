@@ -13,6 +13,12 @@ export interface CoachFeedback {
   improvements: string[];
 }
 
+export interface KineticPhaseScores {
+  chamber: number;
+  apex: number;
+  recovery: number;
+}
+
 export interface StrikeEvaluationResult {
   score: number; // 0..100
   accuracy: number; // 0..100
@@ -25,6 +31,7 @@ export interface StrikeEvaluationResult {
   guardScore: number;
   stanceScore: number;
   kineticScore?: number;
+  kineticPhases?: KineticPhaseScores;
   pillarScores: PillarScores;
   feedback: CoachFeedback;
   diagnosticFlags: string[];

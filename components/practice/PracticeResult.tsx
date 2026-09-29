@@ -42,9 +42,11 @@ export interface PracticeResultProps {
   };
   isFromLesson?: boolean;
   onRetry: () => void;
+  onRetest?: () => void;
   onNextStrike?: () => void;
   onExit: () => void;
   onContinueLesson?: () => void;
+  onExitLesson?: () => void;
 }
 
 export function PracticeResult({
@@ -56,9 +58,11 @@ export function PracticeResult({
   lastImpactMeta,
   isFromLesson,
   onRetry,
+  onRetest,
   onNextStrike,
   onExit,
   onContinueLesson,
+  onExitLesson,
 }: PracticeResultProps) {
   const router = useRouter();
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
@@ -76,7 +80,7 @@ export function PracticeResult({
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
       {/* Top Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
@@ -87,7 +91,7 @@ export function PracticeResult({
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* --- 1. CELEBRATION REWARD HERO CARD --- */}
         <View style={[styles.rewardCard, isMastered && styles.rewardCardMastered]}>
           {/* Coach Character Celebration or Encouragement */}
@@ -222,41 +226,111 @@ export function PracticeResult({
             <Text style={styles.askCoachResultBtnText}>💬 Ask Coach About This Score</Text>
           </TouchableOpacity>
 
-          {/* Primary Action Buttons */}
-          <View style={styles.actionButtonsCol}>
-            {isFromLesson && onContinueLesson && (
-              <TactileButton
-                title="CONTINUE LESSON →"
-                variant="primary"
-                size="lg"
-                onPress={onContinueLesson}
-              />
-            )}
+        </View>
 
-            <TactileButton
-              title={isMastered ? 'PRACTICE AGAIN' : 'TRY AGAIN'}
-              variant={isFromLesson ? 'secondary' : 'primary'}
-              size="lg"
-              icon={<Ionicons name="refresh" size={18} color={isFromLesson ? MartialTheme.colors.text : '#FFFFFF'} />}
-              onPress={onRetry}
-            />
+        {/* --- 2. 3-PHASE KINETIC SEQUENCE CARD (25% Chamber / 50% Apex / 25% Recovery) --- */}
+        <View style={styles.kineticCard}>
+          <View style={styles.kineticHeaderRow}>
+            <View style={styles.kineticHeaderLeft}>
+              <MaterialCommunityIcons name="timer-sand-complete" size={20} color={MartialTheme.colors.bambooDark} />
+              <Text style={styles.kineticHeaderTitle}>Kinetic Strike Phases</Text>
+            </View>
+            <View style={styles.kineticFormulaBadge}>
+              <Text style={styles.kineticFormulaBadgeText}>25% • 50% • 25% FORMULA</Text>
+            </View>
+          </View>
+          <Text style={styles.kineticSubtitle}>
+            Full Arnis strike evaluated across 3 canonical motion phases:
+          </Text>
 
-            {onNextStrike && !isFromLesson && (
-              <TactileButton
-                title={`NEXT: STRIKE ${strikeRule.strikeNumber >= 12 ? 1 : strikeRule.strikeNumber + 1} →`}
-                variant={isMastered ? 'primary' : 'bamboo'}
-                size="md"
-                onPress={onNextStrike}
-              />
-            )}
+          <View style={styles.kineticPhasesRow}>
+            {/* Phase 1: Chamber */}
+            <View style={styles.phaseCol}>
+              <View style={[styles.phaseIconContainer, { backgroundColor: '#EFF6FF' }]}>
+                <MaterialCommunityIcons name="shield-account" size={20} color="#2563EB" />
+              </View>
+              <Text style={styles.phaseLabel}>1. Chamber</Text>
+              <Text style={styles.phaseWeight}>25% weight</Text>
+              <Text style={[styles.phaseScore, { color: getScoreColor(result.kineticPhases?.chamber ?? result.pillarScores.stance) }]}>
+                {result.kineticPhases?.chamber ?? result.pillarScores.stance}%
+              </Text>
+              <View style={styles.phaseProgressBarTrack}>
+                <View
+                  style={[
+                    styles.phaseProgressBarFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, result.kineticPhases?.chamber ?? result.pillarScores.stance))}%`,
+                      backgroundColor: getScoreColor(result.kineticPhases?.chamber ?? result.pillarScores.stance),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.phaseDesc}>Ready & Guard</Text>
+            </View>
 
-            <TouchableOpacity style={styles.outlineExitBtn} activeOpacity={0.8} onPress={onExit}>
-              <Text style={styles.outlineExitBtnText}>Back to Practice Menu</Text>
-            </TouchableOpacity>
+            <View style={styles.phaseDivider} />
+
+            {/* Phase 2: Apex Impact */}
+            <View style={[styles.phaseCol, styles.phaseColApex]}>
+              <View style={[styles.phaseIconContainer, { backgroundColor: '#FEF3C7' }]}>
+                <MaterialCommunityIcons name="sword-cross" size={22} color="#D97706" />
+              </View>
+              <Text style={[styles.phaseLabel, { color: '#B45309' }]}>2. Apex Impact</Text>
+              <Text style={styles.phaseWeight}>50% (Primary)</Text>
+              <Text style={[styles.phaseScore, styles.phaseScoreApex, { color: getScoreColor(result.kineticPhases?.apex ?? result.score) }]}>
+                {result.kineticPhases?.apex ?? result.score}%
+              </Text>
+              <View style={styles.phaseProgressBarTrack}>
+                <View
+                  style={[
+                    styles.phaseProgressBarFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, result.kineticPhases?.apex ?? result.score))}%`,
+                      backgroundColor: getScoreColor(result.kineticPhases?.apex ?? result.score),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.phaseDesc}>Strike Trajectory</Text>
+            </View>
+
+            <View style={styles.phaseDivider} />
+
+            {/* Phase 3: Recovery */}
+            <View style={styles.phaseCol}>
+              <View style={[styles.phaseIconContainer, { backgroundColor: '#ECFDF5' }]}>
+                <MaterialCommunityIcons name="sync" size={20} color="#059669" />
+              </View>
+              <Text style={styles.phaseLabel}>3. Recovery</Text>
+              <Text style={styles.phaseWeight}>25% weight</Text>
+              <Text style={[styles.phaseScore, { color: getScoreColor(result.kineticPhases?.recovery ?? result.pillarScores.strikingArm) }]}>
+                {result.kineticPhases?.recovery ?? result.pillarScores.strikingArm}%
+              </Text>
+              <View style={styles.phaseProgressBarTrack}>
+                <View
+                  style={[
+                    styles.phaseProgressBarFill,
+                    {
+                      width: `${Math.min(100, Math.max(0, result.kineticPhases?.recovery ?? result.pillarScores.strikingArm))}%`,
+                      backgroundColor: getScoreColor(result.kineticPhases?.recovery ?? result.pillarScores.strikingArm),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.phaseDesc}>Return to Kalasag</Text>
+            </View>
+          </View>
+
+          {/* Formula summary footer */}
+          <View style={styles.kineticFormulaFooter}>
+            <Ionicons name="information-circle-outline" size={14} color={MartialTheme.colors.textMuted} style={{ marginRight: 4 }} />
+            <Text style={styles.kineticFormulaFooterText}>
+              Formula: (Chamber × 25%) + (Apex × 50%) + (Recovery × 25%) = {result.score}%
+            </Text>
           </View>
         </View>
 
-        {/* --- 2. COACH VS YOU POSTURE COMPARISON CARD --- */}
+        {/* --- 3. COACH VS YOU POSTURE COMPARISON CARD --- */}
         <CoachVsYou
           strikeRule={strikeRule}
           coachReference={coachRef}
@@ -437,7 +511,111 @@ export function PracticeResult({
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Return to menu / lesson exit link */}
+        <TouchableOpacity
+          style={styles.outlineExitBtn}
+          activeOpacity={0.8}
+          onPress={isFromLesson ? (onExitLesson || onExit) : onExit}
+        >
+          <Text style={styles.outlineExitBtnText}>
+            {isFromLesson ? 'Return to Lesson' : 'Back to Practice Menu'}
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Sticky Persistent Bottom Action Bar */}
+      <View style={styles.bottomStickyBar}>
+        {isFromLesson ? (
+          result.score >= 70 ? (
+            <View style={styles.stickyRow}>
+              {onContinueLesson && (
+                <View style={{ flex: 1.3 }}>
+                  <TactileButton
+                    title="CONTINUE LESSON →"
+                    variant="primary"
+                    size="md"
+                    onPress={onContinueLesson}
+                  />
+                </View>
+              )}
+              {onRetest && (
+                <View style={{ flex: 1 }}>
+                  <TactileButton
+                    title="RE-TEST ⚔️"
+                    variant="bamboo"
+                    size="md"
+                    icon={<Ionicons name="flash" size={15} color="#FFFFFF" />}
+                    onPress={onRetest}
+                  />
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.stickyIconBtn}
+                onPress={onRetry}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="fitness-outline" size={18} color={MartialTheme.colors.text} />
+                <Text style={styles.stickyIconBtnText}>Warmup</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.stickyRow}>
+              <View style={{ flex: 1.4 }}>
+                <TactileButton
+                  title="RE-TEST FORM ⚔️"
+                  variant="primary"
+                  size="md"
+                  icon={<Ionicons name="flash" size={16} color="#FFFFFF" />}
+                  onPress={onRetest || onRetry}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TactileButton
+                  title="WARMUP"
+                  variant="secondary"
+                  size="md"
+                  icon={<Ionicons name="fitness-outline" size={16} color={MartialTheme.colors.text} />}
+                  onPress={onRetry}
+                />
+              </View>
+            </View>
+          )
+        ) : (
+          <View style={styles.stickyRow}>
+            {onRetest && (
+              <View style={{ flex: 1 }}>
+                <TactileButton
+                  title="RE-TEST ⚔️"
+                  variant="primary"
+                  size="md"
+                  icon={<Ionicons name="flash" size={15} color="#FFFFFF" />}
+                  onPress={onRetest}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <TactileButton
+                title="WARMUP"
+                variant={onRetest ? "secondary" : "primary"}
+                size="md"
+                icon={<Ionicons name="fitness-outline" size={15} color={onRetest ? MartialTheme.colors.text : "#FFFFFF"} />}
+                onPress={onRetry}
+              />
+            </View>
+            {onNextStrike && (
+              <View style={{ flex: 1 }}>
+                <TactileButton
+                  title={`STRIKE ${strikeRule.strikeNumber >= 12 ? 1 : strikeRule.strikeNumber + 1} →`}
+                  variant={isMastered ? 'primary' : 'bamboo'}
+                  size="md"
+                  onPress={onNextStrike}
+                />
+              </View>
+            )}
+          </View>
+        )}
+      </View>
 
       {/* Diagnosis Modal */}
       <WhyFailedModal
@@ -788,5 +966,180 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
     color: '#0284C7',
+  },
+
+  // 3-PHASE KINETIC CARD
+  kineticCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    borderBottomWidth: 3,
+    borderBottomColor: MartialTheme.colors.border3D,
+    marginBottom: 16,
+  },
+  kineticHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  kineticHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  kineticHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    letterSpacing: 0.3,
+  },
+  kineticFormulaBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  kineticFormulaBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#92400E',
+    letterSpacing: 0.5,
+  },
+  kineticSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: MartialTheme.colors.textMuted,
+    marginBottom: 14,
+  },
+  kineticPhasesRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
+    borderRadius: 14,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  phaseCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  phaseColApex: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  phaseDivider: {
+    width: 1,
+    height: '80%',
+    alignSelf: 'center',
+    backgroundColor: MartialTheme.colors.border,
+    marginHorizontal: 4,
+  },
+  phaseIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  phaseLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    textAlign: 'center',
+  },
+  phaseWeight: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: MartialTheme.colors.textMuted,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  phaseScore: {
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  phaseScoreApex: {
+    fontSize: 20,
+  },
+  phaseProgressBarTrack: {
+    width: '80%',
+    height: 5,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  phaseProgressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  phaseDesc: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  kineticFormulaFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  kineticFormulaFooterText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: MartialTheme.colors.textMuted,
+  },
+
+  // STICKY BOTTOM ACTION BAR
+  bottomStickyBar: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1.5,
+    borderTopColor: MartialTheme.colors.border,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  stickyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stickyIconBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: MartialTheme.colors.backgroundSecondary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    minHeight: 46,
+  },
+  stickyIconBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+    marginTop: 2,
   },
 });

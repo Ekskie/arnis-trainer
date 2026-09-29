@@ -9,6 +9,7 @@ export interface UsePoseEngineCallbacks {
   onFormCoachStepPassed?: (phase: 'chamber' | 'impact' | 'recovery', score: number) => void;
   onSnapshotCaptured?: (base64: string) => void;
   onVideoReplayCaptured?: (base64: string) => void;
+  onApexHit?: (velocity?: number, accuracy?: number) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
 }
@@ -64,6 +65,27 @@ export function usePoseEngine(callbacks?: UsePoseEngineCallbacks) {
     [sendMessage]
   );
 
+  const playAudio = useCallback(
+    (sound: 'countdown' | 'impact', isGo?: boolean) => {
+      sendMessage({ type: 'PLAY_AUDIO', sound, isGo });
+    },
+    [sendMessage]
+  );
+
+  const setGhostGuide = useCallback(
+    (enabled: boolean) => {
+      sendMessage({ type: 'SET_GHOST_OVERLAY', enabled });
+    },
+    [sendMessage]
+  );
+
+  const setTrajectoryGuide = useCallback(
+    (enabled: boolean) => {
+      sendMessage({ type: 'SET_TRAJECTORY_GUIDE', enabled });
+    },
+    [sendMessage]
+  );
+
   // Centralized onMessage parser for events received from WebView
   const handleMessage = useCallback(
     (event: any) => {
@@ -105,6 +127,10 @@ export function usePoseEngine(callbacks?: UsePoseEngineCallbacks) {
             callbacks?.onFormCoachStepPassed?.(data.phase, data.score || 85);
             break;
 
+          case 'APEX_HIT':
+            callbacks?.onApexHit?.(data.velocity, data.accuracy);
+            break;
+
           case 'SNAPSHOT_CAPTURED':
             if (data.base64) {
               setLastSnapshot(data.base64);
@@ -142,6 +168,9 @@ export function usePoseEngine(callbacks?: UsePoseEngineCallbacks) {
     startVideoRecording,
     stopVideoRecording,
     setFormCoachPhase,
+    playAudio,
+    setGhostGuide,
+    setTrajectoryGuide,
     handleMessage,
   };
 }

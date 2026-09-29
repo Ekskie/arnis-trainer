@@ -30,6 +30,7 @@ export function usePracticeSession() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     strikeId?: string;
+    lessonId?: string;
     mode?: 'follow' | 'guided' | 'test';
     source?: string;
   }>();
@@ -119,6 +120,7 @@ export function usePracticeSession() {
       }
       // If coming directly from a lesson or explicit mode launch, jump directly into live camera
       if (params.source === 'lesson' || params.mode) {
+        setEvaluationResult(null);
         setScreen('live');
       }
     }
@@ -316,9 +318,21 @@ export function usePracticeSession() {
     [currentRule]
   );
 
-  // Action: Retry current strike
+  const [autoStartEval, setAutoStartEval] = useState(false);
+
+  // Action: Retry current strike in Free Practice warmup
   const retry = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAutoStartEval(false);
+    setEvaluationResult(null);
+    setScreen('live');
+  }, []);
+
+  // Action: Immediate Re-test in Evaluation mode (auto 3-2-1 countdown)
+  const retest = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setAutoStartEval(true);
+    setEvaluationResult(null);
     setScreen('live');
   }, []);
 
@@ -328,6 +342,8 @@ export function usePracticeSession() {
     const nextNum = currentRule.strikeNumber >= 12 ? 1 : currentRule.strikeNumber + 1;
     const nextId = `strike_${nextNum}`;
     setSelectedStrikeId(nextId);
+    setAutoStartEval(false);
+    setEvaluationResult(null);
     setScreen('live');
   }, [currentRule]);
 
@@ -335,18 +351,35 @@ export function usePracticeSession() {
   const exitToSetup = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setActiveRoutine(null);
+    setAutoStartEval(false);
+    setEvaluationResult(null);
     setScreen('setup');
   }, []);
 
   // Action: Return to lesson if entered from lesson
-  const returnToLesson = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (source === 'lesson') {
-      router.back();
-    } else {
-      exitToSetup();
-    }
-  }, [source, router, exitToSetup]);
+  const returnToLesson = useCallback(
+    (isCompleted?: boolean) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (source === 'lesson') {
+        if (params.lessonId) {
+          router.replace({
+            pathname: `/lesson/${params.lessonId}` as any,
+            params: {
+              completedFromDrill: isCompleted ? '1' : '0',
+              earnedScore: evaluationResult?.score?.toString() || '0',
+            },
+          });
+        } else if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/explore' as any);
+        }
+      } else {
+        exitToSetup();
+      }
+    },
+    [source, params.lessonId, router, exitToSetup, evaluationResult]
+  );
 
   return {
     screen,
@@ -380,11 +413,13 @@ export function usePracticeSession() {
     lastSnapshot,
     lastReplayVideo,
     lastImpactMeta,
+    autoStartEval,
     startStrike,
     startAnyo,
     completeSingleStrikeSession,
     completeAnyoSession,
     retry,
+    retest,
     nextStrike,
     exitToSetup,
     returnToLesson,

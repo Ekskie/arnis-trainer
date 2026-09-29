@@ -8,6 +8,9 @@ export type OutgoingPoseMessage =
   | { type: 'START_RECORDING' }
   | { type: 'STOP_RECORDING' }
   | { type: 'SET_FORM_COACH_PHASE'; phase: 'chamber' | 'impact' | 'recovery' }
+  | { type: 'PLAY_AUDIO'; sound: 'countdown' | 'impact'; isGo?: boolean }
+  | { type: 'SET_GHOST_OVERLAY'; enabled: boolean }
+  | { type: 'SET_TRAJECTORY_GUIDE'; enabled: boolean }
   | { type: 'RESET' };
 
 export type IncomingPoseMessage =
@@ -18,4 +21,6 @@ export type IncomingPoseMessage =
   | { type: 'AUTO_DETECTED_STRIKE'; strikeId: string; strikeName: string; confidence: number }
   | { type: 'FORM_COACH_STEP_PASSED'; phase: 'chamber' | 'impact' | 'recovery'; score: number }
   | { type: 'SNAPSHOT_CAPTURED'; base64: string }
-  | { type: 'VIDEO_REPLAY_CAPTURED'; base64: string };
+  | { type: 'VIDEO_REPLAY_CAPTURED'; base64: string }
+  | { type: 'APEX_HIT'; velocity?: number; accuracy?: number };
+

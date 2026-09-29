@@ -45,6 +45,11 @@ export interface PracticeLiveProps {
       stanceScore: number;
       kneeScore?: number;
       durationMs?: number;
+      kineticPhases?: {
+        chamber: number;
+        apex: number;
+        recovery: number;
+      };
     },
     snapshotBase64?: string,
     replayVideoBase64?: string,
@@ -67,6 +72,8 @@ export interface PracticeLiveProps {
   ) => void;
   onExit: () => void;
   onChangeMode?: (mode: 'follow' | 'guided' | 'test') => void;
+  onSelectStrike?: (strikeId: string) => void;
+  autoStartEval?: boolean;
 }
 
 export function PracticeLive({
@@ -78,6 +85,8 @@ export function PracticeLive({
   onCompleteAnyo,
   onExit,
   onChangeMode,
+  onSelectStrike,
+  autoStartEval = false,
 }: PracticeLiveProps) {
   const router = useRouter();
   // Collapsible Technical Analysis drawer (collapsed by default)
@@ -105,8 +114,8 @@ export function PracticeLive({
     wrist: 0,
   });
 
-  // Countdown & evaluation states
-  const [countdownState, setCountdownState] = useState<'waiting_for_person' | 'counting' | 'evaluating'>('waiting_for_person');
+  // Countdown & evaluation states: 'practice' (un-timed free practice) -> 'counting' -> 'evaluating'
+  const [countdownState, setCountdownState] = useState<'practice' | 'counting' | 'evaluating'>('practice');
   const [countdownValue, setCountdownValue] = useState<number | string>(3);
   const [countdownSubtext, setCountdownSubtext] = useState<string>('GET READY');
   const isCountingRef = useRef(false);
@@ -123,9 +132,33 @@ export function PracticeLive({
   });
   const impactDetectorRef = useRef(new ImpactDetector());
 
+  // Ghost guide visibility override: visible in free practice, hidden in formal evaluation
+  const [ghostGuideVisible, setGhostGuideVisible] = useState(countdownState === 'practice');
+
+  // Multi-Phase kinetic scoring tracking (25% Chamber, 50% Apex, 25% Recovery)
+  const chamberScoreRef = useRef(0);
+  const apexScoreRef = useRef(0);
+  const recoveryScoreRef = useRef(0);
+  const apexHitDetectedRef = useRef(false);
+  const recoveryPromptTimeoutRef = useRef<any>(null);
+  const evalSafetyTimeoutRef = useRef<any>(null);
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
+  const [isFeetOutOfView, setIsFeetOutOfView] = useState(false);
+
   // Form Coach (3-step) states
   const [coachPhase, setCoachPhase] = useState<'chamber' | 'impact' | 'recovery' | 'completed'>('chamber');
   const [coachRepsCompleted, setCoachRepsCompleted] = useState(0);
+
+  // Quick cycle strike (Strike 1 -> 12) directly from camera in Free Practice
+  const handleCycleStrike = (dir: -1 | 1) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    let nextNum = strikeRule.strikeNumber + dir;
+    if (nextNum < 1) nextNum = 12;
+    if (nextNum > 12) nextNum = 1;
+    const nextStrikeId = `strike_${nextNum}`;
+    setTargetStrike(nextStrikeId);
+    onSelectStrike?.(nextStrikeId);
+  };
 
   // Anyo state tracking
   const [currentAnyoStepIndex, setCurrentAnyoStepIndex] = useState(0);
@@ -148,6 +181,28 @@ export function PracticeLive({
     }
   };
 
+  // Handler when strike apex impact is detected
+  const handleApexTriggered = (acc?: number) => {
+    if (countdownState !== 'evaluating' || apexHitDetectedRef.current) return;
+    apexHitDetectedRef.current = true;
+    const currentAcc = acc || liveAccuracy;
+    apexScoreRef.current = Math.max(apexScoreRef.current, currentAcc);
+
+    playAudio('impact');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowRecoveryPrompt(true);
+    setCoachPrompt('RECOVER TO GUARD! 🛡️');
+    if (voiceActive) {
+      Speech.speak('Recover to guard!', { language: 'en-US', rate: 1.1 });
+    }
+
+    // 1.5s recovery grace window before auto-finishing evaluation
+    if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+    recoveryPromptTimeoutRef.current = setTimeout(() => {
+      finishEvaluation(3500);
+    }, 1500);
+  };
+
   // Setup Pose Engine
   const {
     webViewRef,
@@ -162,40 +217,72 @@ export function PracticeLive({
     startVideoRecording,
     stopVideoRecording,
     setFormCoachPhase,
+    playAudio,
+    setGhostGuide,
+    setTrajectoryGuide,
     handleMessage,
   } = usePoseEngine({
     onReady: () => {
       sendSessionConfig({
         ...evaluationConfig,
+        ghostGuideEnabled: ghostGuideVisible,
+        trajectoryGuideEnabled: ghostGuideVisible,
         voiceEnabled: voiceActive,
       });
     },
+    onApexHit: (_velocity, accuracy) => {
+      handleApexTriggered(accuracy);
+    },
     onPoseData: (persons: RawPersonPose[]) => {
       if (persons.length === 0) {
+        setIsFeetOutOfView(false);
         if (countdownState === 'evaluating') {
           setCoachPrompt('Step back into camera view');
+        } else if (countdownState === 'practice') {
+          setCoachPrompt('Step into camera view to practice');
         }
         return;
       }
 
       const primaryPerson = persons[0];
+      setIsFeetOutOfView(!!primaryPerson.isFeetOutOfView);
 
       // Evaluate frame using Evaluation Engine
       const frameResult = evaluatePoseFrame(primaryPerson, strikeRule);
       setLiveAccuracy(frameResult.accuracy);
       setLivePillars(frameResult.pillars);
 
-      // Present only ONE prioritized coach correction at a time
-      if (frameResult.correctionPrompt) {
-        setCoachPrompt(frameResult.correctionPrompt);
-        speakCorrection(frameResult.correctionPrompt);
-      } else if (frameResult.accuracy >= 85) {
-        setCoachPrompt('Sharp form! Keep your speed and snap!');
+      // Present only ONE prioritized coach correction at a time in practice mode
+      if (countdownState === 'practice') {
+        if (frameResult.correctionPrompt) {
+          setCoachPrompt(frameResult.correctionPrompt);
+          speakCorrection(frameResult.correctionPrompt);
+        } else if (frameResult.accuracy >= 85) {
+          setCoachPrompt('Sharp form! Tap Evaluate Form when ready!');
+        }
       }
 
-      // Track best scores & impact frames during evaluating window
+      // Track multi-phase progress & apex moments during evaluating window
       if (countdownState === 'evaluating') {
         impactDetectorRef.current.addFrame(primaryPerson, strikeRule, lastSnapshot || undefined);
+
+        if (!apexHitDetectedRef.current) {
+          // Phase 1: Chamber preparation
+          chamberScoreRef.current = Math.max(chamberScoreRef.current, frameResult.accuracy);
+          if (primaryPerson.isApex || primaryPerson.motionPhase === 'apex_hit') {
+            handleApexTriggered(frameResult.accuracy);
+          }
+        } else {
+          // Phase 3: Recovery back to guard
+          const returnScore = Math.round(frameResult.guardScore * 0.5 + frameResult.stanceScore * 0.5);
+          recoveryScoreRef.current = Math.max(recoveryScoreRef.current, returnScore);
+
+          // If user locks guard and stance cleanly back, complete early
+          if (frameResult.guardScore >= 80 && frameResult.stanceScore >= 75) {
+            if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+            setTimeout(() => finishEvaluation(2500), 200);
+          }
+        }
 
         if (frameResult.accuracy > bestScoreRef.current) {
           bestScoreRef.current = frameResult.accuracy;
@@ -207,11 +294,6 @@ export function PracticeLive({
             stanceScore: frameResult.stanceScore,
           };
         }
-      }
-
-      // Auto-start countdown if waiting
-      if (countdownState === 'waiting_for_person' && !isCountingRef.current) {
-        startCountdown();
       }
     },
     onAutoDetectedStrike: (id, name, confidence) => {
@@ -231,19 +313,31 @@ export function PracticeLive({
         setCoachPhase('impact');
         setFormCoachPhase('impact');
         if (voiceActive) {
-          Speech.speak('Chamber locked! Slice through!');
+          try {
+            Speech.stop().catch(() => {}).then(() => {
+              Speech.speak('Chamber locked! Slice through!', { language: 'en-US', rate: 1.1 });
+            }).catch(() => {});
+          } catch {}
         }
       } else if (phase === 'impact') {
         setCoachPhase('recovery');
         setFormCoachPhase('recovery');
         if (voiceActive) {
-          Speech.speak('Impact hit! Recover back to guard!');
+          try {
+            Speech.stop().catch(() => {}).then(() => {
+              Speech.speak('Impact hit! Recover back to guard!', { language: 'en-US', rate: 1.1 });
+            }).catch(() => {});
+          } catch {}
         }
       } else if (phase === 'recovery') {
         setCoachPhase('completed');
         setCoachRepsCompleted((r) => r + 1);
         if (voiceActive) {
-          Speech.speak('Rep complete! Great work!');
+          try {
+            Speech.stop().catch(() => {}).then(() => {
+              Speech.speak('Rep complete! Great work!', { language: 'en-US', rate: 1.1 });
+            }).catch(() => {});
+          } catch {}
         }
         setTimeout(() => {
           setCoachPhase('chamber');
@@ -263,7 +357,7 @@ export function PracticeLive({
     }
   }, [webReady, evaluationConfig, voiceActive, sendSessionConfig]);
 
-  // Video player for Mode: Follow the Coach (only instantiate when mode is 'follow')
+  // Video player for Mode: Follow the Coach (only instantiate when mode is 'follow' to save resources and prevent decoder contention)
   const followVideoSource = useMemo(() => {
     if (mode !== 'follow') return null;
     const raw = LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
@@ -276,27 +370,33 @@ export function PracticeLive({
   }, [mode, strikeRule.id]);
 
   const followPlayer = useVideoPlayer(followVideoSource, (p) => {
-    p.loop = true;
-    p.playbackRate = 0.75;
-    if (mode === 'follow') {
-      try {
+    if (!p) return;
+    try {
+      p.loop = true;
+      p.playbackRate = 0.75;
+      if (mode === 'follow') {
         p.play();
-      } catch {
-        // ignore
+      } else {
+        p.pause();
       }
+    } catch {
+      // ignore
     }
   });
 
-  // Ensure follow player pauses when not in follow mode or unmounting
+  // Sync playback state when mode changes
   useEffect(() => {
-    return () => {
-      try {
-        followPlayer?.pause();
-      } catch {
-        // ignore
+    if (!followPlayer) return;
+    try {
+      if (mode === 'follow') {
+        followPlayer.play();
+      } else {
+        followPlayer.pause();
       }
-    };
-  }, [followPlayer]);
+    } catch {
+      // ignore
+    }
+  }, [mode, followPlayer]);
 
   // Countdown timer logic: 3 -> 2 -> 1 -> GO!
   const startCountdown = () => {
@@ -304,10 +404,13 @@ export function PracticeLive({
     setCountdownState('counting');
     setCountdownSubtext('GET READY');
     setCountdownValue(3);
+    playAudio('countdown', false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     setTimeout(() => {
       if (isCountingRef.current) {
         setCountdownValue(2);
+        playAudio('countdown', false);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     }, 1000);
@@ -315,7 +418,8 @@ export function PracticeLive({
     setTimeout(() => {
       if (isCountingRef.current) {
         setCountdownValue(1);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        playAudio('countdown', false);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
     }, 2000);
 
@@ -323,7 +427,11 @@ export function PracticeLive({
       if (isCountingRef.current) {
         setCountdownSubtext('STRIKE NOW!');
         setCountdownValue('GO! ⚔️');
+        playAudio('countdown', true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (voiceActive) {
+          Speech.speak('Strike now!', { language: 'en-US' });
+        }
         startEvaluationWindow();
       }
     }, 3000);
@@ -333,30 +441,70 @@ export function PracticeLive({
   const startEvaluationWindow = () => {
     setCountdownState('evaluating');
     bestScoreRef.current = 0;
+    chamberScoreRef.current = 0;
+    apexScoreRef.current = 0;
+    recoveryScoreRef.current = 0;
+    apexHitDetectedRef.current = false;
+    setShowRecoveryPrompt(false);
+
+    // Hide ghost guide and trajectory in formal evaluation to test raw form
+    setGhostGuideVisible(false);
+    setGhostGuide(false);
+    setTrajectoryGuide(false);
+
     impactDetectorRef.current.reset(Date.now());
     startVideoRecording();
 
-    // Evaluation window: 10s for test mode, 6s for guided practice
-    const evaluationDurationMs = mode === 'test' ? 10000 : 6000;
-    let timeLeft = Math.round(evaluationDurationMs / 1000);
+    if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+    if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
 
+    // 5.0-second maximum safety timeout (hybrid auto-finish)
+    evalSafetyTimeoutRef.current = setTimeout(() => {
+      finishEvaluation(5000);
+    }, 5000);
+
+    let timeLeft = 5;
     recordingIntervalRef.current = setInterval(() => {
       timeLeft -= 1;
       setCountdownValue(`${timeLeft}s`);
 
       if (timeLeft <= 0) {
         clearInterval(recordingIntervalRef.current);
-        finishEvaluation(evaluationDurationMs);
       }
     }, 1000);
   };
+
+  const startCountdownRef = useRef(startCountdown);
+  startCountdownRef.current = startCountdown;
+
+  // Auto-start evaluation if triggered from Results "Re-test Form" button
+  useEffect(() => {
+    if (autoStartEval && webReady && countdownState === 'practice' && !isCountingRef.current) {
+      const timer = setTimeout(() => {
+        startCountdownRef.current();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [autoStartEval, webReady, countdownState]);
 
   // Complete evaluation
   const finishEvaluation = (durationMs: number) => {
     isCountingRef.current = false;
     stopVideoRecording();
 
-    const finalScore = bestScoreRef.current > 0 ? bestScoreRef.current : liveAccuracy || 78;
+    if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+    if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
+    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    setShowRecoveryPrompt(false);
+
+    // Calculate Multi-Phase Kinetic Score: 25% Chamber + 50% Apex + 25% Recovery
+    const sChamber = chamberScoreRef.current > 0 ? chamberScoreRef.current : Math.max(bestAnglesRef.current.elbowScore, 65);
+    const sApex = apexScoreRef.current > 0 ? apexScoreRef.current : (bestScoreRef.current > 0 ? bestScoreRef.current : 70);
+    // If recovery was never detected/completed within grace window, apply penalty (35)
+    const sRecovery = recoveryScoreRef.current > 0 ? recoveryScoreRef.current : 35;
+
+    const multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
+    const finalScore = Math.max(10, Math.min(100, multiPhaseScore));
 
     // Check if Anyo mode is active
     if (activeRoutine) {
@@ -407,6 +555,11 @@ export function PracticeLive({
         guardScore: bestAnglesRef.current.guardScore || livePillars.guard || 80,
         stanceScore: bestAnglesRef.current.stanceScore || livePillars.stance || 80,
         durationMs,
+        kineticPhases: {
+          chamber: sChamber,
+          apex: sApex,
+          recovery: sRecovery,
+        },
       },
       finalSnapshot,
       lastReplayVideo || undefined,
@@ -475,7 +628,7 @@ export function PracticeLive({
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* --- 1. CLEAN TOP APP BAR --- */}
+      {/* --- 1. UNIFIED DARK DOJO HUD TOP BAR --- */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.backBtn}
@@ -483,20 +636,47 @@ export function PracticeLive({
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="arrow-back" size={24} color={MartialTheme.colors.text} />
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
 
         <View style={styles.techniqueHeaderBox}>
-          <Text style={styles.techniqueTitleText}>
-            Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
-          </Text>
+          <View style={styles.strikeTitleRow}>
+            {countdownState === 'practice' && !activeRoutine && (
+              <TouchableOpacity
+                onPress={() => handleCycleStrike(-1)}
+                style={styles.cycleChevronBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+                accessibilityLabel="Previous Strike"
+              >
+                <Ionicons name="chevron-back" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+
+            <Text style={styles.techniqueTitleText} numberOfLines={1}>
+              Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
+            </Text>
+
+            {countdownState === 'practice' && !activeRoutine && (
+              <TouchableOpacity
+                onPress={() => handleCycleStrike(1)}
+                style={styles.cycleChevronBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+                accessibilityLabel="Next Strike"
+              >
+                <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+          </View>
+
           <View style={styles.techniqueStarRow}>
             {[1, 2, 3, 4, 5].map((s) => (
               <Ionicons
                 key={s}
                 name={s <= 3 ? 'star' : 'star-outline'}
                 size={11}
-                color={s <= 3 ? MartialTheme.colors.bamboo : '#D1D5DB'}
+                color={s <= 3 ? MartialTheme.colors.bamboo : '#475569'}
               />
             ))}
             <Text style={styles.techniqueModeTag}>
@@ -505,8 +685,27 @@ export function PracticeLive({
           </View>
         </View>
 
-        {/* Actions on right: Quick Coach Tips + Audio Toggle Button */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {/* Actions on right: Ghost Toggle + Quick Coach Tips + Audio Toggle Button */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.ghostToggleBtn, ghostGuideVisible && styles.ghostToggleBtnActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              const next = !ghostGuideVisible;
+              setGhostGuideVisible(next);
+              setGhostGuide(next);
+              setTrajectoryGuide(next);
+            }}
+            activeOpacity={0.7}
+            accessibilityLabel={ghostGuideVisible ? 'Turn off Ghost Coach' : 'Turn on Ghost Coach'}
+          >
+            <MaterialCommunityIcons
+              name={ghostGuideVisible ? 'ghost' : 'ghost-off'}
+              size={18}
+              color={ghostGuideVisible ? '#10B981' : MartialTheme.colors.textMuted}
+            />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.coachLiveBtn}
             onPress={() => {
@@ -655,11 +854,35 @@ export function PracticeLive({
             </View>
           )}
 
+          {/* Practice Mode Indicator Pill */}
+          {countdownState === 'practice' && (
+            <View style={styles.practiceModePill}>
+              <Ionicons name="fitness-outline" size={13} color="#10B981" style={{ marginRight: 5 }} />
+              <Text style={styles.practiceModePillText}>FREE PRACTICE</Text>
+            </View>
+          )}
+
+          {/* Smart Framing Warning Pill: When feet or legs are cut off */}
+          {countdownState === 'practice' && isFeetOutOfView && (
+            <View style={styles.framingWarningPill}>
+              <Ionicons name="walk" size={13} color="#1E293B" style={{ marginRight: 5 }} />
+              <Text style={styles.framingWarningPillText}>STEP BACK — FEET NOT VISIBLE</Text>
+            </View>
+          )}
+
           {/* Active Timer Pill when evaluating */}
-          {countdownState === 'evaluating' && (
+          {countdownState === 'evaluating' && !showRecoveryPrompt && (
             <View style={styles.evaluatingTimerPill}>
               <Ionicons name="timer-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
               <Text style={styles.evaluatingTimerText}>{countdownValue}</Text>
+            </View>
+          )}
+
+          {/* Post-Apex Recovery Prompt Banner */}
+          {showRecoveryPrompt && (
+            <View style={styles.recoveryPromptBadge}>
+              <Ionicons name="shield-checkmark" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.recoveryPromptBadgeText}>RECOVER TO GUARD! 🛡️</Text>
             </View>
           )}
 
@@ -710,18 +933,32 @@ export function PracticeLive({
             </Text>
           </TouchableOpacity>
 
-          {/* Primary Action Button: Finish Rep */}
-          <TouchableOpacity
-            style={styles.finishRepBtn}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              finishEvaluation(3500);
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.finishRepBtnText}>Finish Rep</Text>
-          </TouchableOpacity>
+          {/* Action Button: Evaluate Form (in practice mode) vs Finish & Grade (in evaluating mode) */}
+          {countdownState === 'practice' ? (
+            <TouchableOpacity
+              style={styles.startEvalBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                startCountdown();
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="flash" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.startEvalBtnText}>EVALUATE FORM ⚔️</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.finishRepBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                finishEvaluation(3500);
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.finishRepBtnText}>Finish & Grade</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Secondary Collapsible 4-Pillar Alignment Bars */}
@@ -762,28 +999,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
   },
 
-  // TOP BAR
+  // TOP BAR (UNIFIED DARK DOJO HUD)
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: MartialTheme.colors.border,
+    borderBottomColor: 'rgba(255, 255, 255, 0.10)',
   },
   backBtn: {
     padding: 4,
   },
   techniqueHeaderBox: {
     flex: 1,
-    marginHorizontal: 12,
+    marginHorizontal: 10,
+  },
+  strikeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cycleChevronBtn: {
+    padding: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   techniqueTitleText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
-    color: MartialTheme.colors.text,
+    color: '#FFFFFF',
+    flexShrink: 1,
   },
   techniqueStarRow: {
     flexDirection: 'row',
@@ -794,8 +1042,8 @@ const styles = StyleSheet.create({
   techniqueModeTag: {
     fontSize: 10,
     fontWeight: '800',
-    color: MartialTheme.colors.primaryDark,
-    backgroundColor: MartialTheme.colors.primaryMuted,
+    color: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
@@ -803,27 +1051,27 @@ const styles = StyleSheet.create({
   },
   coachLiveBtn: {
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-    backgroundColor: '#FEF3C7',
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
   },
   coachLiveBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#92400E',
+    color: '#FBBF24',
   },
   audioToggleBtn: {
-    padding: 6,
-    borderRadius: 20,
-    backgroundColor: MartialTheme.colors.background,
+    padding: 7,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   audioToggleBtnActive: {
-    backgroundColor: MartialTheme.colors.primaryMuted,
-    borderColor: '#BBF7D0',
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+    borderColor: '#10B981',
   },
 
   // CAMERA VIEWPORT
@@ -1032,15 +1280,17 @@ const styles = StyleSheet.create({
   },
   coachGuidanceBubble: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(15, 23, 42, 0.90)',
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 4,
   },
   coachGuidanceHeader: {
     flexDirection: 'row',
@@ -1050,23 +1300,23 @@ const styles = StyleSheet.create({
   coachGuidanceTag: {
     fontSize: 9,
     fontWeight: '900',
-    color: MartialTheme.colors.primaryDark,
+    color: '#10B981',
     letterSpacing: 0.5,
   },
   coachGuidanceText: {
     fontSize: 12.5,
     fontWeight: '700',
-    color: MartialTheme.colors.text,
+    color: '#F8FAFC',
     lineHeight: 17,
   },
 
-  // BOTTOM DRAWER
+  // BOTTOM DRAWER (UNIFIED DARK DOJO HUD)
   bottomDrawer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(15, 23, 42, 0.96)',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: MartialTheme.colors.border,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
   },
   drawerRow: {
     flexDirection: 'row',
@@ -1078,15 +1328,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 9,
     paddingHorizontal: 12,
-    backgroundColor: MartialTheme.colors.background,
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   technicalToggleText: {
     fontSize: 12,
     fontWeight: '800',
-    color: MartialTheme.colors.textSecondary,
+    color: '#CBD5E1',
   },
   finishRepBtn: {
     flexDirection: 'row',
@@ -1102,6 +1352,108 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     color: '#FFFFFF',
+  },
+  startEvalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderBottomWidth: 4,
+    borderBottomColor: '#047857',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  startEvalBtnText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  practiceModePill: {
+    position: 'absolute',
+    top: 56,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+  },
+  practiceModePillText: {
+    color: '#10B981',
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 0.6,
+  },
+  framingWarningPill: {
+    position: 'absolute',
+    top: 92,
+    alignSelf: 'center',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  framingWarningPillText: {
+    color: '#1E293B',
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 0.6,
+  },
+  ghostToggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: MartialTheme.colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  ghostToggleBtnActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: '#10B981',
+  },
+  recoveryPromptBadge: {
+    position: 'absolute',
+    top: 56,
+    alignSelf: 'center',
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FEE2E2',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  recoveryPromptBadgeText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+    letterSpacing: 0.8,
   },
 
   // COLLAPSIBLE TECHNICAL DRAWER
