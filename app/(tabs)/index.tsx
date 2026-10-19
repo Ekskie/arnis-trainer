@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Dimensions,
   Image,
   ScrollView,
   StyleSheet,
@@ -10,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import { MartialTheme } from '@/constants/theme';
@@ -24,11 +23,11 @@ import {
 import {
   getGamificationStats,
   GamificationStats,
+  getSashRankByLevel,
 } from '@/constants/gamificationStore';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { TodaysTrainingModal } from '@/components/TodaysTrainingModal';
 
 export default function HomeDashboardScreen() {
   const router = useRouter();
@@ -37,9 +36,11 @@ export default function HomeDashboardScreen() {
     streakDays: 3,
     lastTrainedDate: '',
     totalXp: 120,
-    hearts: 5,
     level: 1,
   });
+
+  const [warmupModalVisible, setWarmupModalVisible] = useState(false);
+  const sashInfo = useMemo(() => getSashRankByLevel(gamification.level), [gamification.level]);
 
   const [curriculumProgress, setCurriculumProgress] = useState<CurriculumProgress>({
     completedLessonIds: [],
@@ -124,11 +125,26 @@ export default function HomeDashboardScreen() {
             <Text style={styles.xpBadgeText}>{gamification.totalXp}</Text>
           </View>
 
-          {/* Hearts Badge */}
-          <View style={styles.heartsBadge}>
-            <Ionicons name="heart" size={16} color={MartialTheme.colors.heartRed} />
-            <Text style={styles.heartsBadgeText}>{gamification.hearts}</Text>
-          </View>
+          {/* Sash Rank Badge (Replaces Dummy Hearts) */}
+          <TouchableOpacity
+            style={[
+              styles.sashBadge,
+              {
+                backgroundColor: sashInfo.sashColor,
+                borderColor: sashInfo.borderColor,
+              },
+            ]}
+            activeOpacity={0.8}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push('/history' as any);
+            }}
+          >
+            <MaterialCommunityIcons name="sword-cross" size={13} color={sashInfo.textColor} />
+            <Text style={[styles.sashBadgeText, { color: sashInfo.textColor }]}>
+              {sashInfo.shortName}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -197,7 +213,36 @@ export default function HomeDashboardScreen() {
           />
         </View>
 
-        {/* --- PRIORITY 2: YOUR JOURNEY STEPPING STONES --- */}
+        {/* --- PRIORITY 2: DAILY WARMUP & FORM CALIBRATION CARD --- */}
+        <View style={styles.warmupCard}>
+          <View style={styles.warmupCardHeader}>
+            <View style={styles.warmupTagBox}>
+              <MaterialCommunityIcons name="shield-check" size={13} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.warmupTagText}>DAILY WARMUP & DRILLS</Text>
+            </View>
+            <View style={styles.durationTagBox}>
+              <Text style={styles.durationTagText}>⏱ 5 min</Text>
+            </View>
+          </View>
+
+          <Text style={styles.warmupTitle}>Pre-Training Form Calibration</Text>
+          <Text style={styles.warmupDesc}>
+            Lock in your Tindig stance, Punyo grip spacing, and check hand shield with guided 2-minute interval timers before formal testing.
+          </Text>
+
+          <TactileButton
+            title="START 5-MIN WARMUP 🥋"
+            variant="bamboo"
+            size="md"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setWarmupModalVisible(true);
+            }}
+            style={{ marginTop: 14 }}
+          />
+        </View>
+
+        {/* --- PRIORITY 3: YOUR JOURNEY STEPPING STONES --- */}
         <View style={styles.journeyCard}>
           <View style={styles.journeyCardHeader}>
             <Text style={styles.journeySectionTitle}>YOUR JOURNEY</Text>
@@ -247,6 +292,19 @@ export default function HomeDashboardScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Daily Guided Training & Warmup Walkthrough Modal */}
+      <TodaysTrainingModal
+        visible={warmupModalVisible}
+        onClose={() => setWarmupModalVisible(false)}
+        onStartCameraTest={(strikeId) => {
+          setWarmupModalVisible(false);
+          router.push({
+            pathname: '/evaluate',
+            params: { strikeId: strikeId || 'strike_1' },
+          });
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -322,21 +380,24 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#B45309',
   },
-  heartsBadge: {
+  sashBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    gap: 3,
+    borderWidth: 1.5,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  heartsBadgeText: {
-    fontSize: 13,
+  sashBadgeText: {
+    fontSize: 12,
     fontWeight: '900',
-    color: '#DC2626',
+    letterSpacing: 0.3,
   },
   badgeEmoji: {
     fontSize: 13,
@@ -492,6 +553,52 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.textSecondary,
     lineHeight: 19,
     marginTop: 4,
+  },
+  warmupCard: {
+    backgroundColor: '#FFFDF9',
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderBottomWidth: 4,
+    borderBottomColor: '#F59E0B',
+    marginBottom: 20,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  warmupCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  warmupTagBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  warmupTagText: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 0.5,
+  },
+  warmupTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    marginBottom: 4,
+  },
+  warmupDesc: {
+    fontSize: 13,
+    color: MartialTheme.colors.textSecondary,
+    lineHeight: 18,
   },
   journeyCard: {
     backgroundColor: '#FFFFFF',

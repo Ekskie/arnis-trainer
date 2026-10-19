@@ -6,6 +6,7 @@ import { EvaluationConfig } from '@/engine/pose/poseEngineTypes';
 import { StrikeEvaluationResult } from '@/engine/evaluation/evaluationTypes';
 import { compileSessionResult } from '@/engine/evaluation/strikeEvaluator';
 import {
+  ANYO_ROUTINES_CATALOG,
   AnyoRoutine,
   AnyoStepResult,
   getHistory,
@@ -13,7 +14,7 @@ import {
   saveSession,
   SessionItem,
 } from '@/constants/historyStore';
-import { addXpAndStreak } from '@/constants/gamificationStore';
+import { addXpAndStreak, SashRankInfo } from '@/constants/gamificationStore';
 import { getCoachReference } from '@/constants/referenceStore';
 import { persistUserStrikeMedia } from '@/services/mediaStorageService';
 
@@ -58,6 +59,7 @@ export function usePracticeSession() {
 
   // Results & Improvements
   const [evaluationResult, setEvaluationResult] = useState<StrikeEvaluationResult | null>(null);
+  const [promotionResult, setPromotionResult] = useState<{ newRank: SashRankInfo; level: number } | null>(null);
   const [sessionImprovement, setSessionImprovement] = useState<SessionImprovement>({
     previousBest: 0,
     delta: 0,
@@ -132,6 +134,8 @@ export function usePracticeSession() {
       setSelectedStrikeId(strikeId);
       setMode(practiceMode);
       setActiveRoutine(null);
+      setRoutineStepScores([]);
+      setSource(undefined);
       setScreen('live');
     },
     []
@@ -276,8 +280,13 @@ export function usePracticeSession() {
         }
       );
 
-      // 5. Award XP and streak
-      await addXpAndStreak(10);
+      // 5. Award XP and streak & check promotion
+      const xpRes = await addXpAndStreak(10);
+      if (xpRes.isPromoted && xpRes.newRank) {
+        setPromotionResult({ newRank: xpRes.newRank, level: xpRes.level });
+      } else {
+        setPromotionResult(null);
+      }
 
       // 6. Navigate to result view
       setScreen('result');
@@ -296,8 +305,15 @@ export function usePracticeSession() {
       const sum = steps.reduce((acc, curr) => acc + curr.score, 0);
       const avgScore = steps.length > 0 ? Math.round(sum / steps.length) : 80;
 
+      setActiveRoutine(routine);
+      setRoutineStepScores(steps);
       await saveAnyoSession(routine, steps, totalDurationMs);
-      await addXpAndStreak(25);
+      const xpRes = await addXpAndStreak(25);
+      if (xpRes.isPromoted && xpRes.newRank) {
+        setPromotionResult({ newRank: xpRes.newRank, level: xpRes.level });
+      } else {
+        setPromotionResult(null);
+      }
 
       const result = compileSessionResult(
         {
@@ -313,6 +329,7 @@ export function usePracticeSession() {
         { isMastered: avgScore >= 85 }
       );
       setEvaluationResult(result);
+      if (snapshotBase64) setLastSnapshot(snapshotBase64);
       setScreen('result');
     },
     [currentRule]
@@ -325,6 +342,7 @@ export function usePracticeSession() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setAutoStartEval(false);
     setEvaluationResult(null);
+    setPromotionResult(null);
     setScreen('live');
   }, []);
 
@@ -333,6 +351,7 @@ export function usePracticeSession() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setAutoStartEval(true);
     setEvaluationResult(null);
+    setPromotionResult(null);
     setScreen('live');
   }, []);
 
@@ -344,26 +363,59 @@ export function usePracticeSession() {
     setSelectedStrikeId(nextId);
     setAutoStartEval(false);
     setEvaluationResult(null);
+    setPromotionResult(null);
     setScreen('live');
   }, [currentRule]);
 
   // Action: Exit back to practice home menu
   const exitToSetup = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSource(undefined);
     setActiveRoutine(null);
+    setRoutineStepScores([]);
     setAutoStartEval(false);
     setEvaluationResult(null);
+    setPromotionResult(null);
     setScreen('setup');
-  }, []);
+    try {
+      router.setParams({ source: undefined, lessonId: undefined, mode: undefined, strikeId: undefined });
+    } catch {}
+  }, [router]);
+
+  // Action: Proceed to next Anyo routine
+  const nextAnyoRoutine = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const catalog = ANYO_ROUTINES_CATALOG;
+    if (!activeRoutine || catalog.length === 0) {
+      exitToSetup();
+      return;
+    }
+    const currentIndex = catalog.findIndex((r) => r.id === activeRoutine.id);
+    const nextIndex = currentIndex >= 0 && currentIndex < catalog.length - 1 ? currentIndex + 1 : 0;
+    startAnyo(catalog[nextIndex]);
+  }, [activeRoutine, exitToSetup, startAnyo]);
 
   // Action: Return to lesson if entered from lesson
   const returnToLesson = useCallback(
     (isCompleted?: boolean) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      if (source === 'lesson') {
-        if (params.lessonId) {
+      setPromotionResult(null);
+      const isFromLesson = source === 'lesson';
+      const targetLessonId = params.lessonId;
+      setSource(undefined);
+      setScreen('setup');
+      setEvaluationResult(null);
+      setAutoStartEval(false);
+      setActiveRoutine(null);
+      setRoutineStepScores([]);
+      try {
+        router.setParams({ source: undefined, lessonId: undefined, mode: undefined, strikeId: undefined });
+      } catch {}
+
+      if (isFromLesson) {
+        if (targetLessonId) {
           router.replace({
-            pathname: `/lesson/${params.lessonId}` as any,
+            pathname: `/lesson/${targetLessonId}` as any,
             params: {
               completedFromDrill: isCompleted ? '1' : '0',
               earnedScore: evaluationResult?.score?.toString() || '0',
@@ -409,6 +461,7 @@ export function usePracticeSession() {
     routineStepScores,
     setRoutineStepScores,
     evaluationResult,
+    promotionResult,
     sessionImprovement,
     lastSnapshot,
     lastReplayVideo,
@@ -416,6 +469,7 @@ export function usePracticeSession() {
     autoStartEval,
     startStrike,
     startAnyo,
+    nextAnyoRoutine,
     completeSingleStrikeSession,
     completeAnyoSession,
     retry,

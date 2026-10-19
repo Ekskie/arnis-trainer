@@ -2,11 +2,79 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const GAMIFICATION_STORAGE_KEY = '@posefix_gamification_v1';
 
+export interface SashRankInfo {
+  title: string;
+  shortName: string;
+  sashColor: string;
+  textColor: string;
+  borderColor: string;
+  minLevel: number;
+}
+
+export const SASH_RANKS: SashRankInfo[] = [
+  {
+    title: 'Lakan / Master',
+    shortName: 'Black Sash',
+    sashColor: '#1E293B',
+    textColor: '#F8FAFC',
+    borderColor: '#D4AF37', // Gold trim
+    minLevel: 10,
+  },
+  {
+    title: 'Senior Striker',
+    shortName: 'Brown Sash',
+    sashColor: '#78350F',
+    textColor: '#FFFFFF',
+    borderColor: '#92400E',
+    minLevel: 7,
+  },
+  {
+    title: 'Adept Striker',
+    shortName: 'Blue Sash',
+    sashColor: '#2563EB',
+    textColor: '#FFFFFF',
+    borderColor: '#1D4ED8',
+    minLevel: 5,
+  },
+  {
+    title: 'Intermediate',
+    shortName: 'Green Sash',
+    sashColor: '#15803D',
+    textColor: '#FFFFFF',
+    borderColor: '#166534',
+    minLevel: 3,
+  },
+  {
+    title: 'Apprentice',
+    shortName: 'Yellow Sash',
+    sashColor: '#F59E0B',
+    textColor: '#78350F',
+    borderColor: '#D97706',
+    minLevel: 2,
+  },
+  {
+    title: 'Novice Practitioner',
+    shortName: 'White Sash',
+    sashColor: '#FFFFFF',
+    textColor: '#1E293B',
+    borderColor: '#CBD5E1',
+    minLevel: 1,
+  },
+];
+
+export function getSashRankByLevel(level: number = 1): SashRankInfo {
+  for (const rank of SASH_RANKS) {
+    if (level >= rank.minLevel) {
+      return rank;
+    }
+  }
+  return SASH_RANKS[SASH_RANKS.length - 1];
+}
+
 export interface GamificationStats {
   streakDays: number;
   lastTrainedDate: string; // YYYY-MM-DD
   totalXp: number;
-  hearts: number; // 5 max
   level: number;
 }
 
@@ -14,7 +82,6 @@ const DEFAULT_STATS: GamificationStats = {
   streakDays: 3,
   lastTrainedDate: new Date().toISOString().split('T')[0],
   totalXp: 120,
-  hearts: 5,
   level: 1,
 };
 
@@ -42,7 +109,13 @@ export async function getGamificationStats(): Promise<GamificationStats> {
   }
 }
 
-export async function addXpAndStreak(xpEarned: number = 10): Promise<GamificationStats> {
+export interface AddXpResult extends GamificationStats {
+  isPromoted?: boolean;
+  oldRank?: SashRankInfo;
+  newRank?: SashRankInfo;
+}
+
+export async function addXpAndStreak(xpEarned: number = 10): Promise<AddXpResult> {
   try {
     const stats = await getGamificationStats();
     const today = getTodayString();
@@ -60,12 +133,19 @@ export async function addXpAndStreak(xpEarned: number = 10): Promise<Gamificatio
     const newXp = stats.totalXp + xpEarned;
     const newLevel = Math.max(1, Math.floor(newXp / 100) + 1);
 
-    const updated: GamificationStats = {
+    const oldRank = getSashRankByLevel(stats.level);
+    const newRank = getSashRankByLevel(newLevel);
+    const isPromoted = newRank.minLevel > oldRank.minLevel;
+
+    const updated: AddXpResult = {
       ...stats,
       streakDays: Math.max(1, newStreak),
       lastTrainedDate: today,
       totalXp: newXp,
       level: newLevel,
+      isPromoted,
+      oldRank,
+      newRank,
     };
 
     await AsyncStorage.setItem(GAMIFICATION_STORAGE_KEY, JSON.stringify(updated));

@@ -17,16 +17,24 @@ import { MartialTheme } from '@/constants/theme';
 import {
   ALL_CURRICULUM_LESSONS,
   CurriculumLesson,
+  getLessonQuizQuestions,
+  LessonQuizQuestion,
   markLessonCompleted,
 } from '@/constants/curriculumStore';
-import { addXpAndStreak } from '@/constants/gamificationStore';
+import {
+  addXpAndStreak,
+  getGamificationStats,
+  getSashRankByLevel,
+  SashRankInfo,
+} from '@/constants/gamificationStore';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
 import { STRIKE_RULES } from '@/constants/strikeRules';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { LessonProgressBar } from '@/components/ui/LessonProgressBar';
+import { SashPromotionModal } from '@/components/ui/SashPromotionModal';
 
-type LessonStepType = 'concept' | 'visual' | 'remember' | 'interactive_check' | 'celebration';
+type LessonStepType = 'concept' | 'visual' | 'quiz' | 'remember' | 'celebration';
 
 export default function LessonScreen() {
   const router = useRouter();
@@ -42,18 +50,33 @@ export default function LessonScreen() {
   }, [id]);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>({});
+  const [userSash, setUserSash] = useState<SashRankInfo | undefined>(undefined);
   const [earnedXp, setEarnedXp] = useState(10);
   const [newStreak, setNewStreak] = useState(3);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [promotionModalRank, setPromotionModalRank] = useState<{ newRank: SashRankInfo; level: number } | null>(null);
 
-  // Steps definition: Rapid 4 to 5 screen sequence
+  // SoloCode Questionnaire State
+  const quizQuestions: LessonQuizQuestion[] = useMemo(() => {
+    return getLessonQuizQuestions(lesson);
+  }, [lesson]);
+
+  const [quizQuestionIndex, setQuizQuestionIndex] = useState(0);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [quizStatus, setQuizStatus] = useState<'unanswered' | 'correct' | 'incorrect'>('unanswered');
+
+  // Load sash rank on mount
+  useEffect(() => {
+    getGamificationStats().then((stats) => {
+      const sash = getSashRankByLevel(stats.level);
+      setUserSash(sash);
+    });
+  }, []);
+
+  // Steps definition: 5 screen pedagogical progression
   const steps: LessonStepType[] = useMemo(() => {
-    if (lesson.isStrike) {
-      return ['concept', 'visual', 'remember', 'celebration'];
-    }
-    return ['concept', 'visual', 'remember', 'interactive_check', 'celebration'];
-  }, [lesson.isStrike]);
+    return ['concept', 'visual', 'quiz', 'remember', 'celebration'];
+  }, []);
 
   // Handle return from camera drill
   useEffect(() => {
@@ -61,9 +84,13 @@ export default function LessonScreen() {
       const celebrationIndex = steps.length - 1;
       setCurrentStepIndex(celebrationIndex);
       const bonusXp = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
-      addXpAndStreak(bonusXp).then((stats) => {
-        setEarnedXp(bonusXp);
+      setEarnedXp(bonusXp);
+      getGamificationStats().then((stats) => {
         setNewStreak(stats.streakDays);
+        if (stats.level) {
+          const sash = getSashRankByLevel(stats.level);
+          setUserSash(sash);
+        }
       });
       markLessonCompleted(lesson.id);
     } else if (completedFromDrill === '0') {
@@ -145,6 +172,9 @@ export default function LessonScreen() {
       addXpAndStreak(10).then((stats) => {
         setEarnedXp(10);
         setNewStreak(stats.streakDays);
+        if (stats.isPromoted && stats.newRank) {
+          setPromotionModalRank({ newRank: stats.newRank, level: stats.level });
+        }
       });
       markLessonCompleted(lesson.id);
       setCurrentStepIndex(steps.length - 1);
@@ -180,12 +210,43 @@ export default function LessonScreen() {
     });
   };
 
-  const toggleCheckItem = (idx: number) => {
+  const currentQuestion = quizQuestions[quizQuestionIndex] || quizQuestions[0];
+
+  const handleSelectOption = (idx: number) => {
+    if (quizStatus === 'correct') return; // locked once solved
+    Haptics.selectionAsync();
+    setSelectedOption(idx);
+    setQuizStatus('unanswered');
+  };
+
+  const handleCheckAnswer = () => {
+    if (selectedOption === null || !currentQuestion) return;
+    const isCorrect = selectedOption === currentQuestion.correctIndex;
+    if (isCorrect) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setQuizStatus('correct');
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setQuizStatus('incorrect');
+    }
+  };
+
+  const handleQuizContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setCheckedItems((prev) => ({
-      ...prev,
-      [idx]: !prev[idx],
-    }));
+    if (quizQuestionIndex < quizQuestions.length - 1) {
+      setQuizQuestionIndex((prev) => prev + 1);
+      setSelectedOption(null);
+      setQuizStatus('unanswered');
+    } else {
+      // Advance to next step in lesson (remember)
+      handleNextStep();
+    }
+  };
+
+  const handleQuizRetry = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedOption(null);
+    setQuizStatus('unanswered');
   };
 
   // Find next lesson
@@ -208,10 +269,11 @@ export default function LessonScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      {/* --- DUOLINGO TOP PROGRESS BAR --- */}
+      {/* --- DUOLINGO TOP PROGRESS BAR WITH SASH BADGE --- */}
       <LessonProgressBar
         currentStep={currentStepIndex + 1}
         totalSteps={steps.length}
+        sashInfo={userSash}
         onClose={() => {
           if (router.canGoBack()) {
             router.back();
@@ -245,7 +307,10 @@ export default function LessonScreen() {
 
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          currentStep === 'quiz' && quizStatus !== 'unanswered' && { paddingBottom: 240 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* ======================================================= */}
@@ -353,7 +418,109 @@ export default function LessonScreen() {
         )}
 
         {/* ======================================================= */}
-        {/* SCREEN 3: REMEMBER (3 RULES ONLY)                       */}
+        {/* SCREEN 3: SOLOCODE QUESTIONNAIRE CHECKPOINT             */}
+        {/* ======================================================= */}
+        {currentStep === 'quiz' && currentQuestion && (
+          <View style={styles.stepContainer}>
+            {/* Header & Checkpoint Status */}
+            <View style={styles.quizHeaderRow}>
+              <View style={styles.quizBadge}>
+                <Ionicons name="school-outline" size={14} color="#4338CA" style={{ marginRight: 5 }} />
+                <Text style={styles.quizBadgeText}>
+                  CHECKPOINT • {quizQuestionIndex + 1}/{quizQuestions.length}
+                </Text>
+              </View>
+              <View style={styles.freePracticePill}>
+                <Ionicons name="sparkles" size={12} color="#15803D" style={{ marginRight: 4 }} />
+                <Text style={styles.freePracticePillText}>UNLIMITED TRIES</Text>
+              </View>
+            </View>
+
+            <Text style={styles.quizQuestionPrompt}>
+              {currentQuestion.question}
+            </Text>
+
+            {/* Option Cards */}
+            <View style={styles.quizOptionsStack}>
+              {currentQuestion.options.map((optionText, idx) => {
+                const isSelected = selectedOption === idx;
+                const isCorrectSelected = isSelected && quizStatus === 'correct';
+                const isIncorrectSelected = isSelected && quizStatus === 'incorrect';
+                const optionLetter = ['A', 'B', 'C', 'D'][idx] || `${idx + 1}`;
+
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    activeOpacity={0.8}
+                    onPress={() => handleSelectOption(idx)}
+                    disabled={quizStatus === 'correct'}
+                    style={[
+                      styles.quizOptionCard,
+                      isSelected && styles.quizOptionCardSelected,
+                      isCorrectSelected && styles.quizOptionCardCorrect,
+                      isIncorrectSelected && styles.quizOptionCardIncorrect,
+                    ]}
+                  >
+                    {/* Letter Badge */}
+                    <View
+                      style={[
+                        styles.optionLetterBadge,
+                        isSelected && styles.optionLetterBadgeSelected,
+                        isCorrectSelected && styles.optionLetterBadgeCorrect,
+                        isIncorrectSelected && styles.optionLetterBadgeIncorrect,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.optionLetterText,
+                          isSelected && styles.optionLetterTextSelected,
+                          (isCorrectSelected || isIncorrectSelected) && { color: '#FFFFFF' },
+                        ]}
+                      >
+                        {optionLetter}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={[
+                        styles.quizOptionText,
+                        isSelected && styles.quizOptionTextSelected,
+                        isCorrectSelected && styles.quizOptionTextCorrect,
+                        isIncorrectSelected && styles.quizOptionTextIncorrect,
+                      ]}
+                    >
+                      {optionText}
+                    </Text>
+
+                    {isCorrectSelected && (
+                      <Ionicons name="checkmark-circle" size={24} color="#15803D" style={{ marginLeft: 6 }} />
+                    )}
+                    {isIncorrectSelected && (
+                      <Ionicons name="close-circle" size={24} color="#DC2626" style={{ marginLeft: 6 }} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={{ flex: 1, minHeight: 24 }} />
+
+            {/* Check Answer Button (only visible when feedback drawer is not open) */}
+            {quizStatus === 'unanswered' && (
+              <TactileButton
+                title={selectedOption !== null ? "CHECK ANSWER 🚀" : "SELECT AN OPTION"}
+                variant={selectedOption !== null ? "primary" : "secondary"}
+                size="lg"
+                disabled={selectedOption === null}
+                onPress={handleCheckAnswer}
+                style={{ marginTop: 24, width: '100%' }}
+              />
+            )}
+          </View>
+        )}
+
+        {/* ======================================================= */}
+        {/* SCREEN 4: REMEMBER (3 RULES ONLY)                       */}
         {/* ======================================================= */}
         {currentStep === 'remember' && (
           <View style={styles.stepContainer}>
@@ -361,7 +528,7 @@ export default function LessonScreen() {
               <CoachCharacter pose="thinking" size={90} />
               <View style={styles.speechBubble}>
                 <Text style={styles.speechBubbleText}>
-                  {"\"That's all you need to remember for your practice!\""}
+                  {"\"Keep these key rules in mind as you train!\""}
                 </Text>
               </View>
             </View>
@@ -400,10 +567,10 @@ export default function LessonScreen() {
               </View>
             </View>
 
-            <View style={{ flex: 1 }} />
+            <View style={{ flex: 1, minHeight: 20 }} />
 
             {lesson.isStrike ? (
-              <View style={{ gap: 10, marginTop: 20 }}>
+              <View style={{ gap: 10, marginTop: 20, width: '100%' }}>
                 <TactileButton
                   title="PRACTICE WITH CAMERA →"
                   variant="primary"
@@ -423,67 +590,9 @@ export default function LessonScreen() {
                 variant="primary"
                 size="lg"
                 onPress={handleNextStep}
-                style={{ marginTop: 20 }}
+                style={{ marginTop: 20, width: '100%' }}
               />
             )}
-          </View>
-        )}
-
-        {/* ======================================================= */}
-        {/* SCREEN 4: INTERACTIVE CHECK (FOR ORIENTATION)            */}
-        {/* ======================================================= */}
-        {currentStep === 'interactive_check' && (
-          <View style={styles.stepContainer}>
-            <Text style={styles.checkHeaderTitle}>QUICK SAFETY CHECK</Text>
-            <Text style={styles.checkHeaderSubtitle}>
-              Tap each item once you have verified it in your space:
-            </Text>
-
-            <View style={styles.checklistStack}>
-              {[
-                { title: 'Clear 6-Foot Training Area', desc: 'No tables, pets, or bystanders within stick reach.' },
-                { title: 'Check Ceiling Clearance', desc: 'Ensure you can swing upward without touching fans or lights.' },
-                { title: 'Secure Grip & Calm Focus', desc: 'Hold stick 2 inches from base; keep relaxed wrists.' },
-              ].map((item, idx) => {
-                const isChecked = !!checkedItems[idx];
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    activeOpacity={0.8}
-                    onPress={() => toggleCheckItem(idx)}
-                    style={[
-                      styles.checkItemCard,
-                      isChecked && styles.checkItemCardSelected,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.checkCircle,
-                        isChecked && styles.checkCircleSelected,
-                      ]}
-                    >
-                      {isChecked && <Ionicons name="checkmark" size={18} color="#FFFFFF" />}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.checkItemTitle, isChecked && styles.checkItemTitleSelected]}>
-                        {item.title}
-                      </Text>
-                      <Text style={styles.checkItemDesc}>{item.desc}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={{ flex: 1 }} />
-
-            <TactileButton
-              title="COMPLETE CHECKLIST →"
-              variant="primary"
-              size="lg"
-              onPress={handleNextStep}
-              style={{ marginTop: 24 }}
-            />
           </View>
         )}
 
@@ -539,6 +648,80 @@ export default function LessonScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* SoloCode Bottom Feedback Drawer */}
+      {currentStep === 'quiz' && quizStatus !== 'unanswered' && currentQuestion && (
+        <View
+          style={[
+            styles.feedbackDrawer,
+            quizStatus === 'correct' ? styles.feedbackDrawerCorrect : styles.feedbackDrawerIncorrect,
+          ]}
+        >
+          <View style={styles.feedbackContent}>
+            <View style={styles.feedbackHeaderRow}>
+              <View
+                style={[
+                  styles.feedbackIconBadge,
+                  quizStatus === 'correct' ? styles.feedbackIconBadgeCorrect : styles.feedbackIconBadgeIncorrect,
+                ]}
+              >
+                <Ionicons
+                  name={quizStatus === 'correct' ? 'checkmark' : 'alert'}
+                  size={20}
+                  color="#FFFFFF"
+                />
+              </View>
+              <Text
+                style={[
+                  styles.feedbackTitle,
+                  quizStatus === 'correct' ? styles.feedbackTitleCorrect : styles.feedbackTitleIncorrect,
+                ]}
+              >
+                {quizStatus === 'correct' ? 'TAMA! CORRECT! 🎉' : 'SUBUKAN MULI! NOT QUITE 💡'}
+              </Text>
+            </View>
+
+            <Text
+              style={[
+                styles.feedbackBodyText,
+                quizStatus === 'correct' ? styles.feedbackBodyTextCorrect : styles.feedbackBodyTextIncorrect,
+              ]}
+            >
+              {quizStatus === 'correct'
+                ? currentQuestion.explanation
+                : currentQuestion.hint || 'Review the lesson breakdown above and give it another try!'}
+            </Text>
+
+            {quizStatus === 'correct' ? (
+              <TactileButton
+                title={quizQuestionIndex < quizQuestions.length - 1 ? "NEXT QUESTION →" : "CONTINUE →"}
+                variant="primary"
+                size="lg"
+                onPress={handleQuizContinue}
+                style={styles.feedbackBtn}
+              />
+            ) : (
+              <TactileButton
+                title="TRY AGAIN ↺"
+                variant="secondary"
+                size="lg"
+                onPress={handleQuizRetry}
+                style={styles.feedbackBtn}
+              />
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Sash Promotion Ceremony Modal */}
+      {promotionModalRank && (
+        <SashPromotionModal
+          visible={!!promotionModalRank}
+          onClose={() => setPromotionModalRank(null)}
+          newRank={promotionModalRank.newRank}
+          currentLevel={promotionModalRank.level}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -791,66 +974,208 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 16,
   },
-  checkHeaderTitle: {
-    fontSize: 20,
+  // SoloCode Quiz Styles
+  quizHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 16,
+  },
+  quizBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  quizBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#4338CA',
+    letterSpacing: 0.5,
+  },
+  freePracticePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  freePracticePillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#15803D',
+    letterSpacing: 0.5,
+  },
+  quizQuestionPrompt: {
+    fontSize: 19,
     fontWeight: '900',
     color: MartialTheme.colors.text,
-    textAlign: 'center',
-  },
-  checkHeaderSubtitle: {
-    fontSize: 13,
-    color: MartialTheme.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 4,
+    textAlign: 'left',
+    width: '100%',
+    lineHeight: 26,
     marginBottom: 20,
   },
-  checklistStack: {
+  quizOptionsStack: {
     width: '100%',
     gap: 12,
   },
-  checkItemCard: {
+  quizOptionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: MartialTheme.colors.border,
     borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.border3D,
-    gap: 14,
+    gap: 12,
   },
-  checkItemCardSelected: {
+  quizOptionCardSelected: {
+    borderColor: '#6366F1',
+    backgroundColor: '#F5F7FF',
+    borderBottomColor: '#4F46E5',
+  },
+  quizOptionCardCorrect: {
     borderColor: '#15803D',
     backgroundColor: '#F0FDF4',
     borderBottomColor: '#166534',
   },
-  checkCircle: {
+  quizOptionCardIncorrect: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+    borderBottomColor: '#991B1B',
+  },
+  optionLetterBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  optionLetterBadgeSelected: {
+    backgroundColor: '#6366F1',
+    borderColor: '#4F46E5',
+  },
+  optionLetterBadgeCorrect: {
+    backgroundColor: '#15803D',
+    borderColor: '#166534',
+  },
+  optionLetterBadgeIncorrect: {
+    backgroundColor: '#DC2626',
+    borderColor: '#991B1B',
+  },
+  optionLetterText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#475569',
+  },
+  optionLetterTextSelected: {
+    color: '#FFFFFF',
+  },
+  quizOptionText: {
+    flex: 1,
+    fontSize: 14,
+    color: MartialTheme.colors.text,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  quizOptionTextSelected: {
+    color: '#312E81',
+  },
+  quizOptionTextCorrect: {
+    color: '#14532D',
+  },
+  quizOptionTextIncorrect: {
+    color: '#7F1D1D',
+  },
+
+  // SoloCode Feedback Bottom Drawer
+  feedbackDrawer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 12,
+    zIndex: 99,
+  },
+  feedbackDrawerCorrect: {
+    backgroundColor: '#DCFCE7',
+    borderTopWidth: 3,
+    borderColor: '#22C55E',
+  },
+  feedbackDrawerIncorrect: {
+    backgroundColor: '#FEE2E2',
+    borderTopWidth: 3,
+    borderColor: '#EF4444',
+  },
+  feedbackContent: {
+    width: '100%',
+  },
+  feedbackHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  feedbackIconBadge: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkCircleSelected: {
+  feedbackIconBadgeCorrect: {
     backgroundColor: '#15803D',
-    borderColor: '#15803D',
   },
-  checkItemTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: MartialTheme.colors.text,
+  feedbackIconBadgeIncorrect: {
+    backgroundColor: '#DC2626',
   },
-  checkItemTitleSelected: {
+  feedbackTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  feedbackTitleCorrect: {
     color: '#15803D',
   },
-  checkItemDesc: {
-    fontSize: 12,
-    color: MartialTheme.colors.textSecondary,
-    marginTop: 2,
-    lineHeight: 16,
+  feedbackTitleIncorrect: {
+    color: '#B91C1C',
+  },
+  feedbackBodyText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  feedbackBodyTextCorrect: {
+    color: '#166534',
+  },
+  feedbackBodyTextIncorrect: {
+    color: '#991B1B',
+  },
+  feedbackBtn: {
+    width: '100%',
   },
   celebrationContainer: {
     flex: 1,

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigation } from 'expo-router';
 import { usePracticeSession } from '@/hooks/usePracticeSession';
 import { PracticeHomeScreen } from '@/components/practice/PracticeHomeScreen';
 import { PracticeLive } from '@/components/practice/PracticeLive';
@@ -16,11 +17,24 @@ import { AppTutorialModal } from '@/components/AppTutorialModal';
  */
 export default function EvaluateScreen() {
   const practice = usePracticeSession();
+  const navigation = useNavigation();
 
   // Modals for video demonstration & quickstart walkthrough
   const [videoModalVisible, setVideoModalVisible] = useState(false);
   const [videoModalStrikeId, setVideoModalStrikeId] = useState('strike_1');
   const [tutorialModalVisible, setTutorialModalVisible] = useState(false);
+
+  // Dynamically hide tab bar on live camera evaluation or result feedback screen
+  useEffect(() => {
+    if (practice.screen === 'live' || practice.screen === 'result') {
+      navigation.setOptions({ tabBarStyle: { display: 'none' } });
+    } else {
+      navigation.setOptions({ tabBarStyle: undefined });
+    }
+    return () => {
+      navigation.setOptions({ tabBarStyle: undefined });
+    };
+  }, [practice.screen, navigation]);
 
   switch (practice.screen) {
     case 'setup':
@@ -40,15 +54,25 @@ export default function EvaluateScreen() {
             setVoiceFeedbackEnabled={practice.setVoiceFeedbackEnabled}
           />
 
-          <StrikeVideoModal
-            visible={videoModalVisible}
-            initialStrikeId={videoModalStrikeId}
-            onClose={() => setVideoModalVisible(false)}
-          />
+          {videoModalVisible && (
+            <StrikeVideoModal
+              visible={videoModalVisible}
+              initialStrikeId={videoModalStrikeId}
+              onClose={() => setVideoModalVisible(false)}
+              onPracticeStrike={(sid) => {
+                setVideoModalVisible(false);
+                practice.startStrike(sid, 'guided');
+              }}
+            />
+          )}
 
           <AppTutorialModal
             visible={tutorialModalVisible}
             onClose={() => setTutorialModalVisible(false)}
+            onNavigateToPractice={(sid) => {
+              setTutorialModalVisible(false);
+              practice.startStrike(sid || 'strike_1', 'guided');
+            }}
           />
         </>
       );
@@ -63,7 +87,13 @@ export default function EvaluateScreen() {
           autoStartEval={practice.autoStartEval}
           onComplete={practice.completeSingleStrikeSession}
           onCompleteAnyo={practice.completeAnyoSession}
-          onExit={practice.source === 'lesson' ? () => practice.returnToLesson(false) : practice.exitToSetup}
+          onExit={() => {
+            if (practice.source === 'lesson') {
+              practice.returnToLesson(false);
+            } else {
+              practice.exitToSetup();
+            }
+          }}
           onChangeMode={practice.setMode}
           onSelectStrike={practice.setSelectedStrikeId}
         />
@@ -78,14 +108,30 @@ export default function EvaluateScreen() {
           result={practice.evaluationResult}
           improvement={practice.sessionImprovement}
           strikeRule={practice.currentRule}
+          promotionResult={practice.promotionResult}
           lastSnapshot={practice.lastSnapshot}
           lastReplayVideo={practice.lastReplayVideo}
           lastImpactMeta={practice.lastImpactMeta}
           isFromLesson={practice.source === 'lesson'}
+          practiceMode={practice.mode}
+          activeRoutine={practice.activeRoutine}
+          anyoStepScores={practice.routineStepScores}
+          onPracticeAnyoAgain={() => {
+            if (practice.activeRoutine) {
+              practice.startAnyo(practice.activeRoutine);
+            }
+          }}
+          onNextRoutine={practice.nextAnyoRoutine}
           onRetry={practice.retry}
           onRetest={practice.retest}
           onNextStrike={practice.nextStrike}
-          onExit={practice.exitToSetup}
+          onExit={() => {
+            if (practice.source === 'lesson') {
+              practice.returnToLesson(false);
+            } else {
+              practice.exitToSetup();
+            }
+          }}
           onContinueLesson={() => practice.returnToLesson(true)}
           onExitLesson={() => practice.returnToLesson(false)}
         />

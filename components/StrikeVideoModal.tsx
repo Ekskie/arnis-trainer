@@ -114,6 +114,15 @@ export function StrikeVideoModal({
         // ignore
       }
     }
+    return () => {
+      if (player) {
+        try {
+          player.pause();
+        } catch {
+          // ignore
+        }
+      }
+    };
   }, [visible, player]);
 
   const handleSelectStrike = (id: string) => {

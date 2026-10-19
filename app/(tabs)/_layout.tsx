@@ -55,7 +55,7 @@ export default function TabLayout() {
         options={{
           title: 'Practice',
           tabBarIcon: ({ color, focused }) => (
-            <MaterialCommunityIcons name="karate" size={24} color={color} />
+            <MaterialCommunityIcons name="sword-cross" size={23} color={color} />
           ),
         }}
       />
@@ -66,12 +66,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'trophy' : 'trophy-outline'} size={23} color={color} />
           ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          href: null, // Hidden from bottom tab bar, accessible from contextual coach buttons
         }}
       />
     </Tabs>

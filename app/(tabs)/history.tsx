@@ -30,7 +30,11 @@ import {
   MasteryStats,
   SessionItem,
 } from '@/constants/historyStore';
-import { getGamificationStats } from '@/constants/gamificationStore';
+import {
+  getGamificationStats,
+  getSashRankByLevel,
+  SASH_RANKS,
+} from '@/constants/gamificationStore';
 
 import { getStrikeRule } from '@/constants/strikeRules';
 import { getCoachReference } from '@/constants/referenceStore';
@@ -45,6 +49,7 @@ export default function ProgressHistoryScreen() {
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [streakDays, setStreakDays] = useState(1);
+  const [userLevel, setUserLevel] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
   const [comparisonSession, setComparisonSession] = useState<SessionItem | null>(null);
@@ -108,6 +113,7 @@ export default function ProgressHistoryScreen() {
       getGamificationStats().then((g) => {
         if (isMounted) {
           setStreakDays(g.streakDays || 1);
+          setUserLevel(g.level || 1);
         }
       });
 
@@ -116,6 +122,8 @@ export default function ProgressHistoryScreen() {
       };
     }, [])
   );
+
+  const sashInfo = useMemo(() => getSashRankByLevel(userLevel), [userLevel]);
 
   const getStarCount = (bestScore: number) => {
     if (bestScore >= 95) return 5;
@@ -126,15 +134,6 @@ export default function ProgressHistoryScreen() {
     return 0;
   };
 
-  const getRankSashColor = (rankTitle: string) => {
-    const lower = rankTitle.toLowerCase();
-    if (lower.includes('master') || lower.includes('black')) return '#D4AF37';
-    if (lower.includes('senior') || lower.includes('brown')) return '#A16207';
-    if (lower.includes('adept') || lower.includes('blue')) return '#3B82F6';
-    if (lower.includes('intermediate') || lower.includes('green')) return '#10B981';
-    if (lower.includes('apprentice') || lower.includes('yellow')) return '#F59E0B';
-    return '#E2E8F0';
-  };
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return MartialTheme.colors.primary;
@@ -310,15 +309,27 @@ export default function ProgressHistoryScreen() {
               </Text>
 
               {/* Rank Sash Badge */}
-              <View style={styles.rankPill}>
-                <View
-                  style={[
-                    styles.sashDot,
-                    { backgroundColor: getRankSashColor(masteryStats.rankTitle) },
-                  ]}
+              <View
+                style={[
+                  styles.rankPill,
+                  {
+                    backgroundColor: sashInfo.sashColor,
+                    borderColor: sashInfo.borderColor,
+                    borderWidth: 1.5,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="sword-cross"
+                  size={12}
+                  color={sashInfo.textColor}
+                  style={{ marginRight: 4 }}
                 />
-                <Text style={styles.rankPillText} numberOfLines={1}>
-                  {masteryStats.rankTitle}
+                <Text
+                  style={[styles.rankPillText, { color: sashInfo.textColor, fontWeight: '800' }]}
+                  numberOfLines={1}
+                >
+                  {sashInfo.shortName} · Lvl {userLevel}
                 </Text>
               </View>
             </View>
@@ -603,7 +614,67 @@ export default function ProgressHistoryScreen() {
           </View>
         </View>
 
-        {/* --- 5. PRACTICE HISTORY TIMELINE --- */}
+        {/* --- 5. TRADITIONAL SASH BELT PROGRESSION --- */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>TRADITIONAL SASH RANKS</Text>
+          <Text style={styles.sectionSub}>Martial advancement through practice consistency</Text>
+
+          <View style={styles.sashProgressionCard}>
+            {[...SASH_RANKS].reverse().map((rank) => {
+              const isUnlocked = userLevel >= rank.minLevel;
+              const isCurrent = sashInfo.shortName === rank.shortName;
+
+              return (
+                <View
+                  key={rank.shortName}
+                  style={[
+                    styles.sashRankRow,
+                    isCurrent && styles.sashRankRowCurrent,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.sashBeltStrip,
+                      {
+                        backgroundColor: rank.sashColor,
+                        borderColor: rank.borderColor,
+                      },
+                    ]}
+                  />
+
+                  <View style={{ flex: 1, paddingLeft: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text
+                        style={[
+                          styles.sashRankRowTitle,
+                          !isUnlocked && styles.sashRankRowTitleLocked,
+                        ]}
+                      >
+                        {rank.shortName}
+                      </Text>
+                      {isCurrent && (
+                        <View style={styles.currentRankTag}>
+                          <Text style={styles.currentRankTagText}>CURRENT</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.sashRankRowSub}>
+                      {rank.title} · Level {rank.minLevel}+
+                    </Text>
+                  </View>
+
+                  {isUnlocked ? (
+                    <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+                  ) : (
+                    <Ionicons name="lock-closed-outline" size={16} color="#9CA3AF" />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* --- 6. PRACTICE HISTORY TIMELINE --- */}
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeaderRow}>
             <View>
@@ -767,12 +838,9 @@ export default function ProgressHistoryScreen() {
             {/* 12-Axis Radar Chart */}
             <StrikeRadarChart
               masteryStats={masteryStats}
-              onSelectStrike={(st) => {
+              onSelectStrike={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({
-                  pathname: '/evaluate',
-                  params: { strikeId: st.id, mode: 'guided' },
-                });
+                // Decoupled: selecting a polygon selects the strike card without immediately pushing navigation
               }}
             />
 
@@ -990,8 +1058,21 @@ export default function ProgressHistoryScreen() {
             guardScore: whySession.breakdown?.guard?.score || 80,
             wristScore: whySession.breakdown?.wrist?.score || 85,
           }}
-          onPracticeLesson={() => {
+          onPracticeLesson={(targetId) => {
             const sid = whySession.strikeId;
+            setWhySession(null);
+            if (targetId && targetId.startsWith('les_')) {
+              router.push({
+                pathname: `/lesson/${targetId}` as any,
+              });
+            } else {
+              router.push({
+                pathname: '/evaluate',
+                params: { strikeId: targetId || sid, mode: 'guided' },
+              });
+            }
+          }}
+          onRetryStrike={(sid) => {
             setWhySession(null);
             router.push({
               pathname: '/evaluate',
@@ -1021,6 +1102,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: MartialTheme.colors.background,
+  },
+  sashProgressionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: MartialTheme.colors.border,
+    padding: 6,
+    overflow: 'hidden',
+  },
+  sashRankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sashRankRowCurrent: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  sashBeltStrip: {
+    width: 32,
+    height: 18,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  sashRankRowTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  sashRankRowTitleLocked: {
+    color: '#9CA3AF',
+  },
+  sashRankRowSub: {
+    fontSize: 11,
+    color: MartialTheme.colors.textMuted,
+    marginTop: 1,
+  },
+  currentRankTag: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  currentRankTagText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#15803D',
+    letterSpacing: 0.4,
   },
   header: {
     flexDirection: 'row',

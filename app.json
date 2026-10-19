@@ -13,7 +13,6 @@
     },
     "android": {
       "package": "com.pose.arnistrainer",
-      "largeHeap": true,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -51,7 +50,8 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for pose evaluation."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "./plugins/withAndroidLargeHeap.js"
     ],
     "experiments": {
       "typedRoutes": true,

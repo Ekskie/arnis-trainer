@@ -35,6 +35,16 @@ export interface CurriculumLesson {
   watchOutFor?: string;
   watchFor?: string[];
   filipinoTermNote?: string;
+  quizQuestions?: LessonQuizQuestion[];
+}
+
+export interface LessonQuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+  hint?: string;
 }
 
 export interface CurriculumLevel {
@@ -109,6 +119,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Rushing with muscle tension instead of relaxed, continuous kinetic motion.'
         ],
         guroAdvice: 'In Arnis, the stick is simply an extension of the arm, and the blade is an extension of the spirit. Breathe, relax, and flow.',
+        quizQuestions: [
+          {
+            id: 'q_0_1_1',
+            question: 'What is the primary core philosophy of Arnis when starting your training?',
+            options: [
+              'Weapon mastery builds reflexes and spatial control that transfer to empty hands',
+              'Swing as hard as possible like hitting a home run with a baseball bat',
+              'Never move your feet while delivering strikes',
+              'Block with your bare hands before touching any stick'
+            ],
+            correctIndex: 0,
+            explanation: 'Correct! Arnis teaches weapon mastery first. Spatial awareness, reflex speed, and angular lines transfer seamlessly into empty-hand defense.',
+            hint: 'Remember the principle: the stick is an extension of the arm.'
+          },
+          {
+            id: 'q_0_1_2',
+            question: 'Republic Act 9850 (2009) officially declared Arnis as what in the Philippines?',
+            options: [
+              'A regional festival dance',
+              'The National Martial Art and Sport of the Philippines',
+              'An optional high school elective',
+              'A weapon restricted to military personnel'
+            ],
+            correctIndex: 1,
+            explanation: 'Tama! Republic Act 9850 officially declared Arnis as the National Martial Art and Sport of the Philippines.',
+            hint: 'Think about Arnis being recognized by Philippine national law.'
+          }
+        ],
       },
       {
         id: 'les_0_2',
@@ -152,6 +190,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Using heavy metallic bars or brittle wood for beginner velocity training.'
         ],
         guroAdvice: 'Your stick is your primary training tool. Treat it with care and inspect the rattan nodes before swinging.',
+        quizQuestions: [
+          {
+            id: 'q_0_2_1',
+            question: 'When gripping your rattan stick (Baston), how much of the butt (Punyo) should extend below your fist?',
+            options: [
+              '0 inches (choked down completely at the edge)',
+              '1 to 2 inches (about the width of 2 fingers)',
+              '6 to 8 inches',
+              'Half the length of the stick'
+            ],
+            correctIndex: 1,
+            explanation: 'Correct! Leaving 1 to 2 inches of Punyo exposed provides counterbalance and enables close-quarters hooking and disarms.',
+            hint: 'Look at the base of your grip beneath your pinky.'
+          },
+          {
+            id: 'q_0_2_2',
+            question: 'Why is rattan (yantok) the standard training cane instead of rigid hardwood?',
+            options: [
+              'Rattan is much heavier than iron',
+              'Rattan fibers fray safely without splintering into dangerous sharp shards',
+              'Hardwood cannot be carved into cylinders',
+              'Rattan sticks never need inspection'
+            ],
+            correctIndex: 1,
+            explanation: 'Spot on! Rattan has fibrous longitudinal bundles that absorb impact and shred safely rather than snapping into sharp projectile splinters.',
+            hint: 'Think about safety when two sticks clash during high-speed drills.'
+          }
+        ],
       },
       {
         id: 'les_0_3',
@@ -195,6 +261,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Skipping wrist warm-ups, risking tendinitis or joint strain from rapid deceleration.'
         ],
         guroAdvice: 'Control is the highest form of martial mastery. A master can stop a full-speed strike one millimeter before the target.',
+        quizQuestions: [
+          {
+            id: 'q_0_3_1',
+            question: 'What is the minimum safe clearance perimeter you should maintain around yourself when training?',
+            options: [
+              'At least 2 meters (6.5 feet) clear in all directions',
+              'Just enough room to stand still',
+              '6 inches around your shoulders',
+              'Clearance is only required outdoors'
+            ],
+            correctIndex: 0,
+            explanation: 'Correct! A 2-meter clear perimeter ensures your stick reach and dynamic footwork never contact furniture, fixtures, or bystanders.',
+            hint: 'Think of your arm length plus full stick length plus a forward lunging step.'
+          },
+          {
+            id: 'q_0_3_2',
+            question: 'What dynamic joint warmup is essential before practicing high-velocity Arnis strikes?',
+            options: [
+              'Otso-otso (figure-8 circular wrist rolls) and shoulder sweeps',
+              'Static hamstring stretch without moving arms',
+              'Swinging the stick at maximum speed right away',
+              'No warmup is needed if you are young'
+            ],
+            correctIndex: 0,
+            explanation: 'Great job! Figure-8 wrist rotations (Otso-otso) warm up the tendons, preventing wrist strain when stopping fast strikes.',
+            hint: 'Remember the Filipino term for figure-8 wrist warmups.'
+          }
+        ],
       },
       {
         id: 'les_0_4',
@@ -238,6 +332,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Standing too close so hands or knees are cropped out of the frame.'
         ],
         guroAdvice: 'Good camera framing ensures the AI accurately scores your knee flexion, elbow extension, and guard position.',
+        quizQuestions: [
+          {
+            id: 'q_0_4_1',
+            question: 'Where should your camera be positioned for optimal AI pose tracking in PoseFix?',
+            options: [
+              'On the floor looking straight up',
+              'At waist or chest height, 2.5 to 3 meters away',
+              'Held in your left hand as a selfie',
+              'Above you on the ceiling'
+            ],
+            correctIndex: 1,
+            explanation: 'Excellent! Waist/chest height at 2.5-3 meters gives the computer vision pipeline a clear view from head to toes.',
+            hint: 'The AI must see your foot stance, hip rotation, shoulders, and stick tip.'
+          },
+          {
+            id: 'q_0_4_2',
+            question: 'What lighting setup ensures the best skeletal joint detection accuracy?',
+            options: [
+              'Bright lighting in front of you illuminating your body',
+              'Pitch dark room with phone flashlight only',
+              'Blinding light directly behind you (backlit silhouette)',
+              'Flashing strobe lights'
+            ],
+            correctIndex: 0,
+            explanation: 'Correct! Frontal, even lighting ensures high contrast on your joints without deep backlighting shadows.',
+            hint: 'Avoid strong backlighting that turns your body into a dark silhouette.'
+          }
+        ],
       },
       {
         id: 'les_0_5',
@@ -281,6 +403,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Looking away or laughing during the formal salute.'
         ],
         guroAdvice: 'Respect is the beginning and end of all martial arts. The bow reminds us that skill must always be paired with discipline.',
+        quizQuestions: [
+          {
+            id: 'q_0_5_1',
+            question: 'What is the significance and proper execution of Pugay in Arnis?',
+            options: [
+              'Traditional bow of respect with stick placed across left chest at 45°',
+              'A surprise offensive attack before the match begins',
+              'An informal hand wave done when leaving class',
+              'Dropping the stick onto the training floor'
+            ],
+            correctIndex: 0,
+            explanation: 'Pugay is the formal Filipino martial salute of respect, honor, and discipline, placing the weapon across the chest with a humble nod.',
+            hint: 'Pugay honors your teacher, opponent, and the heritage of the art.'
+          },
+          {
+            id: 'q_0_5_2',
+            question: 'What stance is assumed when performing the formal Pugay bow?',
+            options: [
+              'Attention stance (Handa sa Pagpupugay) with heels together and head slightly bowed',
+              'Deep sitting horse stance with feet wide apart',
+              'Sitting cross-legged on the floor',
+              'A running sprint start stance'
+            ],
+            correctIndex: 0,
+            explanation: 'Correct! Stand upright with heels touching in attention stance, bow 15 degrees forward, and salute before and after every practice.',
+            hint: 'Stand tall with heels together before delivering the salute.'
+          }
+        ],
       },
     ],
   },
@@ -559,6 +709,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Overextending the elbow into a wide baseball swing that loses recovery control.'
         ],
         guroAdvice: 'Power comes from hip rotation and the final wrist snap, not by tensing your shoulder.',
+        quizQuestions: [
+          {
+            id: 'q_strike_1_1',
+            question: 'What is the anatomical target and cutting trajectory of Strike 1 (Pang-una)?',
+            options: [
+              'Left temple, delivered as a 45° diagonal downward forehand slash',
+              'Right knee, delivered as an upward backhand scoop',
+              'Solar plexus, delivered as a straight linear thrust',
+              'Crown of the head, delivered straight vertically down'
+            ],
+            correctIndex: 0,
+            explanation: 'Tumpak! Strike 1 targets the left temple (Kaliwang Sintido) with a crisp diagonal downward forehand cut starting beside your right ear.',
+            hint: 'Pang-una opens from your right ear and slashes across to the opponent\'s left temple.'
+          },
+          {
+            id: 'q_strike_1_2',
+            question: 'Where must your left check hand (Kalasag) remain while you execute Strike 1?',
+            options: [
+              'Dropped down by your side or hip',
+              'Held firmly against your chest to protect your centerline',
+              'Reaching out to catch the stick',
+              'Behind your back'
+            ],
+            correctIndex: 1,
+            explanation: 'Correct! Keeping the check hand pinned to your chest maintains defensive balance and prevents exposing your torso.',
+            hint: 'Never drop your live check hand when striking!'
+          }
+        ],
       },
       {
         id: 'strike_2',
@@ -601,6 +779,34 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
           'Pushing with the shoulder instead of whipping with the wrist.'
         ],
         guroAdvice: 'Snap the wrist right at contact point to turn a slow push into a concussive strike.',
+        quizQuestions: [
+          {
+            id: 'q_strike_2_1',
+            question: 'What delivery line and target define Strike 2 (Pangalawa)?',
+            options: [
+              'Diagonal downward backhand slash targeting the right temple',
+              'Straight thrust into the abdomen',
+              'Overhead downward vertical chop to the crown',
+              'Low scooping lift to the opponent\'s lead ankle'
+            ],
+            correctIndex: 0,
+            explanation: 'Correct! Strike 2 cuts diagonally downward with a backhand delivery toward the right temple (Kanan Sintido).',
+            hint: 'Strike 2 is the backhand counterpart to Strike 1.'
+          },
+          {
+            id: 'q_strike_2_2',
+            question: 'How do you turn a slow push into a powerful concussive Strike 2?',
+            options: [
+              'Over-rotating your shoulders past 90 degrees',
+              'Rotating your hips and unleashing a rapid wrist snap (Pitik) at contact',
+              'Closing your eyes and leaning backwards',
+              'Jumping off the ground'
+            ],
+            correctIndex: 1,
+            explanation: 'Spot on! Kinetic power flows from hip rotation through the elbow and snaps crisply with the wrist at impact point.',
+            hint: 'Power comes from kinetic hip rotation and the wrist snap, not brute shoulder strain.'
+          }
+        ],
       },
       {
         id: 'strike_3',
@@ -1473,4 +1679,68 @@ export async function resetCurriculumProgress(): Promise<void> {
   } catch (e) {
     console.error('Failed to reset curriculum progress', e);
   }
+}
+
+/**
+ * Retrieve curated or dynamically synthesized technique-aware quiz questions for a lesson.
+ * Guarantees every lesson in the curriculum has interactive SoloCode-style questions.
+ */
+export function getLessonQuizQuestions(lesson: CurriculumLesson): LessonQuizQuestion[] {
+  if (lesson.quizQuestions && lesson.quizQuestions.length > 0) {
+    return lesson.quizQuestions;
+  }
+
+  // Deterministic shuffle seed based on lesson id so options are not always in position A
+  const hash = lesson.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const targetIndexQ1 = hash % 4; // 0, 1, 2, or 3
+  const targetIndexQ2 = (hash + 1) % 4;
+
+  const targetName = lesson.trainingTarget || lesson.target || 'the intended target area';
+  const trajectoryDesc = lesson.trajectory || 'the calibrated martial trajectory';
+  const title = lesson.title;
+
+  const distractors1 = [
+    'The floor, swinging vertically downward with both hands locked',
+    'Behind your own back to defend against unexpected flanks',
+    'Wild swings in uncontrolled circular patterns without recovery',
+  ];
+  const options1 = [...distractors1];
+  options1.splice(targetIndexQ1, 0, `${targetName}, following ${trajectoryDesc}`);
+
+  const q1: LessonQuizQuestion = {
+    id: `auto_q1_${lesson.id}`,
+    question: `What is the primary target and trajectory for ${title}?`,
+    options: options1,
+    correctIndex: targetIndexQ1,
+    explanation: `Correct! ${title} focuses on ${targetName} using ${trajectoryDesc}, always maintaining control and balance.`,
+    hint: `Recall the training target: ${targetName}.`,
+  };
+
+  const mistakeText =
+    lesson.commonMistakes && lesson.commonMistakes.length > 0
+      ? lesson.commonMistakes[0]
+      : 'dropping your check hand and losing your ready stance';
+
+  const distractors2 = [
+    `Make the common mistake: ${mistakeText}`,
+    'Holding your breath and tensing your shoulders throughout the motion',
+    'Leaning backward on your heels so you lose forward balance',
+  ];
+  const options2 = [...distractors2];
+  options2.splice(
+    targetIndexQ2,
+    0,
+    'Relaxed grip snap (Pitik) with check hand (Kalasag) guarding your chest'
+  );
+
+  const q2: LessonQuizQuestion = {
+    id: `auto_q2_${lesson.id}`,
+    question: `What critical body mechanic must you maintain during ${title}?`,
+    options: options2,
+    correctIndex: targetIndexQ2,
+    explanation: `Tumpak! Maintain your check hand guard at your chest, keep knees springy, and snap smoothly at apex.`,
+    hint: 'A live check hand and balanced stance are fundamental to all Arnis techniques.',
+  };
+
+  return [q1, q2];
 }

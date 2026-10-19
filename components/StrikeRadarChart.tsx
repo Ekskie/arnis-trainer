@@ -87,7 +87,7 @@ export function StrikeRadarChart({
   const handlePracticeStrike = (strikeId: string) => {
     router.push({
       pathname: '/evaluate',
-      params: { strikeId }
+      params: { strikeId, mode: 'guided' },
     });
   };
 

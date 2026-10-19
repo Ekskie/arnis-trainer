@@ -1,20 +1,21 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MartialTheme } from '@/constants/theme';
+import { SashRankInfo } from '@/constants/gamificationStore';
 
 interface LessonProgressBarProps {
   currentStep: number;
   totalSteps: number;
   onClose: () => void;
-  hearts?: number;
+  sashInfo?: SashRankInfo;
 }
 
 export function LessonProgressBar({
   currentStep,
   totalSteps,
   onClose,
-  hearts = 5,
+  sashInfo,
 }: LessonProgressBarProps) {
   const percent = Math.min(100, Math.max(0, (currentStep / Math.max(1, totalSteps)) * 100));
 
@@ -38,11 +39,23 @@ export function LessonProgressBar({
         </View>
       </View>
 
-      {/* Hearts / Lives indicator */}
-      <View style={styles.heartContainer}>
-        <Ionicons name="heart" size={18} color={MartialTheme.colors.heartRed} />
-        <Text style={styles.heartText}>{hearts}</Text>
-      </View>
+      {/* Sash Rank Badge (Replaces Hearts) */}
+      {sashInfo ? (
+        <View
+          style={[
+            styles.sashBadge,
+            {
+              backgroundColor: sashInfo.sashColor,
+              borderColor: sashInfo.borderColor,
+            },
+          ]}
+        >
+          <MaterialCommunityIcons name="sword-cross" size={12} color={sashInfo.textColor} />
+          <Text style={[styles.sashBadgeText, { color: sashInfo.textColor }]}>
+            {sashInfo.shortName}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -83,16 +96,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.35)',
     borderRadius: 2,
   },
-  heartContainer: {
+  sashBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  heartText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: MartialTheme.colors.heartRed,
+  sashBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });

@@ -662,7 +662,7 @@ export default function CoachChatScreen() {
             activeOpacity={0.7}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="chevron-back" size={24} color={MartialTheme.colors.text} />
+            <Ionicons name="close" size={24} color={MartialTheme.colors.text} />
           </TouchableOpacity>
 
           <View style={{ flex: 1 }}>

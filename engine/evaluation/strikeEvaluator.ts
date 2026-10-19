@@ -1,6 +1,7 @@
 import { KineticPhaseScores, PillarScores, StrikeEvaluationResult } from './evaluationTypes';
 import {
   calculateJointScore,
+  calculateMultiTierJointScore,
   calculateOverallScore,
   calculateStarCount,
   computeGrade,
@@ -33,10 +34,18 @@ export function evaluatePoseFrame(
   const rightShoulderAngle = person.rightShoulderAngle ? Math.round(person.rightShoulderAngle) : 0;
   const rightWristAngle = person.rightWristAngle !== null ? Math.round(person.rightWristAngle) : 0;
 
-  // 1. Striking arm score (elbow)
+  // 1. Striking arm score (elbow) with multi-tier dataset calibration
   const elbowScore =
     person.elbowScore !== undefined
       ? person.elbowScore
+      : rule.optimal_min && rule.optimal_max
+      ? calculateMultiTierJointScore(
+          rightAngle,
+          rule.optimal_min,
+          rule.optimal_max,
+          rule.right_min,
+          rule.right_max
+        )
       : calculateJointScore(rightAngle, rule.right_min, rule.right_max);
 
   // 2. Shoulder score

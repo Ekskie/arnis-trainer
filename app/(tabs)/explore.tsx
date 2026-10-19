@@ -15,12 +15,14 @@ import { MartialTheme } from '@/constants/theme';
 import {
   ALL_CURRICULUM_LESSONS,
   CURRICULUM_DATA,
+  CurriculumLesson,
   CurriculumProgress,
   getCurriculumProgress,
   getStageSummary,
 } from '@/constants/curriculumStore';
 import { JourneyNode, NodeStatus } from '@/components/journey/JourneyNode';
 import { JourneyConnector } from '@/components/journey/JourneyConnector';
+import { JourneyPrerequisiteSheet } from '@/components/journey/JourneyPrerequisiteSheet';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 
@@ -36,6 +38,8 @@ export default function LearnCurriculumScreen() {
   });
 
   const [selectedStageIndex, setSelectedStageIndex] = useState<number>(0);
+  const [selectedLockedLesson, setSelectedLockedLesson] = useState<CurriculumLesson | null>(null);
+  const [showPrereqSheet, setShowPrereqSheet] = useState(false);
 
   // Load progress when screen is focused
   useFocusEffect(
@@ -66,7 +70,7 @@ export default function LearnCurriculumScreen() {
   const isStageComplete = stageSummary.completed === stageSummary.total && stageSummary.total > 0;
 
   // Offsets layout pattern for Duolingo-style winding zigzag trail
-  const offsetPattern: Array<'center' | 'left' | 'center' | 'right'> = [
+  const offsetPattern: ('center' | 'left' | 'center' | 'right')[] = [
     'center',
     'left',
     'center',
@@ -77,9 +81,45 @@ export default function LearnCurriculumScreen() {
     'right',
   ];
 
-  const handleNodePress = (lessonId: string) => {
+  const handleNodePress = (lesson: CurriculumLesson, isLocked: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push(`/lesson/${lessonId}` as any);
+    if (isLocked) {
+      setSelectedLockedLesson(lesson);
+      setShowPrereqSheet(true);
+    } else {
+      router.push(`/lesson/${lesson.id}` as any);
+    }
+  };
+
+  const prerequisiteNames = useMemo(() => {
+    if (!selectedLockedLesson) return [];
+    const currentStageLessons = currentStage.lessons;
+    const lessonIdx = currentStageLessons.findIndex(l => l.id === selectedLockedLesson.id);
+    if (lessonIdx > 0) {
+      return currentStageLessons
+        .slice(0, lessonIdx)
+        .filter(l => !curriculumProgress.completedLessonIds.includes(l.id))
+        .map(l => l.title);
+    }
+    if (selectedStageIndex > 0) {
+      const prevStage = CURRICULUM_DATA[selectedStageIndex - 1];
+      return prevStage.lessons
+        .filter(l => !curriculumProgress.completedLessonIds.includes(l.id))
+        .map(l => l.title);
+    }
+    return [];
+  }, [selectedLockedLesson, currentStage, curriculumProgress.completedLessonIds, selectedStageIndex]);
+
+  const handleStartTestOut = (strikeId: string, lessonId: string) => {
+    router.push({
+      pathname: '/evaluate' as any,
+      params: {
+        strikeId: strikeId || 'strike_1',
+        lessonId: lessonId,
+        mode: 'test',
+        source: 'lesson',
+      },
+    });
   };
 
   const handleAdvanceToNextStage = () => {
@@ -187,10 +227,6 @@ export default function LearnCurriculumScreen() {
             else if (isCurrent) nodeStatus = 'current';
 
             const alignOffset = offsetPattern[index % offsetPattern.length];
-            const nextOffset =
-              index < currentStage.lessons.length - 1
-                ? offsetPattern[(index + 1) % offsetPattern.length]
-                : 'center';
 
             return (
               <React.Fragment key={lesson.id}>
@@ -211,7 +247,7 @@ export default function LearnCurriculumScreen() {
                   status={nodeStatus}
                   durationMinutes={lesson.durationMinutes}
                   alignOffset={alignOffset}
-                  onPress={() => handleNodePress(lesson.id)}
+                  onPress={() => handleNodePress(lesson, isLocked)}
                 />
               </React.Fragment>
             );
@@ -271,6 +307,17 @@ export default function LearnCurriculumScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Prerequisite & Test-Out Challenge Sheet */}
+      <JourneyPrerequisiteSheet
+        visible={showPrereqSheet}
+        onClose={() => setShowPrereqSheet(false)}
+        lesson={selectedLockedLesson}
+        stageName={currentStage.name}
+        stageLevel={currentStage.levelNumber}
+        prerequisiteNames={prerequisiteNames}
+        onStartTestOut={handleStartTestOut}
+      />
     </SafeAreaView>
   );
 }

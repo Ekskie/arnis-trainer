@@ -28,6 +28,7 @@ export interface WhyFailedModalProps {
   strikeId: string;
   breakdown?: BreakdownScores;
   onPracticeLesson?: (lessonIdOrStrikeId: string) => void;
+  onRetryStrike?: (strikeId: string) => void;
 }
 
 export function WhyFailedModal({
@@ -39,8 +40,17 @@ export function WhyFailedModal({
   strikeId,
   breakdown,
   onPracticeLesson,
+  onRetryStrike,
 }: WhyFailedModalProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+  const handleTryAgain = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onClose();
+    if (onRetryStrike) {
+      onRetryStrike(strikeId);
+    }
+  };
 
   const direction = breakdown?.directionScore ?? Math.min(100, Math.round(overallScore * 1.05));
   const elbow = breakdown?.elbowScore ?? Math.max(40, Math.round(overallScore * 0.9));
@@ -186,7 +196,7 @@ export function WhyFailedModal({
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.tryAgainBtn}
-                onPress={onClose}
+                onPress={handleTryAgain}
                 activeOpacity={0.85}
               >
                 <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />

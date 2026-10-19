@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Image,
   Platform,
   StyleSheet,
@@ -12,11 +13,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { useRouter } from 'expo-router';
+import { registerSessionVideo } from '@/services/videoCacheManager';
 
 import { MartialTheme } from '@/constants/theme';
 import { StrikeRule } from '@/constants/strikeRules';
@@ -29,6 +31,13 @@ import { AnyoRoutine, AnyoStepResult } from '@/constants/historyStore';
 import { ImpactDetector } from '@/services/impactDetector';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
+
+const POSE_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const WEB_BASE_URL = Platform.OS === 'android' ? 'https://localhost' : 'http://localhost';
+const POSE_ENGINE_WEBVIEW_SOURCE = {
+  html: getPoseEngineHtml(POSE_MODEL_URL),
+  baseUrl: WEB_BASE_URL,
+};
 
 export interface PracticeLiveProps {
   strikeRule: StrikeRule;
@@ -114,12 +123,29 @@ export function PracticeLive({
     wrist: 0,
   });
 
-  // Countdown & evaluation states: 'practice' (un-timed free practice) -> 'counting' -> 'evaluating'
-  const [countdownState, setCountdownState] = useState<'practice' | 'counting' | 'evaluating'>('practice');
+  // Countdown & evaluation states: 'practice' -> 'waiting_for_frame' -> 'counting' -> 'evaluating'
+  const [countdownState, setCountdownState] = useState<'practice' | 'waiting_for_frame' | 'counting' | 'evaluating'>('practice');
   const [countdownValue, setCountdownValue] = useState<number | string>(3);
   const [countdownSubtext, setCountdownSubtext] = useState<string>('GET READY');
   const isCountingRef = useRef(false);
   const recordingIntervalRef = useRef<any>(null);
+  const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Native camera recording refs
+  const cameraRef = useRef<CameraView>(null);
+  const isRecordingVideoRef = useRef(false);
+  const recordPromiseRef = useRef<Promise<{ uri: string } | undefined> | null>(null);
+  const recordedVideoUriRef = useRef<string | null>(null);
+
+  // User in camera framing tracking
+  const [isUserInFrame, setIsUserInFrame] = useState(false);
+  const userFramedSinceRef = useRef<number | null>(null);
+
+  // Throttled HUD update timer (4 FPS / 250ms) to prevent UI/JS thread starvation
+  const lastHudUpdateRef = useRef<number>(0);
+
+  // Use module-level constant 101.7 KB HTML source so it is allocated once per app lifecycle
+  const webViewSource = POSE_ENGINE_WEBVIEW_SOURCE;
 
   // Best score tracker during evaluation window
   const bestScoreRef = useRef(0);
@@ -132,8 +158,8 @@ export function PracticeLive({
   });
   const impactDetectorRef = useRef(new ImpactDetector());
 
-  // Ghost guide visibility override: visible in free practice, hidden in formal evaluation
-  const [ghostGuideVisible, setGhostGuideVisible] = useState(countdownState === 'practice');
+  // Ghost guide visibility override: visible in free practice & waiting, hidden in formal evaluation
+  const [ghostGuideVisible, setGhostGuideVisible] = useState(countdownState === 'practice' || countdownState === 'waiting_for_frame');
 
   // Multi-Phase kinetic scoring tracking (25% Chamber, 50% Apex, 25% Recovery)
   const chamberScoreRef = useRef(0);
@@ -170,12 +196,12 @@ export function PracticeLive({
   const [detectedStrike, setDetectedStrike] = useState<{ name: string; confidence: number } | null>(null);
   const detectedOpacity = useRef(new Animated.Value(0)).current;
 
-  // Voice speech throttling
+  // Voice speech throttling (2.5s cadence)
   const lastSpokenTimestampRef = useRef(0);
   const speakCorrection = (text: string) => {
     if (!voiceActive) return;
     const now = Date.now();
-    if (now - lastSpokenTimestampRef.current > 3800) {
+    if (now - lastSpokenTimestampRef.current > 2500) {
       lastSpokenTimestampRef.current = now;
       Speech.speak(text, { language: 'en-US', rate: 1.05 });
     }
@@ -193,7 +219,11 @@ export function PracticeLive({
     setShowRecoveryPrompt(true);
     setCoachPrompt('RECOVER TO GUARD! 🛡️');
     if (voiceActive) {
-      Speech.speak('Recover to guard!', { language: 'en-US', rate: 1.1 });
+      if (currentAcc >= 85) {
+        Speech.speak('Magandang tira! Recover to guard!', { language: 'en-US', rate: 1.05 });
+      } else {
+        Speech.speak('Recover to guard!', { language: 'en-US', rate: 1.1 });
+      }
     }
 
     // 1.5s recovery grace window before auto-finishing evaluation
@@ -236,7 +266,11 @@ export function PracticeLive({
     onPoseData: (persons: RawPersonPose[]) => {
       if (persons.length === 0) {
         setIsFeetOutOfView(false);
-        if (countdownState === 'evaluating') {
+        setIsUserInFrame(false);
+        userFramedSinceRef.current = null;
+        if (countdownState === 'waiting_for_frame') {
+          setCoachPrompt('Step back into camera view so your full body is visible');
+        } else if (countdownState === 'evaluating') {
           setCoachPrompt('Step back into camera view');
         } else if (countdownState === 'practice') {
           setCoachPrompt('Step into camera view to practice');
@@ -245,20 +279,56 @@ export function PracticeLive({
       }
 
       const primaryPerson = persons[0];
-      setIsFeetOutOfView(!!primaryPerson.isFeetOutOfView);
+      const feetCut = !!primaryPerson.isFeetOutOfView;
+      setIsFeetOutOfView(feetCut);
+
+      const bodyInFrame = primaryPerson.isPersonVisible !== false && !feetCut;
+      setIsUserInFrame(bodyInFrame);
+
+      // In waiting_for_frame state, wait until user is fully in view before starting countdown
+      if (countdownState === 'waiting_for_frame') {
+        if (!bodyInFrame) {
+          userFramedSinceRef.current = null;
+          if (feetCut) {
+            setCoachPrompt('Step back — feet not visible in frame');
+          } else {
+            setCoachPrompt('Step into camera view');
+          }
+        } else {
+          // User is fully framed!
+          setCoachPrompt('User in frame! Hold position...');
+          if (!userFramedSinceRef.current) {
+            userFramedSinceRef.current = Date.now();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            if (voiceActive) {
+              Speech.speak('User in frame. Ready...', { language: 'en-US' });
+            }
+          } else if (Date.now() - userFramedSinceRef.current >= 800) {
+            // Steadily in frame for 800ms, start countdown!
+            userFramedSinceRef.current = null;
+            startCountdown();
+          }
+        }
+      }
 
       // Evaluate frame using Evaluation Engine
       const frameResult = evaluatePoseFrame(primaryPerson, strikeRule);
-      setLiveAccuracy(frameResult.accuracy);
-      setLivePillars(frameResult.pillars);
 
-      // Present only ONE prioritized coach correction at a time in practice mode
-      if (countdownState === 'practice') {
-        if (frameResult.correctionPrompt) {
-          setCoachPrompt(frameResult.correctionPrompt);
-          speakCorrection(frameResult.correctionPrompt);
-        } else if (frameResult.accuracy >= 85) {
-          setCoachPrompt('Sharp form! Tap Evaluate Form when ready!');
+      // Throttle live HUD updates to ~4 FPS (every 250ms) to prevent JS/UI thread starvation and ANRs
+      const now = Date.now();
+      if (now - lastHudUpdateRef.current >= 250) {
+        lastHudUpdateRef.current = now;
+        setLiveAccuracy(frameResult.accuracy);
+        setLivePillars(frameResult.pillars);
+
+        // Present only ONE prioritized coach correction at a time in practice mode (throttled to 4 FPS)
+        if (countdownState === 'practice') {
+          if (frameResult.correctionPrompt) {
+            setCoachPrompt(frameResult.correctionPrompt);
+            speakCorrection(frameResult.correctionPrompt);
+          } else if (frameResult.accuracy >= 85) {
+            setCoachPrompt('Sharp form! Tap Evaluate Form when ready!');
+          }
         }
       }
 
@@ -374,7 +444,7 @@ export function PracticeLive({
     try {
       p.loop = true;
       p.playbackRate = 0.75;
-      if (mode === 'follow') {
+      if (mode === 'follow' && countdownState !== 'evaluating') {
         p.play();
       } else {
         p.pause();
@@ -384,11 +454,11 @@ export function PracticeLive({
     }
   });
 
-  // Sync playback state when mode changes
+  // Sync playback state when mode or evaluation state changes (pause during active live evaluation to free hardware media decoders)
   useEffect(() => {
     if (!followPlayer) return;
     try {
-      if (mode === 'follow') {
+      if (mode === 'follow' && countdownState !== 'evaluating') {
         followPlayer.play();
       } else {
         followPlayer.pause();
@@ -396,45 +466,120 @@ export function PracticeLive({
     } catch {
       // ignore
     }
-  }, [mode, followPlayer]);
+    return () => {
+      try {
+        followPlayer.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [mode, countdownState, followPlayer]);
 
-  // Countdown timer logic: 3 -> 2 -> 1 -> GO!
+  // Initiate evaluation: step into camera view first, then auto-countdown once detected
+  const handleStartEvaluationFlow = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setCountdownState('waiting_for_frame');
+    userFramedSinceRef.current = null;
+    setCoachPrompt('Step back into camera view so your whole body is visible');
+    if (voiceActive) {
+      Speech.speak('Step back into camera view', { language: 'en-US' });
+    }
+  };
+
+  const handleStartEvaluationFlowRef = useRef(handleStartEvaluationFlow);
+  handleStartEvaluationFlowRef.current = handleStartEvaluationFlow;
+
+  const clearAllCountdownTimers = () => {
+    countdownTimeoutsRef.current.forEach((t) => clearTimeout(t));
+    countdownTimeoutsRef.current = [];
+    Speech.stop().catch(() => {});
+  };
+
+  // Unmount cleanup for Speech and timers
+  useEffect(() => {
+    return () => {
+      clearAllCountdownTimers();
+    };
+  }, []);
+
+  // Countdown timer logic: 3 -> 2 -> 1 -> GO! (Sequenced audio beeps and voice to eliminate clipping)
   const startCountdown = () => {
+    clearAllCountdownTimers();
     isCountingRef.current = true;
     setCountdownState('counting');
     setCountdownSubtext('GET READY');
     setCountdownValue(3);
     playAudio('countdown', false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (voiceActive) {
+      Speech.stop().catch(() => {}).then(() => {
+        const tSpeech0 = setTimeout(() => {
+          if (isCountingRef.current && voiceActive) {
+            Speech.speak('Three', { language: 'en-US', rate: 1.15 });
+          }
+        }, 180);
+        countdownTimeoutsRef.current.push(tSpeech0);
+      });
+    }
 
-    setTimeout(() => {
+    const t1 = setTimeout(() => {
       if (isCountingRef.current) {
         setCountdownValue(2);
         playAudio('countdown', false);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        if (voiceActive) {
+          Speech.stop().catch(() => {}).then(() => {
+            const tSpeech1 = setTimeout(() => {
+              if (isCountingRef.current && voiceActive) {
+                Speech.speak('Two', { language: 'en-US', rate: 1.15 });
+              }
+            }, 180);
+            countdownTimeoutsRef.current.push(tSpeech1);
+          });
+        }
       }
     }, 1000);
+    countdownTimeoutsRef.current.push(t1);
 
-    setTimeout(() => {
+    const t2 = setTimeout(() => {
       if (isCountingRef.current) {
         setCountdownValue(1);
         playAudio('countdown', false);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        if (voiceActive) {
+          Speech.stop().catch(() => {}).then(() => {
+            const tSpeech2 = setTimeout(() => {
+              if (isCountingRef.current && voiceActive) {
+                Speech.speak('One', { language: 'en-US', rate: 1.15 });
+              }
+            }, 180);
+            countdownTimeoutsRef.current.push(tSpeech2);
+          });
+        }
       }
     }, 2000);
+    countdownTimeoutsRef.current.push(t2);
 
-    setTimeout(() => {
+    const t3 = setTimeout(() => {
       if (isCountingRef.current) {
         setCountdownSubtext('STRIKE NOW!');
         setCountdownValue('GO! ⚔️');
         playAudio('countdown', true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (voiceActive) {
-          Speech.speak('Strike now!', { language: 'en-US' });
+          Speech.stop().catch(() => {}).then(() => {
+            const tSpeech3 = setTimeout(() => {
+              if (isCountingRef.current && voiceActive) {
+                Speech.speak('Strike now!', { language: 'en-US', rate: 1.15 });
+              }
+            }, 180);
+            countdownTimeoutsRef.current.push(tSpeech3);
+          });
         }
         startEvaluationWindow();
       }
     }, 3000);
+    countdownTimeoutsRef.current.push(t3);
   };
 
   // Timed evaluation window
@@ -454,6 +599,33 @@ export function PracticeLive({
 
     impactDetectorRef.current.reset(Date.now());
     startVideoRecording();
+
+    // Start native video recording if camera is available
+    recordedVideoUriRef.current = null;
+    if (cameraRef.current && !isRecordingVideoRef.current && Platform.OS !== 'web') {
+      try {
+        isRecordingVideoRef.current = true;
+        const promise = cameraRef.current.recordAsync({
+          maxDuration: 6,
+        });
+        recordPromiseRef.current = promise;
+        promise.then(async (result) => {
+          if (result?.uri) {
+            try {
+              const cachedUri = await registerSessionVideo(result.uri);
+              recordedVideoUriRef.current = cachedUri;
+            } catch {
+              recordedVideoUriRef.current = result.uri;
+            }
+          }
+        }).catch(() => {}).finally(() => {
+          isRecordingVideoRef.current = false;
+        });
+      } catch (camErr) {
+        console.warn('Native camera recordAsync error:', camErr);
+        isRecordingVideoRef.current = false;
+      }
+    }
 
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
@@ -481,16 +653,46 @@ export function PracticeLive({
   useEffect(() => {
     if (autoStartEval && webReady && countdownState === 'practice' && !isCountingRef.current) {
       const timer = setTimeout(() => {
-        startCountdownRef.current();
+        handleStartEvaluationFlowRef.current();
       }, 350);
       return () => clearTimeout(timer);
     }
   }, [autoStartEval, webReady, countdownState]);
 
   // Complete evaluation
-  const finishEvaluation = (durationMs: number) => {
+  const finishEvaluation = async (durationMs: number) => {
     isCountingRef.current = false;
+    clearAllCountdownTimers();
     stopVideoRecording();
+
+    // Stop native video recording if active and await file completion to avoid race condition
+    let recordedUri: string | null = recordedVideoUriRef.current;
+    if (isRecordingVideoRef.current && cameraRef.current && Platform.OS !== 'web') {
+      try {
+        cameraRef.current.stopRecording();
+      } catch {}
+      isRecordingVideoRef.current = false;
+      if (recordPromiseRef.current) {
+        try {
+          const result = await Promise.race([
+            recordPromiseRef.current,
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+          ]);
+          if (result && typeof result === 'object' && 'uri' in result && result.uri) {
+            try {
+              const cachedUri = await registerSessionVideo(result.uri);
+              recordedUri = cachedUri;
+              recordedVideoUriRef.current = cachedUri;
+            } catch {
+              recordedUri = result.uri;
+              recordedVideoUriRef.current = result.uri;
+            }
+          }
+        } catch (err) {
+          console.warn('Native camera recording error on stop:', err);
+        }
+      }
+    }
 
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
@@ -545,6 +747,7 @@ export function PracticeLive({
     };
 
     const finalSnapshot = impactResult.snapshotBase64 || lastSnapshot || undefined;
+    const finalReplayVideo = recordedUri || recordedVideoUriRef.current || lastReplayVideo || undefined;
 
     onComplete(
       {
@@ -562,7 +765,7 @@ export function PracticeLive({
         },
       },
       finalSnapshot,
-      lastReplayVideo || undefined,
+      finalReplayVideo,
       {
         impactFrame: impactResult.impactFrame,
         impactTime: impactResult.impactTime,
@@ -572,12 +775,38 @@ export function PracticeLive({
     );
   };
 
+  // Android hardware back handler to cleanly abort recording, stop speech, and exit
+  useEffect(() => {
+    const handleHardwareBack = () => {
+      isCountingRef.current = false;
+      clearAllCountdownTimers();
+      if (isRecordingVideoRef.current && cameraRef.current && Platform.OS !== 'web') {
+        try {
+          cameraRef.current.stopRecording();
+        } catch {}
+        isRecordingVideoRef.current = false;
+      }
+      Speech.stop().catch(() => {});
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+      if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
+      onExit();
+      return true;
+    };
+
+    const backSubscription = BackHandler.addEventListener('hardwareBackPress', handleHardwareBack);
+    return () => backSubscription.remove();
+  }, [onExit]);
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
+      clearAllCountdownTimers();
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
       }
+      if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+      if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
       isCountingRef.current = false;
     };
   }, []);
@@ -587,9 +816,6 @@ export function PracticeLive({
     if (score >= 70) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
-
-  const modelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-  const webBaseUrl = Platform.OS === 'android' ? 'https://localhost' : 'http://localhost';
 
   // Camera permission gatekeeper: don't mount WebView until OS camera permission is confirmed
   if (!cameraPermission) {
@@ -641,7 +867,7 @@ export function PracticeLive({
 
         <View style={styles.techniqueHeaderBox}>
           <View style={styles.strikeTitleRow}>
-            {countdownState === 'practice' && !activeRoutine && (
+            {(countdownState === 'practice' || countdownState === 'waiting_for_frame') && !activeRoutine && (
               <TouchableOpacity
                 onPress={() => handleCycleStrike(-1)}
                 style={styles.cycleChevronBtn}
@@ -657,7 +883,7 @@ export function PracticeLive({
               Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
             </Text>
 
-            {countdownState === 'practice' && !activeRoutine && (
+            {(countdownState === 'practice' || countdownState === 'waiting_for_frame') && !activeRoutine && (
               <TouchableOpacity
                 onPress={() => handleCycleStrike(1)}
                 style={styles.cycleChevronBtn}
@@ -743,8 +969,8 @@ export function PracticeLive({
 
       {/* --- 2. IMMERSIVE CAMERA VIEWPORT --- */}
       <View style={styles.cameraViewport}>
-        {/* If in Follow the Coach mode: Split upper instructor video view */}
-        {mode === 'follow' && (
+        {/* If in Follow the Coach mode: Split upper instructor video view (unmounted during active live evaluation) */}
+        {mode === 'follow' && countdownState !== 'evaluating' && (
           <View style={styles.followVideoHeader}>
             <View style={styles.followBadge}>
               <Ionicons name="eye" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
@@ -761,14 +987,20 @@ export function PracticeLive({
           </View>
         )}
 
-        {/* Real-time Pose WebView */}
-        <View style={{ flex: 1 }}>
+        {/* Real-time Pose WebView with underlying native video recording CameraView */}
+        <View style={{ flex: 1, position: 'relative' }}>
+          {Platform.OS !== 'web' && (
+            <CameraView
+              ref={cameraRef}
+              mode="video"
+              facing="front"
+              mute={true}
+              style={StyleSheet.absoluteFillObject}
+            />
+          )}
           <WebView
             ref={webViewRef}
-            source={{
-              html: getPoseEngineHtml(modelUrl),
-              baseUrl: webBaseUrl,
-            }}
+            source={webViewSource}
             originWhitelist={['*']}
             style={styles.webView}
             scrollEnabled={false}
@@ -778,7 +1010,7 @@ export function PracticeLive({
             mixedContentMode="always"
             allowsInlineMediaPlayback={true}
             allowFileAccess={true}
-            androidLayerType="hardware"
+            androidLayerType="none"
             mediaCapturePermissionGrantType="grant"
             // @ts-ignore
             onPermissionRequest={(event: any) => {
@@ -843,6 +1075,68 @@ export function PracticeLive({
               )}
             </View>
           )}
+
+          {/* Waiting For Full Body Framing Overlay */}
+          {countdownState === 'waiting_for_frame' && (
+            <View style={styles.waitingFrameOverlay}>
+              <View
+                style={[
+                  styles.waitingCard,
+                  isUserInFrame && styles.waitingCardSuccess,
+                  !isUserInFrame && isFeetOutOfView && styles.waitingCardWarning,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={
+                    isUserInFrame
+                      ? 'account-check'
+                      : isFeetOutOfView
+                      ? 'foot-print'
+                      : 'account-search'
+                  }
+                  size={32}
+                  color={
+                    isUserInFrame
+                      ? '#15803D'
+                      : isFeetOutOfView
+                      ? '#D97706'
+                      : '#3B82F6'
+                  }
+                />
+                <Text
+                  style={[
+                    styles.waitingCardTitle,
+                    isUserInFrame && styles.waitingCardTitleSuccess,
+                    !isUserInFrame && isFeetOutOfView && styles.waitingCardTitleWarning,
+                  ]}
+                >
+                  {isUserInFrame
+                    ? 'USER DETECTED! HOLD POSITION'
+                    : isFeetOutOfView
+                    ? 'STEP BACK — FEET NOT VISIBLE'
+                    : 'STEP INTO CAMERA VIEW'}
+                </Text>
+                <Text style={styles.waitingCardSubtext}>
+                  {isUserInFrame
+                    ? 'Hold position, starting countdown...'
+                    : isFeetOutOfView
+                    ? 'Take 1–2 steps back so your full body is framed'
+                    : 'Stand 6–8 feet away facing the camera'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Perimeter Glow for High-Visibility Distance Glanceability */}
+          <View
+            pointerEvents="none"
+            style={[
+              styles.perimeterGlowOverlay,
+              countdownState === 'waiting_for_frame' && isUserInFrame && styles.perimeterGlowSuccess,
+              countdownState === 'waiting_for_frame' && isFeetOutOfView && styles.perimeterGlowWarning,
+              countdownState === 'evaluating' && styles.perimeterGlowActive,
+            ]}
+          />
 
           {/* Countdown Overlay (3 -> 2 -> 1 -> GO!) */}
           {countdownState === 'counting' && (
@@ -933,18 +1227,28 @@ export function PracticeLive({
             </Text>
           </TouchableOpacity>
 
-          {/* Action Button: Evaluate Form (in practice mode) vs Finish & Grade (in evaluating mode) */}
+          {/* Action Button: Evaluate Form (in practice mode) vs Waiting for Frame vs Finish & Grade (in evaluating mode) */}
           {countdownState === 'practice' ? (
             <TouchableOpacity
               style={styles.startEvalBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                startCountdown();
-              }}
+              onPress={handleStartEvaluationFlow}
               activeOpacity={0.85}
             >
               <Ionicons name="flash" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.startEvalBtnText}>EVALUATE FORM ⚔️</Text>
+            </TouchableOpacity>
+          ) : countdownState === 'waiting_for_frame' ? (
+            <TouchableOpacity
+              style={styles.cancelEvalBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setCountdownState('practice');
+                userFramedSinceRef.current = null;
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="close-circle" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.cancelEvalBtnText}>CANCEL</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -1203,6 +1507,75 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
+  // WAITING FOR FRAME OVERLAY & PERIMETER GLOW
+  waitingFrameOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingHorizontal: 24,
+  },
+  waitingCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 22,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  waitingCardSuccess: {
+    borderColor: '#15803D',
+    backgroundColor: 'rgba(20, 83, 45, 0.94)',
+  },
+  waitingCardWarning: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(120, 53, 15, 0.94)',
+  },
+  waitingCardTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#60A5FA',
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  waitingCardTitleSuccess: {
+    color: '#4ADE80',
+  },
+  waitingCardTitleWarning: {
+    color: '#FBBF24',
+  },
+  waitingCardSubtext: {
+    fontSize: 13,
+    color: '#E2E8F0',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  perimeterGlowOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 0,
+  },
+  perimeterGlowSuccess: {
+    borderWidth: 5,
+    borderColor: '#22C55E',
+  },
+  perimeterGlowWarning: {
+    borderBottomWidth: 7,
+    borderBottomColor: '#F59E0B',
+  },
+  perimeterGlowActive: {
+    borderWidth: 3,
+    borderColor: '#EA580C',
+  },
+
   // COUNTDOWN OVERLAY
   countdownCenterOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1369,6 +1742,27 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   startEvalBtnText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  cancelEvalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderBottomWidth: 4,
+    borderBottomColor: '#991B1B',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  cancelEvalBtnText: {
     fontSize: 14,
     fontWeight: '900',
     color: '#FFFFFF',

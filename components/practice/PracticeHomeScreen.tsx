@@ -13,15 +13,10 @@ import { useRouter } from 'expo-router';
 import { MartialTheme } from '@/constants/theme';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
-import {
-  ANYO_ROUTINES_CATALOG,
-  AnyoRoutine,
-  getHistory,
-  getStrikeMasteryStats,
-  MasteryStats,
-  SessionItem,
-} from '@/constants/historyStore';
+import { ANYO_ROUTINES_CATALOG, AnyoRoutine, getHistory, getStrikeMasteryStats, MasteryStats, SessionItem } from '@/constants/historyStore';
 import { getGamificationStats } from '@/constants/gamificationStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafetyCheckModal } from '@/components/SafetyCheckModal';
 
 export interface PracticeHomeScreenProps {
   onStartStrike: (strikeId: string, mode?: 'follow' | 'guided' | 'test') => void;
@@ -50,6 +45,49 @@ export function PracticeHomeScreen({
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [showAllStrikes, setShowAllStrikes] = useState(false);
   const [showAnyoPicker, setShowAnyoPicker] = useState(false);
+
+  // First-run safety modal check
+  const [showSafetyModal, setShowSafetyModal] = useState(false);
+  const [hasSeenSafety, setHasSeenSafety] = useState<boolean | null>(null);
+  const [pendingStartAction, setPendingStartAction] = useState<(() => void) | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@arnis_has_seen_safety_modal').then((val) => {
+      setHasSeenSafety(val === '1');
+    });
+  }, []);
+
+  const executeOrShowSafety = (action: () => void) => {
+    if (hasSeenSafety) {
+      action();
+    } else {
+      setPendingStartAction(() => action);
+      setShowSafetyModal(true);
+    }
+  };
+
+  const handleConfirmSafety = async () => {
+    await AsyncStorage.setItem('@arnis_has_seen_safety_modal', '1');
+    setHasSeenSafety(true);
+    setShowSafetyModal(false);
+    if (pendingStartAction) {
+      pendingStartAction();
+      setPendingStartAction(null);
+    }
+  };
+
+  const handleDismissSafety = () => {
+    setShowSafetyModal(false);
+    setPendingStartAction(null);
+  };
+
+  const triggerStartStrike = (strikeId: string, mode?: 'follow' | 'guided' | 'test') => {
+    executeOrShowSafety(() => onStartStrike(strikeId, mode));
+  };
+
+  const triggerStartAnyo = (routine: AnyoRoutine) => {
+    executeOrShowSafety(() => onStartAnyo(routine));
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -234,7 +272,7 @@ export function PracticeHomeScreen({
           title={`PRACTICE STRIKE ${recommendedStrike.strikeNumber}`}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            onStartStrike(recommendedStrike.id, 'guided');
+            triggerStartStrike(recommendedStrike.id, 'guided');
           }}
           variant="primary"
           size="lg"
@@ -287,7 +325,7 @@ export function PracticeHomeScreen({
                 activeOpacity={0.75}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onStartStrike(s.id, 'guided');
+                  triggerStartStrike(s.id, 'guided');
                 }}
               >
                 {/* State Badge: Mastered (green check), Practiced (gold star), or Neutral */}
@@ -406,7 +444,7 @@ export function PracticeHomeScreen({
             activeOpacity={0.8}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onStartStrike(recommendedStrike.id, 'follow');
+              triggerStartStrike(recommendedStrike.id, 'follow');
             }}
           >
             <View style={[styles.modeIconCircle, { backgroundColor: '#FEF3C7' }]}>
@@ -427,7 +465,7 @@ export function PracticeHomeScreen({
             activeOpacity={0.8}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onStartStrike(recommendedStrike.id, 'test');
+              triggerStartStrike(recommendedStrike.id, 'test');
             }}
           >
             <View style={[styles.modeIconCircle, { backgroundColor: '#FFEDD5' }]}>
@@ -477,7 +515,7 @@ export function PracticeHomeScreen({
                   activeOpacity={0.7}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    onStartAnyo(routine);
+                    triggerStartAnyo(routine);
                   }}
                 >
                   <View style={styles.anyoRoutineLeft}>
@@ -555,6 +593,14 @@ export function PracticeHomeScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* First-Run Safety Check Modal */}
+      <SafetyCheckModal
+        visible={showSafetyModal}
+        onDismiss={handleDismissSafety}
+        onConfirm={handleConfirmSafety}
+        strikeName={recommendedStrike.name}
+      />
     </ScrollView>
   );
 }

@@ -74,7 +74,7 @@ export function JourneyNode({
         bounceLoop.stop();
       };
     }
-  }, [status]);
+  }, [status, bounceAnim, pulseAnim]);
 
   const getAlignmentStyle = (): { alignSelf: 'flex-start' | 'flex-end' | 'center'; marginLeft?: number; marginRight?: number } => {
     switch (alignOffset) {
@@ -115,7 +115,6 @@ export function JourneyNode({
       >
         <TouchableOpacity
           activeOpacity={0.85}
-          disabled={isLocked}
           onPress={onPress}
           style={[
             styles.circleNode,
@@ -147,7 +146,11 @@ export function JourneyNode({
       </Animated.View>
 
       {/* Lesson Title & Duration */}
-      <View style={styles.labelContainer}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onPress}
+        style={styles.labelContainer}
+      >
         <Text
           style={[
             styles.lessonTitle,
@@ -158,12 +161,10 @@ export function JourneyNode({
         >
           {title}
         </Text>
-        {!isLocked && (
-          <Text style={styles.durationTag}>
-            {isCompleted ? 'Completed ✓' : `⏱ ${durationMinutes} min`}
-          </Text>
-        )}
-      </View>
+        <Text style={styles.durationTag}>
+          {isCompleted ? 'Completed ✓' : isLocked ? 'Locked (Tap to view)' : `⏱ ${durationMinutes} min`}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
