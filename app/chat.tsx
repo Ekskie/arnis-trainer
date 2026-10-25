@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -371,6 +372,7 @@ function FormattedMessageText({ text, isUser }: { text: string; isUser: boolean 
 
 export default function CoachChatScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     strikeId?: string;
     strikeName?: string;
@@ -386,6 +388,7 @@ export default function CoachChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([
     'Explain this simply',
     'How can I improve?',
@@ -393,6 +396,29 @@ export default function CoachChatScreen() {
     'How should I practice?',
     "What's my weakest strike?",
   ]);
+
+  // Handle keyboard responsiveness on all devices
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 80);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Keep refs to avoid recreating callbacks or triggering effect cascades
   const userSessionsRef = useRef<SessionItem[]>(userSessions);
@@ -646,7 +672,7 @@ export default function CoachChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerContent}>
@@ -683,12 +709,14 @@ export default function CoachChatScreen() {
 
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           ref={scrollViewRef}
           contentContainerStyle={styles.chatContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {messages.map((item) => (
             <View
@@ -783,13 +811,21 @@ export default function CoachChatScreen() {
         </View>
 
         {/* Input Bar */}
-        <View style={styles.inputBar}>
+        <View
+          style={[
+            styles.inputBar,
+            { paddingBottom: keyboardVisible ? 10 : Math.max(insets.bottom, 12) },
+          ]}
+        >
           <TextInput
             style={styles.textInput}
             placeholder="Ask your coach anything..."
             placeholderTextColor={MartialTheme.colors.textMuted}
             value={inputText}
             onChangeText={setInputText}
+            onFocus={() => {
+              setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 120);
+            }}
             onSubmitEditing={() => handleSendMessage(inputText)}
           />
           <TouchableOpacity
@@ -995,7 +1031,7 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 10,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: MartialTheme.colors.border,

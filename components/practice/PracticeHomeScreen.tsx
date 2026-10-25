@@ -251,13 +251,7 @@ export function PracticeHomeScreen({
                 activeOpacity={0.75}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push({
-                    pathname: '/chat' as any,
-                    params: {
-                      strikeId: recommendedStrike.id,
-                      strikeName: `Strike ${recommendedStrike.strikeNumber}`,
-                    },
-                  });
+                  router.push('/coach-hub' as any);
                 }}
               >
                 <Text style={styles.coachAskBtnText}>💬 Ask Coach</Text>

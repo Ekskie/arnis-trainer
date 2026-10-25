@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
 
+import { useAuth } from '@/contexts/AuthContext';
 import { MartialTheme } from '@/constants/theme';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { ProgressBar } from '@/components/ui/ProgressBar';
@@ -45,6 +46,7 @@ const { width } = Dimensions.get('window');
 
 export default function ProgressHistoryScreen() {
   const router = useRouter();
+  const { user, profile, signOut } = useAuth();
   const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
@@ -90,7 +92,7 @@ export default function ProgressHistoryScreen() {
   useFocusEffect(
     React.useCallback(() => {
       let isMounted = true;
-      getHistory().then((history) => {
+      getHistory(user?.id).then((history) => {
         if (isMounted) {
           const list = history || [];
           setHistoryList(list);
@@ -110,7 +112,7 @@ export default function ProgressHistoryScreen() {
         }
       });
 
-      getGamificationStats().then((g) => {
+      getGamificationStats(user?.id).then((g) => {
         if (isMounted) {
           setStreakDays(g.streakDays || 1);
           setUserLevel(g.level || 1);
@@ -289,12 +291,38 @@ export default function ProgressHistoryScreen() {
     <SafeAreaView style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>YOUR PROGRESS</Text>
-          <Text style={styles.headerSubtitle}>Keep advancing your martial path</Text>
+          <Text style={styles.headerSubtitle}>
+            {profile?.display_name ? `Warrior ${profile.display_name}` : 'Keep advancing your martial path'}
+          </Text>
         </View>
-        <View style={styles.streakPill}>
-          <Text style={styles.streakPillText}>🔥 {streakDays}d</Text>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={styles.streakPill}>
+            <Text style={styles.streakPillText}>🔥 {streakDays}d</Text>
+          </View>
+
+          {user && (
+            <TouchableOpacity
+              style={styles.headerLogoutBtn}
+              onPress={() => {
+                Alert.alert('Sign Out', 'Do you want to log out of your Arnis account?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Sign Out',
+                    style: 'destructive',
+                    onPress: async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      await signOut();
+                    },
+                  },
+                ]);
+              }}
+              activeOpacity={0.7}>
+              <Ionicons name="log-out-outline" size={18} color="#DC2626" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -405,7 +433,7 @@ export default function ProgressHistoryScreen() {
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     router.push({
-                      pathname: '/chat' as any,
+                      pathname: '/coach-hub' as any,
                       params: {
                         strikeId: currentFocusStrike.id,
                         strikeName: `Strike ${currentFocusStrike.strikeNumber} (${currentFocusStrike.name})`,
@@ -1198,7 +1226,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
 
   // PROGRESS HERO CARD
@@ -1891,5 +1919,15 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
     color: '#0284C7',
+  },
+  headerLogoutBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
 });

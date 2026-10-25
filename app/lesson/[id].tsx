@@ -14,6 +14,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 
 import { MartialTheme } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   ALL_CURRICULUM_LESSONS,
   CurriculumLesson,
@@ -38,6 +39,7 @@ type LessonStepType = 'concept' | 'visual' | 'quiz' | 'remember' | 'celebration'
 
 export default function LessonScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const { id, completedFromDrill, earnedScore } = useLocalSearchParams<{
     id: string;
     completedFromDrill?: string;
@@ -85,21 +87,21 @@ export default function LessonScreen() {
       setCurrentStepIndex(celebrationIndex);
       const bonusXp = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
       setEarnedXp(bonusXp);
-      getGamificationStats().then((stats) => {
+      getGamificationStats(user?.id).then((stats) => {
         setNewStreak(stats.streakDays);
         if (stats.level) {
           const sash = getSashRankByLevel(stats.level);
           setUserSash(sash);
         }
       });
-      markLessonCompleted(lesson.id);
+      markLessonCompleted(lesson.id, user?.id);
     } else if (completedFromDrill === '0') {
       const rememberIdx = steps.indexOf('remember');
       if (rememberIdx >= 0) {
         setCurrentStepIndex(rememberIdx);
       }
     }
-  }, [completedFromDrill, earnedScore, steps, lesson.id]);
+  }, [completedFromDrill, earnedScore, steps, lesson.id, user?.id]);
 
   const currentStep = steps[currentStepIndex] || 'concept';
 
@@ -169,14 +171,14 @@ export default function LessonScreen() {
       setCurrentStepIndex(currentStepIndex + 1);
     } else if (currentStepIndex === steps.length - 2) {
       // Reaching celebration step: award XP and mark complete!
-      addXpAndStreak(10).then((stats) => {
+      addXpAndStreak(10, user?.id).then((stats) => {
         setEarnedXp(10);
         setNewStreak(stats.streakDays);
         if (stats.isPromoted && stats.newRank) {
           setPromotionModalRank({ newRank: stats.newRank, level: stats.level });
         }
       });
-      markLessonCompleted(lesson.id);
+      markLessonCompleted(lesson.id, user?.id);
       setCurrentStepIndex(steps.length - 1);
     }
   };
@@ -293,7 +295,7 @@ export default function LessonScreen() {
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push({
-              pathname: '/chat' as any,
+              pathname: '/coach-hub' as any,
               params: {
                 lessonId: lesson.id,
               },

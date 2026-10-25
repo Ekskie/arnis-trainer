@@ -1,0 +1,45 @@
+# EAS Build ignore file
+# Exclude files to reduce upload size and speed up builds
+
+# Dependencies & Build artifacts
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native folders (EAS runs prebuild in cloud)
+/android
+/ios
+
+# Native credentials & debug files
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.metro-health-check*
+.DS_Store
+*.pem
+*.tsbuildinfo
+app-example
+
+# Datasets and model files not needed during cloud build
+*.csv
+alphapose-results.json
+defense_results.md
+public/
+
+# Environment files (managed securely via EAS Environment Variables)
+.env*.local
+.env
+
+# Editor & AI tool folders
+.git/
+.vscode/
+.claude/

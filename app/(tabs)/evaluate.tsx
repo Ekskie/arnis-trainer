@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { usePracticeSession } from '@/hooks/usePracticeSession';
 import { PracticeHomeScreen } from '@/components/practice/PracticeHomeScreen';
@@ -6,6 +7,21 @@ import { PracticeLive } from '@/components/practice/PracticeLive';
 import { PracticeResult } from '@/components/practice/PracticeResult';
 import { StrikeVideoModal } from '@/components/StrikeVideoModal';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
+import { MartialTheme } from '@/constants/theme';
+
+const DEFAULT_TAB_BAR_STYLE = {
+  backgroundColor: '#FFFFFF',
+  borderTopWidth: 1,
+  borderTopColor: MartialTheme.colors.border,
+  height: Platform.OS === 'ios' ? 88 : 66,
+  paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+  paddingTop: 8,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: -2 },
+  shadowOpacity: 0.04,
+  shadowRadius: 4,
+  elevation: 4,
+};
 
 /**
  * Route Container for Practice & Evaluation.
@@ -29,10 +45,10 @@ export default function EvaluateScreen() {
     if (practice.screen === 'live' || practice.screen === 'result') {
       navigation.setOptions({ tabBarStyle: { display: 'none' } });
     } else {
-      navigation.setOptions({ tabBarStyle: undefined });
+      navigation.setOptions({ tabBarStyle: DEFAULT_TAB_BAR_STYLE });
     }
     return () => {
-      navigation.setOptions({ tabBarStyle: undefined });
+      navigation.setOptions({ tabBarStyle: DEFAULT_TAB_BAR_STYLE });
     };
   }, [practice.screen, navigation]);
 

@@ -28,9 +28,13 @@ import {
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { TodaysTrainingModal } from '@/components/TodaysTrainingModal';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 
 export default function HomeDashboardScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const { unreadCount } = useNotifications();
 
   const [gamification, setGamification] = useState<GamificationStats>({
     streakDays: 3,
@@ -63,18 +67,18 @@ export default function HomeDashboardScreen() {
     React.useCallback(() => {
       let isMounted = true;
 
-      getGamificationStats().then((stats) => {
+      getGamificationStats(user?.id).then((stats) => {
         if (isMounted) setGamification(stats);
       });
 
-      getCurriculumProgress().then((prog) => {
+      getCurriculumProgress(user?.id).then((prog) => {
         if (isMounted) setCurriculumProgress(prog);
       });
 
       return () => {
         isMounted = false;
       };
-    }, [])
+    }, [user?.id])
   );
 
   // Next lesson to train
@@ -163,10 +167,15 @@ export default function HomeDashboardScreen() {
               activeOpacity={0.75}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push('/chat' as any);
+                router.push('/coach-hub' as any);
               }}
             >
               <Text style={styles.heroAskCoachText}>🥋 Ask Coach</Text>
+              {unreadCount > 0 && (
+                <View style={styles.heroUnreadBadge}>
+                  <Text style={styles.heroUnreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                </View>
+              )}
               <Ionicons name="chevron-forward" size={12} color={MartialTheme.colors.primaryDark} />
             </TouchableOpacity>
             <View style={styles.speechBubbleArrow} />
@@ -399,13 +408,26 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.3,
   },
+  profileAvatarBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarImg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
   badgeEmoji: {
     fontSize: 13,
   },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   heroSection: {
     flexDirection: 'row',
@@ -467,6 +489,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: MartialTheme.colors.primaryDark,
+  },
+  heroUnreadBadge: {
+    backgroundColor: '#DC2626',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroUnreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   heroCoach: {
     marginRight: -4,
@@ -676,5 +712,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: MartialTheme.colors.textSecondary,
     textAlign: 'center',
+  },
+  coachTopBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  coachMentorshipCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: '#DCFCE7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  coachMentorshipCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  coachMentorshipTagBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  coachMentorshipTagText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.5,
+  },
+  coachMentorshipTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+    marginBottom: 6,
+  },
+  coachMentorshipDesc: {
+    fontSize: 13,
+    color: MartialTheme.colors.textSecondary,
+    lineHeight: 19,
   },
 });

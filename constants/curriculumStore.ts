@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STRIKE_VIDEOS_CATALOG, StrikeVideoItem } from './strikeVideos';
+import { isSupabaseConfigured, supabase } from '@/services/supabase';
+import { CloudSyncService } from '@/services/cloudSyncService';
 
 export type LessonStatus = 'not_started' | 'learning' | 'watched' | 'practicing' | 'assessed' | 'mastered';
 
@@ -1447,8 +1449,21 @@ export const CURRICULUM_DATA: CurriculumLevel[] = [
 // Flat list of all lessons
 export const ALL_CURRICULUM_LESSONS: CurriculumLesson[] = CURRICULUM_DATA.flatMap(lvl => lvl.lessons);
 
-const STORAGE_KEY_PROGRESS = '@arnis_curriculum_progress_v2';
-const STORAGE_KEY_DETAILED = '@arnis_curriculum_detailed_v3';
+let activeCurriculumUserId: string | null = null;
+
+export function setActiveCurriculumUserId(userId: string | null) {
+  activeCurriculumUserId = userId;
+}
+
+export function getCurriculumProgressKey(userId?: string | null): string {
+  const uid = userId !== undefined ? userId : activeCurriculumUserId;
+  return uid ? `@arnis_curriculum_progress_${uid}` : '@arnis_curriculum_progress_v2';
+}
+
+export function getCurriculumDetailedKey(userId?: string | null): string {
+  const uid = userId !== undefined ? userId : activeCurriculumUserId;
+  return uid ? `@arnis_curriculum_detailed_${uid}` : '@arnis_curriculum_detailed_v3';
+}
 
 export interface DetailedLessonRecord {
   status: LessonStatus;
@@ -1457,14 +1472,15 @@ export interface DetailedLessonRecord {
   lastTrainedDate?: string;
 }
 
-export async function getAllLessonDetailedStatuses(): Promise<Record<string, DetailedLessonRecord>> {
+export async function getAllLessonDetailedStatuses(userId?: string): Promise<Record<string, DetailedLessonRecord>> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY_DETAILED);
+    const key = getCurriculumDetailedKey(userId);
+    const raw = await AsyncStorage.getItem(key);
     if (raw) {
       return JSON.parse(raw);
     }
     // Backward compatibility: migrate from completedLessonIds
-    const prog = await getCurriculumProgress();
+    const prog = await getCurriculumProgress(userId);
     const migrated: Record<string, DetailedLessonRecord> = {};
     ALL_CURRICULUM_LESSONS.forEach((lesson, index) => {
       if (prog.completedLessonIds.includes(lesson.id)) {
@@ -1485,10 +1501,12 @@ export async function getAllLessonDetailedStatuses(): Promise<Record<string, Det
 export async function setLessonPedagogicalStatus(
   lessonId: string,
   status: LessonStatus,
-  score?: number
+  score?: number,
+  userId?: string
 ): Promise<void> {
   try {
-    const current = await getAllLessonDetailedStatuses();
+    const key = getCurriculumDetailedKey(userId);
+    const current = await getAllLessonDetailedStatuses(userId);
     const existing = current[lessonId] || { status: 'not_started', attempts: 0 };
     const updatedRecord: DetailedLessonRecord = {
       status,
@@ -1497,11 +1515,35 @@ export async function setLessonPedagogicalStatus(
       lastTrainedDate: new Date().toISOString(),
     };
     current[lessonId] = updatedRecord;
-    await AsyncStorage.setItem(STORAGE_KEY_DETAILED, JSON.stringify(current));
+    await AsyncStorage.setItem(key, JSON.stringify(current));
 
     // If marked assessed with high score or marked mastered, mark completed in base progress
     if (status === 'mastered' || (score && score >= 85)) {
-      await markLessonCompleted(lessonId);
+      await markLessonCompleted(lessonId, userId);
+    }
+
+    // Auto-sync lesson progress to Supabase Cloud
+    const uid = userId !== undefined ? userId : activeCurriculumUserId;
+    if (uid) {
+      CloudSyncService.syncCurriculumProgress(
+        uid,
+        lessonId,
+        status,
+        score || 0,
+        status === 'mastered'
+      ).catch(() => {});
+    } else {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          CloudSyncService.syncCurriculumProgress(
+            user.id,
+            lessonId,
+            status,
+            score || 0,
+            status === 'mastered'
+          ).catch(() => {});
+        }
+      }).catch(() => {});
     }
   } catch (e) {
     console.error('Failed to set lesson status', e);
@@ -1567,10 +1609,32 @@ export function getLevelSummary(levelNumber: number, completedLessonIds: string[
   return getStageSummary(levelNumber, completedLessonIds);
 }
 
-export async function getCurriculumProgress(): Promise<CurriculumProgress> {
+export async function getCurriculumProgress(userId?: string): Promise<CurriculumProgress> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY_PROGRESS);
-    const completedLessonIds: string[] = raw ? JSON.parse(raw) : [];
+    const key = getCurriculumProgressKey(userId);
+    let raw = await AsyncStorage.getItem(key);
+    let completedLessonIds: string[] = raw ? JSON.parse(raw) : [];
+
+    // If local cache is empty for this user, attempt to fetch from Supabase
+    const uid = userId !== undefined ? userId : activeCurriculumUserId;
+    if (completedLessonIds.length === 0 && uid && isSupabaseConfigured) {
+      try {
+        const { data } = await supabase
+          .from('curriculum_progress')
+          .select('lesson_id, status')
+          .eq('user_id', uid);
+        if (data && data.length > 0) {
+          completedLessonIds = data
+            .filter((d) => d.status === 'mastered' || d.status === 'assessed')
+            .map((d) => d.lesson_id);
+          if (completedLessonIds.length > 0) {
+            await AsyncStorage.setItem(key, JSON.stringify(completedLessonIds));
+          }
+        }
+      } catch (e) {
+        // Fallback silently if network offline
+      }
+    }
 
     const totalLessons = ALL_CURRICULUM_LESSONS.length;
     const completedCount = completedLessonIds.length;
@@ -1598,18 +1662,45 @@ export async function getCurriculumProgress(): Promise<CurriculumProgress> {
   }
 }
 
-export async function markLessonCompleted(lessonId: string): Promise<CurriculumProgress> {
+export async function markLessonCompleted(lessonId: string, userId?: string): Promise<CurriculumProgress> {
   try {
-    const current = await getCurriculumProgress();
+    const key = getCurriculumProgressKey(userId);
+    const current = await getCurriculumProgress(userId);
+    const uid = userId !== undefined ? userId : activeCurriculumUserId;
+
     if (!current.completedLessonIds.includes(lessonId)) {
       const updatedIds = [...current.completedLessonIds, lessonId];
-      await AsyncStorage.setItem(STORAGE_KEY_PROGRESS, JSON.stringify(updatedIds));
-      return await getCurriculumProgress();
+      await AsyncStorage.setItem(key, JSON.stringify(updatedIds));
+
+      // Realtime cloud sync to Supabase so coaches immediately see the updated journey!
+      if (uid) {
+        CloudSyncService.syncCurriculumProgress(
+          uid,
+          lessonId,
+          'mastered',
+          100,
+          true
+        ).catch(() => {});
+      } else {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (user) {
+            CloudSyncService.syncCurriculumProgress(
+              user.id,
+              lessonId,
+              'mastered',
+              100,
+              true
+            ).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+
+      return await getCurriculumProgress(userId);
     }
     return current;
   } catch (e) {
     console.error('Failed to mark lesson completed', e);
-    return await getCurriculumProgress();
+    return await getCurriculumProgress(userId);
   }
 }
 
@@ -1672,10 +1763,10 @@ export function getLessonStatus(
   return 'not_started';
 }
 
-export async function resetCurriculumProgress(): Promise<void> {
+export async function resetCurriculumProgress(userId?: string): Promise<void> {
   try {
-    await AsyncStorage.removeItem(STORAGE_KEY_PROGRESS);
-    await AsyncStorage.removeItem(STORAGE_KEY_DETAILED);
+    await AsyncStorage.removeItem(getCurriculumProgressKey(userId));
+    await AsyncStorage.removeItem(getCurriculumDetailedKey(userId));
   } catch (e) {
     console.error('Failed to reset curriculum progress', e);
   }

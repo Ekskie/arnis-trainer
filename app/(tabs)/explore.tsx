@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   scrollContent: {
-    paddingBottom: 60,
+    paddingBottom: 100,
   },
   stageHeroBanner: {
     backgroundColor: '#FFFFFF',

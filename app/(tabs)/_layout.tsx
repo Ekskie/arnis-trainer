@@ -1,11 +1,17 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
 import { MartialTheme } from '@/constants/theme';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  // Responsively adapt to system navigation (Android 3-button bar ~48px, gesture bar ~16-24px, iOS bar ~34px)
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 14 : 12);
+  const tabHeight = 60 + bottomInset;
+
   return (
     <Tabs
       screenOptions={{
@@ -17,8 +23,8 @@ export default function TabLayout() {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
           borderTopColor: MartialTheme.colors.border,
-          height: Platform.OS === 'ios' ? 88 : 66,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+          height: tabHeight,
+          paddingBottom: bottomInset,
           paddingTop: 8,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
@@ -65,6 +71,15 @@ export default function TabLayout() {
           title: 'Progress',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'trophy' : 'trophy-outline'} size={23} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'person-circle' : 'person-circle-outline'} size={24} color={color} />
           ),
         }}
       />

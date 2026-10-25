@@ -95,11 +95,23 @@ function getYesterdayString(): string {
   return d.toISOString().split('T')[0];
 }
 
-export async function getGamificationStats(): Promise<GamificationStats> {
+let activeGamificationUserId: string | null = null;
+
+export function setActiveGamificationUserId(userId: string | null) {
+  activeGamificationUserId = userId;
+}
+
+export function getGamificationStorageKey(userId?: string | null): string {
+  const uid = userId !== undefined ? userId : activeGamificationUserId;
+  return uid ? `@posefix_gamification_${uid}` : GAMIFICATION_STORAGE_KEY;
+}
+
+export async function getGamificationStats(userId?: string): Promise<GamificationStats> {
   try {
-    const raw = await AsyncStorage.getItem(GAMIFICATION_STORAGE_KEY);
+    const key = getGamificationStorageKey(userId);
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) {
-      await AsyncStorage.setItem(GAMIFICATION_STORAGE_KEY, JSON.stringify(DEFAULT_STATS));
+      await AsyncStorage.setItem(key, JSON.stringify(DEFAULT_STATS));
       return DEFAULT_STATS;
     }
     const parsed: GamificationStats = JSON.parse(raw);
@@ -115,9 +127,10 @@ export interface AddXpResult extends GamificationStats {
   newRank?: SashRankInfo;
 }
 
-export async function addXpAndStreak(xpEarned: number = 10): Promise<AddXpResult> {
+export async function addXpAndStreak(xpEarned: number = 10, userId?: string): Promise<AddXpResult> {
   try {
-    const stats = await getGamificationStats();
+    const key = getGamificationStorageKey(userId);
+    const stats = await getGamificationStats(userId);
     const today = getTodayString();
     const yesterday = getYesterdayString();
 
@@ -148,9 +161,18 @@ export async function addXpAndStreak(xpEarned: number = 10): Promise<AddXpResult
       newRank,
     };
 
-    await AsyncStorage.setItem(GAMIFICATION_STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
     return updated;
   } catch {
     return DEFAULT_STATS;
+  }
+}
+
+export async function clearGamificationStats(userId?: string): Promise<void> {
+  try {
+    const key = getGamificationStorageKey(userId);
+    await AsyncStorage.removeItem(key);
+  } catch (e) {
+    console.error('Failed to clear gamification stats', e);
   }
 }

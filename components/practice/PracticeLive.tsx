@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
@@ -131,10 +131,7 @@ export function PracticeLive({
   const recordingIntervalRef = useRef<any>(null);
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Native camera recording refs
-  const cameraRef = useRef<CameraView>(null);
-  const isRecordingVideoRef = useRef(false);
-  const recordPromiseRef = useRef<Promise<{ uri: string } | undefined> | null>(null);
+  // Recorded replay video ref
   const recordedVideoUriRef = useRef<string | null>(null);
 
   // User in camera framing tracking
@@ -600,32 +597,8 @@ export function PracticeLive({
     impactDetectorRef.current.reset(Date.now());
     startVideoRecording();
 
-    // Start native video recording if camera is available
+    // Video replay recording is handled seamlessly by WebView canvas stream
     recordedVideoUriRef.current = null;
-    if (cameraRef.current && !isRecordingVideoRef.current && Platform.OS !== 'web') {
-      try {
-        isRecordingVideoRef.current = true;
-        const promise = cameraRef.current.recordAsync({
-          maxDuration: 6,
-        });
-        recordPromiseRef.current = promise;
-        promise.then(async (result) => {
-          if (result?.uri) {
-            try {
-              const cachedUri = await registerSessionVideo(result.uri);
-              recordedVideoUriRef.current = cachedUri;
-            } catch {
-              recordedVideoUriRef.current = result.uri;
-            }
-          }
-        }).catch(() => {}).finally(() => {
-          isRecordingVideoRef.current = false;
-        });
-      } catch (camErr) {
-        console.warn('Native camera recordAsync error:', camErr);
-        isRecordingVideoRef.current = false;
-      }
-    }
 
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
@@ -665,34 +638,7 @@ export function PracticeLive({
     clearAllCountdownTimers();
     stopVideoRecording();
 
-    // Stop native video recording if active and await file completion to avoid race condition
-    let recordedUri: string | null = recordedVideoUriRef.current;
-    if (isRecordingVideoRef.current && cameraRef.current && Platform.OS !== 'web') {
-      try {
-        cameraRef.current.stopRecording();
-      } catch {}
-      isRecordingVideoRef.current = false;
-      if (recordPromiseRef.current) {
-        try {
-          const result = await Promise.race([
-            recordPromiseRef.current,
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
-          ]);
-          if (result && typeof result === 'object' && 'uri' in result && result.uri) {
-            try {
-              const cachedUri = await registerSessionVideo(result.uri);
-              recordedUri = cachedUri;
-              recordedVideoUriRef.current = cachedUri;
-            } catch {
-              recordedUri = result.uri;
-              recordedVideoUriRef.current = result.uri;
-            }
-          }
-        } catch (err) {
-          console.warn('Native camera recording error on stop:', err);
-        }
-      }
-    }
+    let recordedUri: string | null = recordedVideoUriRef.current || lastReplayVideo;
 
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
@@ -780,12 +726,7 @@ export function PracticeLive({
     const handleHardwareBack = () => {
       isCountingRef.current = false;
       clearAllCountdownTimers();
-      if (isRecordingVideoRef.current && cameraRef.current && Platform.OS !== 'web') {
-        try {
-          cameraRef.current.stopRecording();
-        } catch {}
-        isRecordingVideoRef.current = false;
-      }
+      stopVideoRecording();
       Speech.stop().catch(() => {});
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
       if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
@@ -936,14 +877,7 @@ export function PracticeLive({
             style={styles.coachLiveBtn}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({
-                pathname: '/chat' as any,
-                params: {
-                  strikeId: strikeRule.id,
-                  strikeName: strikeRule.name,
-                  source: 'practice',
-                },
-              });
+              router.push('/coach-hub' as any);
             }}
             activeOpacity={0.7}
           >
@@ -987,17 +921,8 @@ export function PracticeLive({
           </View>
         )}
 
-        {/* Real-time Pose WebView with underlying native video recording CameraView */}
+        {/* Real-time Pose WebView */}
         <View style={{ flex: 1, position: 'relative' }}>
-          {Platform.OS !== 'web' && (
-            <CameraView
-              ref={cameraRef}
-              mode="video"
-              facing="front"
-              mute={true}
-              style={StyleSheet.absoluteFillObject}
-            />
-          )}
           <WebView
             ref={webViewRef}
             source={webViewSource}

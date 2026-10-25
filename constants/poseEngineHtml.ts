@@ -26,7 +26,13 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       align-items: center;
     }
     video {
-      display: none;
+      position: absolute;
+      top: -9999px;
+      left: -9999px;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      pointer-events: none;
     }
     canvas {
       position: absolute;
@@ -1189,7 +1195,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       const bannerW = isRecent ? Math.min(340, canvasW - 20) : Math.min(260, canvasW - 20);
       const bannerH = 34;
       const bannerX = (canvasW - bannerW) / 2;
-      const bannerY = formCoachMode ? 78 : 16;
+      const bannerY = 16;
 
       ctx.fillStyle = isRecent ? "rgba(16, 185, 129, 0.92)" : "rgba(15, 23, 42, 0.88)";
       ctx.strokeStyle = isRecent ? "#34D399" : "rgba(245, 158, 11, 0.8)";
@@ -1214,71 +1220,9 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
     }
 
     function drawFormCoachHUD(ctx, phase, strikeId, now) {
-      if (!formCoachMode) return;
-
-      try {
-        ctx.save();
-        const canvasW = canvasElement.width;
-        const bannerW = Math.min(340, canvasW - 24);
-        const bannerH = 58;
-        const bannerX = (canvasW - bannerW) / 2;
-        const bannerY = 14;
-
-        // Dark glass container
-        ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-        ctx.strokeStyle = "#38BDF8";
-        ctx.lineWidth = 1.5;
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = "rgba(56, 189, 248, 0.4)";
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 12);
-        } else {
-          ctx.rect(bannerX, bannerY, bannerW, bannerH);
-        }
-        ctx.fill();
-        ctx.stroke();
-
-      // Step indicators: 1. Kasa -> 2. Tudla -> 3. Bawi
-      const steps = [
-        { key: 'chamber', label: '1. KASA', name: 'Chamber' },
-        { key: 'impact', label: '2. TUDLA', name: 'Strike' },
-        { key: 'recovery', label: '3. BAWI', name: 'Recovery' }
-      ];
-
-      const stepW = bannerW / 3;
-      steps.forEach((step, idx) => {
-        const isCurrent = phase === step.key;
-        const isDone = (phase === 'impact' && idx === 0) || (phase === 'recovery' && idx <= 1);
-        const sX = bannerX + idx * stepW + stepW / 2;
-        const sY = bannerY + 18;
-
-        ctx.textAlign = "center";
-        ctx.font = isCurrent ? "bold 11px sans-serif" : "bold 10px sans-serif";
-        ctx.fillStyle = isDone ? "#10B981" : isCurrent ? "#F59E0B" : "#64748B";
-        ctx.fillText((isDone ? "✓ " : "") + step.label, sX, sY);
-
-        ctx.font = "9px sans-serif";
-        ctx.fillStyle = isCurrent ? "#FFFFFF" : "#94A3B8";
-        ctx.fillText(step.name, sX, sY + 12);
-      });
-
-      // Bottom dynamic guidance text
-      let guideText = "Chamber stick by ear & raise check hand";
-      if (phase === 'impact') {
-        guideText = "⚡ Slice along trajectory line through apex!";
-      } else if (phase === 'recovery') {
-        guideText = "🛡️ Return to ready guard stance!";
-      }
-
-      ctx.font = "bold 10.5px sans-serif";
-      ctx.fillStyle = phase === 'impact' ? "#FACC15" : phase === 'recovery' ? "#38BDF8" : "#E2E8F0";
-      ctx.textAlign = "center";
-      ctx.fillText(guideText, bannerX + bannerW / 2, bannerY + 48);
-
-      ctx.restore();
-    } catch (e) {}
-  }
+      // Disabled in favor of the clean native React Native 3-phase stepper overlay
+      return;
+    }
 
     // 3-Meter Visual Ergonomics: Full-Screen Peripheral Edge Glow & State Indicator
     function drawPeripheralEdgeGlow(ctx, primaryPerson, width, height, timestamp) {

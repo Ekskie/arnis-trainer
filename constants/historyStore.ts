@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isSupabaseConfigured, supabase } from '@/services/supabase';
 
 export interface SessionItem {
   id: string;
@@ -149,7 +150,16 @@ export interface MasteryStats {
 import { STRIKES_CATALOG, StrikeRule } from '@/constants/strikeRules';
 export { STRIKES_CATALOG, StrikeRule };
 
-const STORAGE_KEY = '@arnis_pose_sessions';
+let activeHistoryUserId: string | null = null;
+
+export function setActiveHistoryUserId(userId: string | null) {
+  activeHistoryUserId = userId;
+}
+
+export function getHistoryStorageKey(userId?: string | null): string {
+  const uid = userId !== undefined ? userId : activeHistoryUserId;
+  return uid ? `@arnis_pose_sessions_${uid}` : '@arnis_pose_sessions';
+}
 
 export function computeGrade(score: number): string {
   if (score >= 95) return 'Grade A';
@@ -252,18 +262,53 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
   };
 }
 
-export async function getHistory(): Promise<SessionItem[]> {
+export async function getHistory(userId?: string): Promise<SessionItem[]> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const items: SessionItem[] = JSON.parse(raw);
+    const key = getHistoryStorageKey(userId);
+    const raw = await AsyncStorage.getItem(key);
+    let items: SessionItem[] = raw ? JSON.parse(raw) : [];
+
     // Filter out legacy mock data items (ids starting with 'mock_')
     const realItems = items.filter(item => !item.id.startsWith('mock_'));
     if (realItems.length !== items.length) {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(realItems));
+      await AsyncStorage.setItem(key, JSON.stringify(realItems));
     }
+
+    // If local cache is empty for this user and Supabase is configured, pull from cloud
+    const uid = userId !== undefined ? userId : activeHistoryUserId;
+    if (realItems.length === 0 && uid && isSupabaseConfigured) {
+      try {
+        const { data } = await supabase
+          .from('practice_sessions')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false });
+
+        if (data && data.length > 0) {
+          const cloudItems: SessionItem[] = data.map((d: any) => ({
+            id: d.id,
+            strikeId: d.strike_id,
+            strikeName: d.strike_name,
+            description: d.strike_name,
+            score: d.score,
+            grade: d.grade,
+            date: d.date,
+            snapshotBase64: d.snapshot_url,
+            userVideoUri: d.video_url,
+            breakdown: d.breakdown || {
+              elbow: { score: d.score, actual: 45, ideal: 45 },
+              shoulder: { score: d.score, actual: 55, ideal: 55 },
+              wrist: { score: d.score, actual: 30, ideal: 30 },
+            },
+          }));
+          await AsyncStorage.setItem(key, JSON.stringify(cloudItems));
+          return cloudItems;
+        }
+      } catch (err) {
+        // Fallback silently if offline
+      }
+    }
+
     return realItems;
   } catch (e) {
     console.error('Failed to load history', e);
@@ -279,7 +324,8 @@ export async function saveSession(
   breakdown: SessionItem['breakdown'],
   snapshotBase64?: string,
   replayVideoBase64?: string,
-  mediaPayload?: SessionMediaPayload
+  mediaPayload?: SessionMediaPayload,
+  userId?: string
 ): Promise<SessionItem> {
   const grade = computeGrade(score);
 
@@ -313,9 +359,10 @@ export async function saveSession(
   };
 
   try {
-    const history = await getHistory();
+    const key = getHistoryStorageKey(userId);
+    const history = await getHistory(userId);
     const updated = [newItem, ...history];
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
     return newItem;
   } catch (e) {
     console.error('Failed to save session', e);
@@ -326,7 +373,8 @@ export async function saveSession(
 export async function saveAnyoSession(
   routine: AnyoRoutine,
   stepResults: AnyoStepResult[],
-  totalDurationMs: number
+  totalDurationMs: number,
+  userId?: string
 ): Promise<SessionItem> {
   const avgScore = stepResults.length > 0 
     ? Math.round(stepResults.reduce((a, b) => a + b.score, 0) / stepResults.length)
@@ -368,9 +416,10 @@ export async function saveAnyoSession(
   };
 
   try {
-    const history = await getHistory();
+    const key = getHistoryStorageKey(userId);
+    const history = await getHistory(userId);
     const updated = [newItem, ...history];
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
     return newItem;
   } catch (e) {
     console.error('Failed to save anyo session', e);
@@ -378,9 +427,10 @@ export async function saveAnyoSession(
   }
 }
 
-export async function clearHistory(): Promise<void> {
+export async function clearHistory(userId?: string): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    const key = getHistoryStorageKey(userId);
+    await AsyncStorage.setItem(key, JSON.stringify([]));
   } catch (e) {
     console.error('Failed to clear history', e);
   }

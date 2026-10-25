@@ -3,6 +3,7 @@ import {
   Image,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -12,6 +13,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { useRouter } from 'expo-router';
 
+import { useAuth } from '@/contexts/AuthContext';
+import { CloudSyncService } from '@/services/cloudSyncService';
 import { MartialTheme } from '@/constants/theme';
 import { StrikeRule } from '@/constants/strikeRules';
 import { StrikeEvaluationResult } from '@/engine/evaluation/evaluationTypes';
@@ -86,6 +89,11 @@ export function PracticeResult({
   const [showPromotionModal, setShowPromotionModal] = useState(true);
   const [sashInfo, setSashInfo] = useState<SashRankInfo>(() => getSashRankByLevel(1));
 
+  const { user } = useAuth();
+  const [shareVideoWithCoach, setShareVideoWithCoach] = useState(false);
+  const [isSyncingVideo, setIsSyncingVideo] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
   React.useEffect(() => {
     getGamificationStats().then((g) => {
       setSashInfo(getSashRankByLevel(g.level));
@@ -93,6 +101,66 @@ export function PracticeResult({
   }, []);
 
   const coachRef = getCoachReference(strikeRule.id);
+
+  // Auto-sync metrics upon result view for authenticated students
+  React.useEffect(() => {
+    if (user) {
+      const sessionItem = {
+        id: 'session_' + Date.now(),
+        strikeId: strikeRule.id,
+        strikeName: strikeRule.name,
+        description: strikeRule.desc,
+        score: result.score,
+        grade: result.grade,
+        date: new Date().toLocaleDateString(),
+        snapshotBase64: lastSnapshot || undefined,
+        replayVideoBase64: lastReplayVideo || undefined,
+        breakdown: {
+          elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
+          shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
+          wrist: { score: result.wristScore, actual: 0, ideal: coachRef.angles.wrist || 90 },
+        },
+      };
+
+      CloudSyncService.syncPracticeSession(user.id, sessionItem as any, false);
+    }
+  }, [user]);
+
+  const handleToggleShareVideo = async (value: boolean) => {
+    setShareVideoWithCoach(value);
+    if (!user) return;
+
+    if (value && (lastReplayVideo || lastSnapshot)) {
+      setIsSyncingVideo(true);
+      setSyncStatus('Uploading video for coach review...');
+      const sessionItem = {
+        id: 'session_' + Date.now(),
+        strikeId: strikeRule.id,
+        strikeName: strikeRule.name,
+        description: strikeRule.desc,
+        score: result.score,
+        grade: result.grade,
+        date: new Date().toLocaleDateString(),
+        snapshotBase64: lastSnapshot || undefined,
+        replayVideoBase64: lastReplayVideo || undefined,
+        breakdown: {
+          elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
+          shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
+          wrist: { score: result.wristScore, actual: 0, ideal: coachRef.angles.wrist || 90 },
+        },
+      };
+
+      const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, true);
+      setIsSyncingVideo(false);
+      if (res.error) {
+        setSyncStatus('Failed to upload video');
+      } else {
+        setSyncStatus('Video shared with Coach! 🥋');
+      }
+    } else {
+      setSyncStatus(null);
+    }
+  };
 
   const isMastered = improvement.isMastered || result.score >= 85;
 
@@ -390,7 +458,7 @@ export function PracticeResult({
                 activeOpacity={0.8}
                 onPress={() => {
                   router.push({
-                    pathname: '/chat' as any,
+                    pathname: '/coach-hub' as any,
                     params: {
                       strikeId: strikeRule.id,
                       strikeName: strikeRule.name,
@@ -690,6 +758,52 @@ export function PracticeResult({
               <Ionicons name="help-circle" size={16} color="#0284C7" style={{ marginRight: 6 }} />
               <Text style={styles.whyBtnText}>Why Did I Get {result.score}%? (Diagnosis)</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* --- COACH VIDEO SHARING PERMISSION CARD --- */}
+        {(lastReplayVideo || lastSnapshot) && (
+          <View style={styles.shareCoachCard}>
+            <View style={styles.shareCoachHeaderRow}>
+              <View style={styles.shareCoachIconBadge}>
+                <MaterialCommunityIcons name="shield-account" size={22} color="#15803D" />
+              </View>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.shareCoachTitle}>Share Video with Coach</Text>
+                <Text style={styles.shareCoachSubtitle}>
+                  Allow your connected Guro to inspect this practice attempt and give form corrections.
+                </Text>
+              </View>
+              <Switch
+                value={shareVideoWithCoach}
+                onValueChange={handleToggleShareVideo}
+                disabled={isSyncingVideo}
+                trackColor={{ false: '#E5E7EB', true: '#86EFAC' }}
+                thumbColor={shareVideoWithCoach ? '#15803D' : '#9CA3AF'}
+              />
+            </View>
+
+            <View style={styles.privacyNoteRow}>
+              <Ionicons name="lock-closed" size={12} color="#6B7280" />
+              <Text style={styles.privacyNoteText}>
+                {shareVideoWithCoach
+                  ? 'Video shared securely with your coach on cloud storage'
+                  : 'Video stays private on your phone only (saves storage and bandwidth)'}
+              </Text>
+            </View>
+
+            {syncStatus && (
+              <View style={styles.syncStatusRow}>
+                <Ionicons
+                  name={syncStatus.includes('shared') ? 'checkmark-circle' : 'cloud-upload-outline'}
+                  size={15}
+                  color={syncStatus.includes('shared') ? '#15803D' : '#D97706'}
+                />
+                <Text style={[styles.syncStatusText, syncStatus.includes('shared') && { color: '#15803D' }]}>
+                  {syncStatus}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -1576,5 +1690,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  shareCoachCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#DCFCE7',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  shareCoachHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  shareCoachIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareCoachTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+    marginBottom: 2,
+  },
+  shareCoachSubtitle: {
+    fontSize: 11,
+    color: MartialTheme.colors.textSecondary,
+    lineHeight: 15,
+  },
+  privacyNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 6,
+  },
+  privacyNoteText: {
+    fontSize: 11,
+    color: '#4B5563',
+    fontWeight: '500',
+    flex: 1,
+  },
+  syncStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  syncStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
   },
 });
