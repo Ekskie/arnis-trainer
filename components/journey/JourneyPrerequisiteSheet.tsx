@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 
 import { MartialTheme } from '@/constants/theme';
 import { CurriculumLesson } from '@/constants/curriculumStore';
@@ -32,6 +33,7 @@ export function JourneyPrerequisiteSheet({
   prerequisiteNames,
   onStartTestOut,
 }: JourneyPrerequisiteSheetProps) {
+  const router = useRouter();
   if (!lesson) return null;
 
   const handleTestOut = () => {
@@ -105,24 +107,47 @@ export function JourneyPrerequisiteSheet({
             )}
           </View>
 
-          {/* Test-Out Fast Track Callout */}
-          <View style={styles.testOutCard}>
-            <View style={styles.testOutHeaderRow}>
-              <MaterialCommunityIcons name="lightning-bolt" size={20} color="#D97706" />
-              <Text style={styles.testOutTitle}>FAST-TRACK TEST OUT</Text>
+          {/* Test-Out Fast Track Callout vs Foundational Knowledge Callout */}
+          {lesson.isStrike || lesson.strikeKey ? (
+            <View style={styles.testOutCard}>
+              <View style={styles.testOutHeaderRow}>
+                <MaterialCommunityIcons name="lightning-bolt" size={20} color="#D97706" />
+                <Text style={styles.testOutTitle}>FAST-TRACK TEST OUT</Text>
+              </View>
+              <Text style={styles.testOutDesc}>
+                Already familiar with this technique? Prove your form in the AI camera evaluation test. Score 80%+ to unlock immediately!
+              </Text>
+              <TactileButton
+                title="TEST-OUT CHALLENGE (80%+ TO UNLOCK) ⚔️"
+                variant="primary"
+                size="md"
+                icon={<Ionicons name="flash" size={16} color="#FFFFFF" />}
+                onPress={handleTestOut}
+                style={{ width: '100%', marginTop: 8 }}
+              />
             </View>
-            <Text style={styles.testOutDesc}>
-              Already familiar with this technique? Prove your form in the AI camera evaluation test. Score 80%+ to unlock immediately!
-            </Text>
-            <TactileButton
-              title="TEST-OUT CHALLENGE (80%+ TO UNLOCK) ⚔️"
-              variant="primary"
-              size="md"
-              icon={<Ionicons name="flash" size={16} color="#FFFFFF" />}
-              onPress={handleTestOut}
-              style={{ width: '100%', marginTop: 8 }}
-            />
-          </View>
+          ) : (
+            <View style={[styles.testOutCard, { borderColor: '#10B98140' }]}>
+              <View style={styles.testOutHeaderRow}>
+                <MaterialCommunityIcons name="book-open-page-variant" size={20} color="#15803D" />
+                <Text style={[styles.testOutTitle, { color: '#15803D' }]}>FOUNDATIONAL KNOWLEDGE</Text>
+              </View>
+              <Text style={styles.testOutDesc}>
+                This lesson covers foundational martial philosophy, history, and etiquette. Study the concept to progress through your sash journey.
+              </Text>
+              <TactileButton
+                title="STUDY LESSON 📖"
+                variant="primary"
+                size="md"
+                icon={<Ionicons name="book" size={16} color="#FFFFFF" />}
+                onPress={() => {
+                  onClose();
+                  router.push(`/lesson/${lesson.id}` as any);
+                }}
+                style={{ width: '100%', marginTop: 8 }}
+              />
+            </View>
+          )}
 
           {/* Dismiss button */}
           <TouchableOpacity

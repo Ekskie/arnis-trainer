@@ -3,8 +3,9 @@ import { Session, User } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSupabaseConfigured, supabase, UserProfile, UserRole } from '@/services/supabase';
 import { setActiveCurriculumUserId, resetCurriculumProgress } from '@/constants/curriculumStore';
-import { setActiveHistoryUserId, clearHistory } from '@/constants/historyStore';
+import { setActiveHistoryUserId, clearHistory, clearStrikeMastery } from '@/constants/historyStore';
 import { setActiveGamificationUserId, clearGamificationStats } from '@/constants/gamificationStore';
+import { clearAllUserStrikeMedia } from '@/services/mediaStorageService';
 
 interface AuthContextType {
   user: User | null;
@@ -94,11 +95,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    let isMounted = true;
+
+    // Safety watchdog: prevent infinite loading screen on mobile if network is slow or offline
+    const timeoutTimer = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[AuthContext] Auth initialization timeout reached; releasing loading screen.');
+        setIsLoading(false);
+      }
+    }, 6000);
+
     if (!isSupabaseConfigured) {
       // Check for local dev mock session
       AsyncStorage.getItem(DEV_MOCK_USER_KEY)
         .then((stored) => {
-          if (stored) {
+          if (stored && isMounted) {
             try {
               const parsed = JSON.parse(stored);
               setProfile(parsed.profile);
@@ -108,30 +119,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         })
-        .finally(() => setIsLoading(false));
-      return;
+        .catch((err) => console.warn('[AuthContext] Dev mock load error:', err))
+        .finally(() => {
+          if (isMounted) {
+            clearTimeout(timeoutTimer);
+            setIsLoading(false);
+          }
+        });
+      return () => {
+        isMounted = false;
+        clearTimeout(timeoutTimer);
+      };
     }
 
     // Live Supabase initialization
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id, session.user.email, session.user.user_metadata).finally(() => {
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!isMounted) return;
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchProfile(session.user.id, session.user.email, session.user.user_metadata)
+            .catch((err) => console.warn('[AuthContext] Profile fetch error:', err))
+            .finally(() => {
+              if (isMounted) {
+                clearTimeout(timeoutTimer);
+                setIsLoading(false);
+              }
+            });
+        } else {
+          if (isMounted) {
+            clearTimeout(timeoutTimer);
+            setIsLoading(false);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('[AuthContext] Supabase getSession error:', err);
+        if (isMounted) {
+          clearTimeout(timeoutTimer);
           setIsLoading(false);
-        });
-      } else {
-        setIsLoading(false);
-      }
-    });
+        }
+      });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+        await fetchProfile(session.user.id, session.user.email, session.user.user_metadata).catch(() => {});
       } else {
         setProfile(null);
       }
@@ -139,6 +178,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutTimer);
       subscription.unsubscribe();
     };
   }, []);
@@ -302,11 +343,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await supabase.auth.signOut().catch((e) => console.warn('[AuthContext] SignOut error during delete:', e));
       }
 
-      // 3. Clean up user-specific local storage caches
+      // 3. Clean up user-specific local storage caches & media files
       if (currentUserId) {
         await resetCurriculumProgress(currentUserId).catch(() => {});
-        await clearHistory(currentUserId).catch(() => {});
+        await clearHistory(currentUserId, true).catch(() => {});
+        await clearStrikeMastery(currentUserId).catch(() => {});
         await clearGamificationStats(currentUserId).catch(() => {});
+        await clearAllUserStrikeMedia().catch(() => {});
       }
 
       // 4. Remove mock user session if any

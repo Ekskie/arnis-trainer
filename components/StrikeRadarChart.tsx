@@ -60,8 +60,9 @@ export function StrikeRadarChart({
   // Calculate coordinates for user's actual data polygon
   const dataPoints: { x: number; y: number; score: number; strike: StrikeMasteryItem; angle: number }[] = [];
   const polygonPoints: string[] = [];
+  const strikes = masteryStats?.strikes || [];
 
-  masteryStats.strikes.forEach((strike, i) => {
+  strikes.forEach((strike, i) => {
     const angle = getAngle(i);
     const scoreVal = scoreMode === 'best' ? strike.bestScore : strike.avgScore;
     // Scale: minimum radius of 6px if 0 score so it's centered, up to 100%
@@ -75,7 +76,7 @@ export function StrikeRadarChart({
   });
 
   const selectedStrike =
-    masteryStats.strikes.find((s) => s.id === selectedStrikeId) || masteryStats.strikes[0];
+    strikes.find((s) => s.id === selectedStrikeId) || strikes[0];
 
   const handleNodePress = (strike: StrikeMasteryItem) => {
     setSelectedStrikeId(strike.id);
@@ -202,7 +203,7 @@ export function StrikeRadarChart({
           </SvgText>
 
           {/* Circumference Strike Labels (S1 .. S12) */}
-          {masteryStats.strikes.map((s, idx) => {
+          {strikes.map((s, idx) => {
             const angle = getAngle(idx);
             const labelR = radius + 18;
             const lx = cx + labelR * Math.cos(angle);
@@ -379,7 +380,7 @@ export function StrikeRadarChart({
 
       {/* Quick Strike Selector Badges Row */}
       <View style={styles.selectorRow}>
-        {masteryStats.strikes.map((st) => {
+        {strikes.map((st) => {
           const isSelected = st.id === selectedStrikeId;
           const isMastered = st.isMastered;
 

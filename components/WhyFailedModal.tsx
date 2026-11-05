@@ -56,9 +56,10 @@ export function WhyFailedModal({
   const elbow = breakdown?.elbowScore ?? Math.max(40, Math.round(overallScore * 0.9));
   const body = breakdown?.bodyScore ?? Math.max(50, Math.round(overallScore * 0.95));
   const guard = breakdown?.guardScore ?? Math.max(45, Math.round(overallScore * 0.88));
+  const wrist = breakdown?.wristScore ?? Math.max(40, Math.round(overallScore * 0.9));
 
   // Determine ONE thing to fix first (the single lowest scoring component)
-  const minScore = Math.min(direction, elbow, body, guard);
+  const minScore = Math.min(direction, elbow, body, guard, wrist);
 
   let oneThingToFix = {
     title: 'Keep your check hand higher near your chest',
@@ -67,7 +68,14 @@ export function WhyFailedModal({
     actionTitle: 'Practice Check Hand Guard',
   };
 
-  if (minScore === body) {
+  if (minScore === wrist) {
+    oneThingToFix = {
+      title: 'Snap and align your wrist at apex (Pitik)',
+      explanation: 'Your wrist was loose or misaligned at impact. In Arnis, snapping and locking your wrist with the stick at apex delivers kinetic shock and proper cutting angle.',
+      actionLessonId: 'les_1_2',
+      actionTitle: 'Practice Wrist Snap & Grip',
+    };
+  } else if (minScore === body) {
     oneThingToFix = {
       title: 'Bend your knees into a solid athletic stance',
       explanation: 'Standing too upright reduces your power and balance. Sink your hips slightly and bend both knees (135°-165°).',
@@ -96,6 +104,7 @@ export function WhyFailedModal({
   if (body >= 70) whatYouDidWell.push('Good athletic stance with bent knees');
   if (guard >= 70) whatYouDidWell.push('Kalasag check hand stayed locked on chest');
   if (elbow >= 70) whatYouDidWell.push('Controlled striking arm extension');
+  if (wrist >= 70) whatYouDidWell.push('Sharp wrist alignment and snap at apex');
 
   if (whatYouDidWell.length === 0) {
     whatYouDidWell.push('Good effort! Motor learning takes consistent repetition.');
@@ -222,7 +231,7 @@ export function WhyFailedModal({
                 {/* Stance */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>1. Stance Stability (Tindig)</Text>
+                    <Text style={styles.techLabel}>1. Base Stability (Tindig Stance)</Text>
                     <Text style={[styles.techScore, { color: body >= 70 ? '#10B981' : '#F59E0B' }]}>{body}%</Text>
                   </View>
                   <View style={styles.techTrack}>
@@ -230,21 +239,10 @@ export function WhyFailedModal({
                   </View>
                 </View>
 
-                {/* Trajectory */}
+                {/* Kalasag Shield Guard */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>2. Strike Trajectory</Text>
-                    <Text style={[styles.techScore, { color: direction >= 70 ? '#10B981' : '#F59E0B' }]}>{direction}%</Text>
-                  </View>
-                  <View style={styles.techTrack}>
-                    <View style={[styles.techFill, { width: `${direction}%`, backgroundColor: direction >= 70 ? '#10B981' : '#F59E0B' }]} />
-                  </View>
-                </View>
-
-                {/* Check Hand */}
-                <View style={styles.techItem}>
-                  <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>3. Kalasag Shield Guard</Text>
+                    <Text style={styles.techLabel}>2. Kalasag Shield Guard (Check Hand)</Text>
                     <Text style={[styles.techScore, { color: guard >= 70 ? '#10B981' : '#EF4444' }]}>{guard}%</Text>
                   </View>
                   <View style={styles.techTrack}>
@@ -252,14 +250,25 @@ export function WhyFailedModal({
                   </View>
                 </View>
 
-                {/* Elbow */}
+                {/* Arm Extension & Arc */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>4. Arm Extension & Arc</Text>
+                    <Text style={styles.techLabel}>3. Striking Arm Extension & Arc</Text>
                     <Text style={[styles.techScore, { color: elbow >= 70 ? '#10B981' : '#F59E0B' }]}>{elbow}%</Text>
                   </View>
                   <View style={styles.techTrack}>
                     <View style={[styles.techFill, { width: `${elbow}%`, backgroundColor: elbow >= 70 ? '#10B981' : '#F59E0B' }]} />
+                  </View>
+                </View>
+
+                {/* Wrist Pitik Snap */}
+                <View style={styles.techItem}>
+                  <View style={styles.techTextRow}>
+                    <Text style={styles.techLabel}>4. Impact Wrist Snap (Pitik)</Text>
+                    <Text style={[styles.techScore, { color: wrist >= 70 ? '#10B981' : '#8B5CF6' }]}>{wrist}%</Text>
+                  </View>
+                  <View style={styles.techTrack}>
+                    <View style={[styles.techFill, { width: `${wrist}%`, backgroundColor: wrist >= 70 ? '#10B981' : '#8B5CF6' }]} />
                   </View>
                 </View>
               </View>

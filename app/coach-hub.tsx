@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,15 +14,21 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import { MartialTheme } from '@/constants/theme';
+import { MartialTheme, createShadow } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { MentorshipRequest, MentorshipService } from '@/services/mentorshipService';
-import { CoachCharacter } from '@/components/ui/CoachCharacter';
 
 export default function CoachHubScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<{
+    strikeId?: string;
+    strikeName?: string;
+    recentScore?: string;
+    weakness?: string;
+    lessonId?: string;
+    source?: string;
+  }>();
   const { user } = useAuth();
   const { unreadCount, refreshUnreadCount } = useNotifications();
 
@@ -46,15 +51,7 @@ export default function CoachHubScreen() {
     }, [user, refreshUnreadCount])
   );
 
-  const handleOpenAiCoach = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({
-      pathname: '/chat' as any,
-      params,
-    });
-  };
-
-  const handleOpenHumanCoach = () => {
+  const handleOpenDirectChat = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (mentorship?.status === 'accepted' && mentorship.coach_id) {
       router.push({
@@ -66,12 +63,17 @@ export default function CoachHubScreen() {
     }
   };
 
+  const handleFindCoach = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push('/coach-connect' as any);
+  };
+
   const handleLeaveCoach = () => {
     if (!mentorship) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert(
       'Leave Coach?',
-      `Are you sure you want to end your mentorship with ${mentorship.coach?.display_name || 'your Guro'}? You will be able to browse and connect with another coach. Your past evaluations and chat history will remain safe.`,
+      `Are you sure you want to end your mentorship with ${mentorship.coach?.display_name || 'your Guro'}? You will be free to connect with another instructor. Your evaluations and past chat history will remain safe.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -111,6 +113,8 @@ export default function CoachHubScreen() {
     );
   };
 
+  const hasContextParams = Boolean(params.strikeName || params.lessonId || params.weakness);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Header */}
@@ -122,8 +126,8 @@ export default function CoachHubScreen() {
           <Ionicons name="arrow-back" size={22} color={MartialTheme.colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Coach Hub</Text>
-          <Text style={styles.headerSubtitle}>Choose your martial coaching guide</Text>
+          <Text style={styles.headerTitle}>Guro Mentorship Hub</Text>
+          <Text style={styles.headerSubtitle}>Personal guidance from certified Arnis coaches</Text>
         </View>
       </View>
 
@@ -131,152 +135,196 @@ export default function CoachHubScreen() {
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-        {/* Intro Banner */}
-        <View style={styles.introBanner}>
-          <Text style={styles.introHeading}>HOW WOULD YOU LIKE GUIDANCE?</Text>
-          <Text style={styles.introSubtext}>
-            Get instant automated AI pose corrections 24/7 or consult with a certified human Guro instructor for 1-on-1 mentorship.
-          </Text>
-        </View>
-
-        {/* --- CARD 1: GURO AI SPARRING ASSISTANT --- */}
-        <TouchableOpacity
-          style={styles.hubCard}
-          onPress={handleOpenAiCoach}
-          activeOpacity={0.88}>
-          <View style={styles.cardHeaderRow}>
-            <View style={[styles.avatarCircle, { backgroundColor: '#DCFCE7' }]}>
-              <CoachCharacter pose="waving" size={54} />
+        {/* Contextual Attempt Alert (if navigated from an evaluation or lesson) */}
+        {hasContextParams && (
+          <View style={styles.contextBanner}>
+            <View style={styles.contextBannerHeader}>
+              <Ionicons name="sparkles" size={16} color="#B45309" />
+              <Text style={styles.contextBannerTitle}>PRACTICE CONTEXT READY</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.badgeTagAi}>
-                <Text style={styles.badgeTagAiText}>⚡ 24/7 INSTANT AI</Text>
-              </View>
-              <Text style={styles.cardTitle}>Guro AI Assistant</Text>
-              <Text style={styles.cardSubtitle}>Automated Sparring & Form Diagnostic</Text>
-            </View>
-          </View>
-
-          <Text style={styles.cardDesc}>
-            Instant feedback on strike angles, chambering, Kalasag shield guard, and customized correction protocols calibrated to the 12 canonical strikes.
-          </Text>
-
-          <View style={styles.cardFooter}>
-            <View style={styles.featurePillRow}>
-              <Text style={styles.featurePill}>⚡ Instant replies</Text>
-              <Text style={styles.featurePill}>📐 Angle analysis</Text>
-              <Text style={styles.featurePill}>🛡️ Zero wait</Text>
-            </View>
-            <View style={styles.actionBtnAi}>
-              <Text style={styles.actionBtnAiText}>Start AI Diagnostic Chat</Text>
-              <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* --- CARD 2: HUMAN GURO COACH --- */}
-        <TouchableOpacity
-          style={[styles.hubCard, styles.hubCardCoach]}
-          onPress={handleOpenHumanCoach}
-          activeOpacity={0.88}>
-          <View style={styles.cardHeaderRow}>
-            <View style={[styles.avatarCircle, { backgroundColor: '#FEF3C7', overflow: 'hidden' }]}>
-              {mentorship?.coach?.avatar_url ? (
-                <Image source={{ uri: mentorship.coach.avatar_url }} style={styles.hubAvatarImg} />
+            <Text style={styles.contextBannerText}>
+              {params.strikeName ? (
+                <>
+                  Ask about <Text style={{ fontWeight: '800' }}>{params.strikeName}</Text>
+                  {params.recentScore ? ` (Score: ${params.recentScore}%)` : ''}.
+                  {params.weakness ? `\nFocus fault: "${params.weakness}"` : ''}
+                </>
+              ) : params.lessonId ? (
+                <>Ask questions regarding your current lesson progression.</>
               ) : (
-                <MaterialCommunityIcons name="shield-account" size={36} color="#D97706" />
+                <>Ready to discuss your practice session with your Guro.</>
               )}
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={styles.badgeTagCoach}>
-                  <Text style={styles.badgeTagCoachText}>🥋 CERTIFIED GURO</Text>
-                </View>
-                {unreadCount > 0 && mentorship?.status === 'accepted' && (
-                  <View style={styles.unreadCounterTag}>
-                    <Text style={styles.unreadCounterTagText}>{unreadCount} NEW</Text>
-                  </View>
+            </Text>
+          </View>
+        )}
+
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={MartialTheme.colors.primary} />
+            <Text style={styles.loadingText}>Checking mentorship status...</Text>
+          </View>
+        ) : mentorship?.status === 'accepted' ? (
+          /* ========================================================= */
+          /* STATE 1: ACTIVE MENTORSHIP                                */
+          /* ========================================================= */
+          <View style={styles.activeHubCard}>
+            {/* Coach Card Header */}
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.avatarCircle, { backgroundColor: '#FEF3C7', overflow: 'hidden' }]}>
+                {mentorship.coach?.avatar_url ? (
+                  <Image source={{ uri: mentorship.coach.avatar_url }} style={styles.hubAvatarImg} />
+                ) : (
+                  <MaterialCommunityIcons name="shield-account" size={38} color="#D97706" />
                 )}
               </View>
-              <Text style={styles.cardTitle}>Human Guro Coach</Text>
-              <Text style={styles.cardSubtitle}>
-                {mentorship?.status === 'accepted'
-                  ? `Connected with ${mentorship.coach?.display_name || 'Coach'}`
-                  : mentorship?.status === 'pending'
-                  ? 'Request Pending Review'
-                  : 'Personal Martial Mentorship'}
-              </Text>
-            </View>
-          </View>
 
-          {loading ? (
-            <ActivityIndicator size="small" color="#D97706" style={{ marginVertical: 12 }} />
-          ) : mentorship?.status === 'accepted' ? (
-            <>
-              <View style={styles.connectedCoachInfo}>
-                <Text style={styles.connectedCoachRank}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={styles.badgeTagCoach}>
+                    <Text style={styles.badgeTagCoachText}>🥋 CERTIFIED GURO</Text>
+                  </View>
+                  {unreadCount > 0 && (
+                    <View style={styles.unreadCounterTag}>
+                      <Text style={styles.unreadCounterTagText}>{unreadCount} NEW</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={styles.cardTitle}>{mentorship.coach?.display_name || 'Coach'}</Text>
+                <Text style={styles.cardSubtitle}>
                   {mentorship.coach?.rank_sash || 'Master Guro'}
                 </Text>
-                <Text style={styles.connectedCoachBio} numberOfLines={2}>
-                  {mentorship.coach?.bio || 'Certified Arnis instructor reviewing your practice attempts.'}
+              </View>
+            </View>
+
+            {mentorship.coach?.bio ? (
+              <View style={styles.connectedCoachInfo}>
+                <Text style={styles.connectedCoachBio} numberOfLines={3}>
+                  {mentorship.coach.bio}
                 </Text>
               </View>
-              <Text style={styles.cardDesc}>
-                Your Guro can monitor your practice evaluations, watch permitted practice videos, and chat with you 1-on-1.
-              </Text>
-            </>
-          ) : mentorship?.status === 'pending' ? (
-            <View style={styles.pendingStatusBox}>
-              <Ionicons name="time" size={16} color="#D97706" />
-              <Text style={styles.pendingStatusText}>
-                Your request to <Text style={{ fontWeight: '800' }}>{mentorship.coach?.display_name}</Text> is awaiting confirmation.
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.cardDesc}>
-              No coach connected yet. Connect with a verified instructor to review your practice recordings, inspect your sash progress, and give real human guidance.
-            </Text>
-          )}
+            ) : null}
 
-          <View style={styles.cardFooter}>
-            <View style={styles.featurePillRow}>
-              <Text style={styles.featurePill}>🎥 Video reviews</Text>
-              <Text style={styles.featurePill}>🥋 Sash guidance</Text>
-              <Text style={styles.featurePill}>💬 1-on-1 chat</Text>
+            {/* Mentorship Perks */}
+            <View style={styles.perksList}>
+              <View style={styles.perkRow}>
+                <Ionicons name="chatbubbles" size={17} color={MartialTheme.colors.primary} />
+                <Text style={styles.perkText}>1-on-1 direct coaching & technique advice</Text>
+              </View>
+              <View style={styles.perkRow}>
+                <Ionicons name="videocam" size={17} color="#2563EB" />
+                <Text style={styles.perkText}>Recorded practice video reviews</Text>
+              </View>
+              <View style={styles.perkRow}>
+                <Ionicons name="ribbon" size={17} color="#D97706" />
+                <Text style={styles.perkText}>Sash promotions & official syllabus grading</Text>
+              </View>
             </View>
 
-            <View style={[styles.actionBtnAi, styles.actionBtnCoach]}>
-              <Text style={styles.actionBtnAiText}>
-                {mentorship?.status === 'accepted'
-                  ? `Message Guro Coach${unreadCount > 0 ? ` (${unreadCount} new)` : ''}`
-                  : mentorship?.status === 'pending'
-                  ? 'View Request Status'
-                  : 'Find a Certified Coach'}
+            {/* Primary Action Button */}
+            <TouchableOpacity
+              style={styles.messageCoachBtn}
+              onPress={handleOpenDirectChat}
+              activeOpacity={0.85}>
+              <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+              <Text style={styles.messageCoachBtnText}>
+                {unreadCount > 0
+                  ? `Message Guro (${unreadCount} unread)`
+                  : hasContextParams
+                  ? 'Ask Guro About This Practice'
+                  : 'Message Guro Coach'}
               </Text>
-              <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
-            </View>
+              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
 
-            {mentorship?.status === 'accepted' && (
-              <TouchableOpacity
-                style={styles.leaveCoachBtn}
-                onPress={handleLeaveCoach}
-                activeOpacity={0.7}>
-                <Ionicons name="exit-outline" size={13} color="#DC2626" />
-                <Text style={styles.leaveCoachBtnText}>Leave Coach / Switch Mentorship</Text>
-              </TouchableOpacity>
-            )}
-
-            {mentorship?.status === 'pending' && (
-              <TouchableOpacity
-                style={styles.leaveCoachBtn}
-                onPress={handleCancelPending}
-                activeOpacity={0.7}>
-                <Ionicons name="close-circle-outline" size={13} color="#DC2626" />
-                <Text style={styles.leaveCoachBtnText}>Cancel Pending Request</Text>
-              </TouchableOpacity>
-            )}
+            {/* Leave Coach / Switch Option */}
+            <TouchableOpacity
+              style={styles.leaveCoachBtn}
+              onPress={handleLeaveCoach}
+              activeOpacity={0.7}>
+              <Ionicons name="exit-outline" size={14} color="#DC2626" />
+              <Text style={styles.leaveCoachBtnText}>Leave Coach / Switch Mentorship</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        ) : mentorship?.status === 'pending' ? (
+          /* ========================================================= */
+          /* STATE 2: PENDING MENTORSHIP REQUEST                       */
+          /* ========================================================= */
+          <View style={styles.pendingHubCard}>
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.avatarCircle, { backgroundColor: '#FEF3C7', overflow: 'hidden' }]}>
+                {mentorship.coach?.avatar_url ? (
+                  <Image source={{ uri: mentorship.coach.avatar_url }} style={styles.hubAvatarImg} />
+                ) : (
+                  <MaterialCommunityIcons name="clock-outline" size={38} color="#D97706" />
+                )}
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <View style={styles.badgeTagPending}>
+                  <Text style={styles.badgeTagPendingText}>⏳ REQUEST PENDING</Text>
+                </View>
+                <Text style={styles.cardTitle}>{mentorship.coach?.display_name || 'Coach'}</Text>
+                <Text style={styles.cardSubtitle}>
+                  {mentorship.coach?.rank_sash || 'Certified Guro'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.pendingNoticeBox}>
+              <Ionicons name="information-circle" size={18} color="#92400E" />
+              <Text style={styles.pendingNoticeText}>
+                Your request has been submitted to <Text style={{ fontWeight: '800' }}>{mentorship.coach?.display_name}</Text>. Once your coach accepts, you can exchange 1-on-1 direct messages and share practice recordings.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.cancelPendingBtn}
+              onPress={handleCancelPending}
+              activeOpacity={0.75}>
+              <Ionicons name="close-circle-outline" size={16} color="#DC2626" />
+              <Text style={styles.cancelPendingBtnText}>Cancel Pending Request</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          /* ========================================================= */
+          /* STATE 3: NO COACH CONNECTED                               */
+          /* ========================================================= */
+          <View style={styles.emptyHubCard}>
+            <View style={styles.emptyIconBadge}>
+              <MaterialCommunityIcons name="shield-account-outline" size={48} color="#D97706" />
+            </View>
+
+            <Text style={styles.emptyTitle}>Personal Guro Mentorship</Text>
+            <Text style={styles.emptyDesc}>
+              Connect with a certified Arnis master for personalized 1-on-1 guidance, practice video critiques, and official sash progression.
+            </Text>
+
+            <View style={styles.emptyBenefitsCard}>
+              <View style={styles.emptyBenefitRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+                <Text style={styles.emptyBenefitText}>Real instructors reviewing your strike forms</Text>
+              </View>
+              <View style={styles.emptyBenefitRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+                <Text style={styles.emptyBenefitText}>Direct 1-on-1 messaging & strike troubleshooting</Text>
+              </View>
+              <View style={styles.emptyBenefitRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+                <Text style={styles.emptyBenefitText}>Official sash evaluations and Dan advancement</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.findCoachBtn}
+              onPress={handleFindCoach}
+              activeOpacity={0.88}>
+              <Ionicons name="search" size={18} color="#FFFFFF" />
+              <Text style={styles.findCoachBtnText}>Find a Certified Guro</Text>
+              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -324,40 +372,132 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: 16,
   },
-  introBanner: {
-    backgroundColor: '#FFFFFF',
+  contextBanner: {
+    backgroundColor: '#FFFBEB',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
+    borderColor: '#FDE68A',
+    gap: 4,
   },
-  introHeading: {
+  contextBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contextBannerTitle: {
     fontSize: 11,
-    fontWeight: '800',
-    color: MartialTheme.colors.textSecondary,
+    fontWeight: '900',
+    color: '#B45309',
     letterSpacing: 0.8,
-    marginBottom: 4,
   },
-  introSubtext: {
+  contextBannerText: {
     fontSize: 12.5,
-    color: MartialTheme.colors.textSecondary,
+    color: '#78350F',
     lineHeight: 18,
   },
-  hubCard: {
+  loadingCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    padding: 18,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: MartialTheme.colors.textSecondary,
+    fontWeight: '600',
+  },
+  activeHubCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 2,
-    borderColor: '#DCFCE7',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 3,
+    borderColor: '#FDE68A',
+    ...createShadow({ offset: { width: 0, height: 4 }, opacity: 0.06, radius: 8, elevation: 3 }),
+    gap: 16,
+  },
+  pendingHubCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1.5,
+    borderColor: '#FCD34D',
+    gap: 16,
+  },
+  emptyHubCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    ...createShadow({ offset: { width: 0, height: 4 }, opacity: 0.05, radius: 8, elevation: 2 }),
     gap: 12,
   },
-  hubCardCoach: {
-    borderColor: '#FDE68A',
+  emptyIconBadge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    textAlign: 'center',
+  },
+  emptyDesc: {
+    fontSize: 13,
+    color: MartialTheme.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 19,
+    paddingHorizontal: 8,
+  },
+  emptyBenefitsCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 14,
+    width: '100%',
+    gap: 10,
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  emptyBenefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  emptyBenefitText: {
+    fontSize: 12.5,
+    color: '#374151',
+    fontWeight: '600',
+    flex: 1,
+  },
+  findCoachBtn: {
+    backgroundColor: MartialTheme.colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    gap: 8,
+    width: '100%',
+    marginTop: 6,
+    ...createShadow({ color: MartialTheme.colors.primary, offset: { width: 0, height: 3 }, opacity: 0.25, radius: 6, elevation: 3 }),
+  },
+  findCoachBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -365,35 +505,22 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   avatarCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
   hubAvatarImg: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-  },
-  badgeTagAi: {
-    backgroundColor: '#DCFCE7',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  badgeTagAiText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#15803D',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   badgeTagCoach: {
     backgroundColor: '#FEF3C7',
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 2.5,
     borderRadius: 6,
     marginBottom: 4,
   },
@@ -401,6 +528,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     color: '#D97706',
+  },
+  badgeTagPending: {
+    backgroundColor: '#FEF3C7',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  badgeTagPendingText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B45309',
   },
   unreadCounterTag: {
     backgroundColor: '#DC2626',
@@ -417,87 +557,56 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '900',
     color: MartialTheme.colors.text,
   },
   cardSubtitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: MartialTheme.colors.textSecondary,
-  },
-  cardDesc: {
     fontSize: 13,
-    color: MartialTheme.colors.textSecondary,
-    lineHeight: 19,
+    fontWeight: '700',
+    color: MartialTheme.colors.primary,
   },
   connectedCoachInfo: {
-    backgroundColor: '#FFFBEB',
+    backgroundColor: '#F9FAFB',
     borderRadius: 10,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#FEF3C7',
-  },
-  connectedCoachRank: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#B45309',
-    marginBottom: 2,
+    borderColor: '#F3F4F6',
   },
   connectedCoachBio: {
-    fontSize: 11,
-    color: '#78350F',
-    lineHeight: 15,
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 17,
   },
-  pendingStatusBox: {
+  perksList: {
+    gap: 8,
+    paddingVertical: 4,
+  },
+  perkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    padding: 10,
-    borderRadius: 10,
-    gap: 8,
-  },
-  pendingStatusText: {
-    fontSize: 12,
-    color: '#92400E',
-    flex: 1,
-  },
-  cardFooter: {
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
     gap: 10,
   },
-  featurePillRow: {
-    flexDirection: 'row',
-    gap: 6,
-    flexWrap: 'wrap',
+  perkText: {
+    fontSize: 12.5,
+    color: MartialTheme.colors.textSecondary,
+    fontWeight: '600',
+    flex: 1,
   },
-  featurePill: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4B5563',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 7,
-  },
-  actionBtnAi: {
+  messageCoachBtn: {
     backgroundColor: MartialTheme.colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
+    paddingVertical: 13,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 6,
+    borderRadius: 14,
+    gap: 8,
     width: '100%',
+    ...createShadow({ color: MartialTheme.colors.primary, offset: { width: 0, height: 3 }, opacity: 0.25, radius: 5, elevation: 3 }),
   },
-  actionBtnCoach: {
-    backgroundColor: '#D97706',
-  },
-  actionBtnAiText: {
-    fontSize: 14,
+  messageCoachBtnText: {
+    fontSize: 14.5,
     fontWeight: '800',
     color: '#FFFFFF',
   },
@@ -506,12 +615,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
-    marginTop: 4,
+    paddingVertical: 6,
   },
   leaveCoachBtnText: {
     fontSize: 12,
     fontWeight: '700',
+    color: '#DC2626',
+  },
+  pendingNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    borderRadius: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+  },
+  pendingNoticeText: {
+    fontSize: 12.5,
+    color: '#92400E',
+    flex: 1,
+    lineHeight: 18,
+  },
+  cancelPendingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  cancelPendingBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
     color: '#DC2626',
   },
 });

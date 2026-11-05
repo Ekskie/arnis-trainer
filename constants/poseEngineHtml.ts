@@ -929,9 +929,11 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       ctx.font = "bold 11px sans-serif";
       ctx.fillStyle = isOverallLocked ? "#10B981" : "rgba(0, 242, 254, 0.9)";
       ctx.shadowBlur = 4;
+      ctx.textAlign = "center";
       const strikeName = (STRIKE_RULES[strikeId] && STRIKE_RULES[strikeId].name) ? STRIKE_RULES[strikeId].name : "";
       const tagText = isOverallLocked ? "✓ GHOST POSTURE MATCHED" : ("MASTER GUIDE: " + strikeName);
-      ctx.fillText(tagText, ghost.shoulderCenter.x - 70, ghost.shoulderCenter.y - scale * 0.18);
+      const tagY = Math.max(16, ghost.shoulderCenter.y - scale * 0.42);
+      ctx.fillText(tagText, ghost.shoulderCenter.x, tagY);
 
       ctx.restore();
     }
@@ -1577,6 +1579,12 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         logStatus("Camera active. Starting pose detection...");
         canvasElement.width = video.videoWidth;
         canvasElement.height = video.videoHeight;
+        video.addEventListener("resize", () => {
+          if (video.videoWidth && video.videoHeight) {
+            canvasElement.width = video.videoWidth;
+            canvasElement.height = video.videoHeight;
+          }
+        });
         loadingEl.classList.add("hidden");
         webcamRunning = true;
         sendToReactNative({ type: "READY" });
@@ -2253,16 +2261,44 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
           if (leftShoulder && rightShoulder) {
             const avgX = (leftShoulder.x + rightShoulder.x) / 2;
             const avgY = (leftShoulder.y + rightShoulder.y) / 2;
-            const absX = (1 - avgX) * canvasElement.width;
-            const absY = avgY * canvasElement.height - 45;
+            const shoulderY = avgY * canvasElement.height;
+            const shoulderSpan = Math.abs((1 - leftShoulder.x) - (1 - rightShoulder.x)) * canvasElement.width;
+
+            // Accurately determine top of user's head using facial landmarks if available
+            const nose = landmarks[0];
+            const leftEar = landmarks[7];
+            const rightEar = landmarks[8];
+            let headTopY;
+
+            if (nose && (nose.visibility === undefined || nose.visibility > 0.25)) {
+              const noseY = nose.y * canvasElement.height;
+              // Distance from shoulders to nose represents lower/mid face
+              const shoulderToNose = Math.max(30, shoulderY - noseY);
+              // Scalp/cap extends approximately 0.85x - 1.0x that distance above the nose
+              headTopY = noseY - shoulderToNose * 0.85;
+            } else if ((leftEar && leftEar.visibility > 0.3) || (rightEar && rightEar.visibility > 0.3)) {
+              const earY = (leftEar && leftEar.visibility > 0.3 ? leftEar.y : rightEar.y) * canvasElement.height;
+              headTopY = earY - Math.max(30, shoulderSpan * 0.35);
+            } else {
+              // Geometric biomechanical ratio: head top is ~0.85 - 1.0 * shoulderSpan above shoulders
+              headTopY = shoulderY - Math.max(120, shoulderSpan * 0.95);
+            }
+
+            // Position badge 28px cleanly above the top of the head
+            const pillW = 210;
+            const pillH = 26;
+            let absX = (1 - avgX) * canvasElement.width;
+            // Clamp horizontal position so pill is always fully visible inside screen
+            absX = Math.max(pillW / 2 + 10, Math.min(canvasElement.width - pillW / 2 - 10, absX));
+
+            // Float 28px above head, clamped with safe screen boundaries
+            const absY = Math.max(pillH / 2 + 8, Math.min(canvasElement.height - 40, headTopY - 28));
 
             // Background pill for metrics
             canvasCtx.save();
             canvasCtx.fillStyle = "rgba(11, 15, 25, 0.85)";
             canvasCtx.strokeStyle = data.accuracy >= 85 ? "#10b981" : "rgba(255, 255, 255, 0.2)";
             canvasCtx.lineWidth = 1.5;
-            const pillW = 210;
-            const pillH = 26;
             const pillX = absX - pillW / 2;
             const pillY = absY - pillH / 2;
 

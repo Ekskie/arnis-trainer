@@ -63,6 +63,8 @@ export function generateCoachFeedback(
     advice = 'Keep your check hand pinned firmly to your chest throughout the strike to protect against counter-strikes.';
   } else if (pillars.stance < 70) {
     advice = 'Sink slightly lower into your fighting stance (Tindig) to stabilize your striking power.';
+  } else if (pillars.wrist < 70) {
+    advice = 'Snap your wrist crisply (Pitik) at the instant of impact to deliver maximum cutting force.';
   }
 
   const summary =

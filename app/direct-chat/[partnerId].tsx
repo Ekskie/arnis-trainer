@@ -35,7 +35,21 @@ const COACH_QUICK_TIPS = [
 export default function DirectChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { partnerId } = useLocalSearchParams<{ partnerId: string }>();
+  const {
+    partnerId,
+    strikeName,
+    strikeId,
+    recentScore,
+    weakness,
+    lessonId,
+  } = useLocalSearchParams<{
+    partnerId: string;
+    strikeName?: string;
+    strikeId?: string;
+    recentScore?: string;
+    weakness?: string;
+    lessonId?: string;
+  }>();
   const { user, profile } = useAuth();
   const { markThreadRead, setActiveChatPartnerId } = useNotifications();
 
@@ -48,6 +62,23 @@ export default function DirectChatScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Pre-fill draft question if opened with evaluation or lesson context
+  useEffect(() => {
+    if (!strikeName && !lessonId && !weakness) return;
+
+    if (strikeName) {
+      const scoreStr = recentScore ? ` and scored ${recentScore}%` : '';
+      const weaknessStr = weakness ? ` I am having trouble with: "${weakness}".` : '';
+      setInputText(
+        `Guro, I just practiced ${strikeName}${scoreStr}.${weaknessStr} How can I improve my form and technique?`
+      );
+    } else if (lessonId) {
+      setInputText(
+        `Guro, I am studying Lesson ${lessonId} and have a question regarding the technique.`
+      );
+    }
+  }, [strikeName, recentScore, weakness, lessonId]);
 
   // Monitor keyboard appearance for smooth responsive input positioning
   useEffect(() => {
@@ -151,6 +182,18 @@ export default function DirectChatScreen() {
     const pollTimer = setInterval(() => {
       MessageService.fetchMessages(user.id, partnerId).then((latest) => {
         setMessages((prev) => {
+          const pendingOptimistic = prev.filter((m) => m.id.startsWith('temp_'));
+          if (pendingOptimistic.length > 0) {
+            // Keep pending optimistic messages that haven't appeared in latest yet
+            const unconfirmed = pendingOptimistic.filter(
+              (temp) =>
+                !latest.some(
+                  (srv) => srv.sender_id === temp.sender_id && srv.content === temp.content
+                )
+            );
+            return [...latest, ...unconfirmed];
+          }
+
           if (
             latest.length !== prev.length ||
             (latest.length > 0 && prev.length > 0 && latest[latest.length - 1].id !== prev[prev.length - 1].id)

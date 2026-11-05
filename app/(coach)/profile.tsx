@@ -62,7 +62,7 @@ export default function CoachProfileScreen() {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.7,
+        quality: 0.4,
         base64: true,
       });
 

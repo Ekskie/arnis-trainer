@@ -55,10 +55,8 @@ export default function StudentProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (user?.id) {
-        getGamificationStats(user.id).then(setGamification);
-        getCurriculumProgress(user.id).then(setCurriculumProgress);
-      }
+      getGamificationStats(user?.id).then(setGamification);
+      getCurriculumProgress(user?.id).then(setCurriculumProgress);
     }, [user?.id])
   );
 
@@ -102,7 +100,7 @@ export default function StudentProfileScreen() {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.7,
+        quality: 0.4,
         base64: true,
       });
 

@@ -45,6 +45,7 @@ export function ComparisonPlayer({
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [effectiveUserVideo, setEffectiveUserVideo] = useState<string | null>(userVideoUri || null);
   const [currentTimeProgress, setCurrentTimeProgress] = useState(0.4); // 0.0 to 1.0 progress for scrub slider
+  const [scrubTrackWidth, setScrubTrackWidth] = useState<number>(0);
   const totalVideoDuration = 3.5; // Canonical duration estimate
 
   // Look up recent session video from videoCacheManager if not passed directly
@@ -358,10 +359,14 @@ export function ComparisonPlayer({
           <TouchableOpacity
             style={styles.scrubTrack}
             activeOpacity={0.9}
+            onLayout={(e) => {
+              const { width: w } = e.nativeEvent.layout;
+              if (w > 0) setScrubTrackWidth(w);
+            }}
             onPress={(e) => {
               const { locationX } = e.nativeEvent;
-              // Assuming 340px width approximate track
-              const ratio = Math.max(0, Math.min(1, locationX / 320));
+              const trackW = scrubTrackWidth > 0 ? scrubTrackWidth : 320;
+              const ratio = Math.max(0, Math.min(1, locationX / trackW));
               handleScrub(ratio);
             }}
           >

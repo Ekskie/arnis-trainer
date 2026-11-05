@@ -32,7 +32,10 @@ export function evaluatePoseFrame(
 ): EvaluatedFrameData {
   const rightAngle = person.rightAngle ? Math.round(person.rightAngle) : 0;
   const rightShoulderAngle = person.rightShoulderAngle ? Math.round(person.rightShoulderAngle) : 0;
-  const rightWristAngle = person.rightWristAngle !== null ? Math.round(person.rightWristAngle) : 0;
+  const rightWristAngle =
+    typeof person.rightWristAngle === 'number' && !Number.isNaN(person.rightWristAngle)
+      ? Math.round(person.rightWristAngle)
+      : null;
 
   // 1. Striking arm score (elbow) with multi-tier dataset calibration
   const elbowScore =

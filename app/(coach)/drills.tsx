@@ -12,7 +12,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import { MartialTheme } from '@/constants/theme';
-import { ALL_CURRICULUM_LESSONS, CurriculumLesson } from '@/constants/curriculumStore';
+import { ALL_CURRICULUM_LESSONS, CurriculumLesson, getStageHumanName } from '@/constants/curriculumStore';
 import { STRIKE_RULES } from '@/constants/strikeRules';
 
 export default function CoachDrillsScreen() {
@@ -59,7 +59,7 @@ export default function CoachDrillsScreen() {
                 setFilterLevel(lvl);
               }}>
               <Text style={[styles.filterChipText, filterLevel === lvl && styles.filterChipTextActive]}>
-                Level {lvl}
+                Stage {lvl + 1}: {getStageHumanName(lvl)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -110,7 +110,7 @@ export default function CoachDrillsScreen() {
             activeOpacity={0.85}>
             <View style={styles.lessonHeader}>
               <View style={styles.levelTag}>
-                <Text style={styles.levelTagText}>LEVEL {lesson.levelNumber}</Text>
+                <Text style={styles.levelTagText}>STAGE {lesson.levelNumber + 1}</Text>
               </View>
               <Text style={styles.lessonDuration}>⏱ {lesson.durationMinutes} min</Text>
             </View>

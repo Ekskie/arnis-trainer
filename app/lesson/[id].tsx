@@ -18,6 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   ALL_CURRICULUM_LESSONS,
   CurriculumLesson,
+  getCurriculumProgress,
   getLessonQuizQuestions,
   LessonQuizQuestion,
   markLessonCompleted,
@@ -54,7 +55,7 @@ export default function LessonScreen() {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [userSash, setUserSash] = useState<SashRankInfo | undefined>(undefined);
   const [earnedXp, setEarnedXp] = useState(10);
-  const [newStreak, setNewStreak] = useState(3);
+  const [newStreak, setNewStreak] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [promotionModalRank, setPromotionModalRank] = useState<{ newRank: SashRankInfo; level: number } | null>(null);
 
@@ -69,11 +70,11 @@ export default function LessonScreen() {
 
   // Load sash rank on mount
   useEffect(() => {
-    getGamificationStats().then((stats) => {
+    getGamificationStats(user?.id).then((stats) => {
       const sash = getSashRankByLevel(stats.level);
       setUserSash(sash);
     });
-  }, []);
+  }, [user?.id]);
 
   // Steps definition: 5 screen pedagogical progression
   const steps: LessonStepType[] = useMemo(() => {
@@ -85,9 +86,12 @@ export default function LessonScreen() {
     if (completedFromDrill === '1') {
       const celebrationIndex = steps.length - 1;
       setCurrentStepIndex(celebrationIndex);
-      const bonusXp = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
-      setEarnedXp(bonusXp);
-      getGamificationStats(user?.id).then((stats) => {
+      getCurriculumProgress(user?.id).then(async (prog) => {
+        const isRepeat = prog.completedLessonIds.includes(lesson.id);
+        const baseBonus = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
+        const bonusXp = isRepeat ? 3 : baseBonus;
+        setEarnedXp(bonusXp);
+        const stats = await getGamificationStats(user?.id);
         setNewStreak(stats.streakDays);
         if (stats.level) {
           const sash = getSashRankByLevel(stats.level);
@@ -170,9 +174,12 @@ export default function LessonScreen() {
     if (currentStepIndex < steps.length - 2) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else if (currentStepIndex === steps.length - 2) {
-      // Reaching celebration step: award XP and mark complete!
-      addXpAndStreak(10, user?.id).then((stats) => {
-        setEarnedXp(10);
+      // Reaching celebration step: check if first-time completion (10 XP) or repeat review (2 XP)
+      getCurriculumProgress(user?.id).then(async (prog) => {
+        const isRepeat = prog.completedLessonIds.includes(lesson.id);
+        const xpToAward = isRepeat ? 2 : 10;
+        setEarnedXp(xpToAward);
+        const stats = await addXpAndStreak(xpToAward, user?.id);
         setNewStreak(stats.streakDays);
         if (stats.isPromoted && stats.newRank) {
           setPromotionModalRank({ newRank: stats.newRank, level: stats.level });

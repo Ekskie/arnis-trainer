@@ -126,3 +126,34 @@ export const Fonts = Platform.select({
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
+
+/**
+ * Cross-platform shadow generator that avoids React Native Web "shadow* style props are deprecated" warnings.
+ * Uses CSS `boxShadow` on web and standard native shadow props on iOS/Android.
+ */
+export function createShadow({
+  color = '#000000',
+  offset = { width: 0, height: 2 },
+  opacity = 0.1,
+  radius = 4,
+  elevation = 2,
+}: {
+  color?: string;
+  offset?: { width: number; height: number };
+  opacity?: number;
+  radius?: number;
+  elevation?: number;
+} = {}) {
+  if (Platform.OS === 'web') {
+    return {
+      boxShadow: `${offset.width}px ${offset.height}px ${radius}px rgba(0, 0, 0, ${opacity})`,
+    };
+  }
+  return {
+    shadowColor: color,
+    shadowOffset: offset,
+    shadowOpacity: opacity,
+    shadowRadius: radius,
+    elevation,
+  };
+}

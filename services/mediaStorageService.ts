@@ -46,7 +46,11 @@ export async function persistUserStrikeMedia(
   let FileSystemModule: any = null;
   try {
     if (Platform.OS !== 'web') {
-      FileSystemModule = require('expo-file-system');
+      try {
+        FileSystemModule = require('expo-file-system/legacy');
+      } catch {
+        FileSystemModule = require('expo-file-system');
+      }
     }
   } catch {
     // expo-file-system not installed or not supported in this runtime
@@ -117,4 +121,30 @@ export async function persistUserStrikeMedia(
     confidence: 0.80,
     persistedPath: folderName,
   };
+}
+
+/**
+ * Permanently deletes all local recorded strike videos and snapshots stored on disk.
+ * Invoked on history reset or account deletion to recover storage and protect privacy.
+ */
+export async function clearAllUserStrikeMedia(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    let FileSystemModule: any = null;
+    try {
+      FileSystemModule = require('expo-file-system/legacy');
+    } catch {
+      FileSystemModule = require('expo-file-system');
+    }
+
+    if (FileSystemModule?.documentDirectory) {
+      const strikeDir = `${FileSystemModule.documentDirectory}userStrike/`;
+      const info = await FileSystemModule.getInfoAsync(strikeDir);
+      if (info.exists) {
+        await FileSystemModule.deleteAsync(strikeDir, { idempotent: true });
+      }
+    }
+  } catch (err) {
+    console.warn('[mediaStorageService] Failed to clear user strike media:', err);
+  }
 }

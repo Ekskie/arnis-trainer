@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
+import { clearAllUserStrikeMedia } from '@/services/mediaStorageService';
 
 export interface SessionItem {
   id: string;
@@ -161,6 +162,83 @@ export function getHistoryStorageKey(userId?: string | null): string {
   return uid ? `@arnis_pose_sessions_${uid}` : '@arnis_pose_sessions';
 }
 
+export interface StrikeMasteryRecord {
+  strikeId: string;
+  bestScore: number;
+  attempts: number;
+  isMastered: boolean;
+  lastPracticed: string;
+}
+
+export function getStrikeMasteryStorageKey(userId?: string | null): string {
+  const uid = userId !== undefined ? userId : activeHistoryUserId;
+  return uid ? `@arnis_strike_mastery_${uid}` : '@arnis_strike_mastery';
+}
+
+export async function getStoredStrikeMasteryMap(userId?: string | null): Promise<Record<string, StrikeMasteryRecord>> {
+  try {
+    const key = getStrikeMasteryStorageKey(userId);
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn('Failed to load strike mastery map', err);
+    return {};
+  }
+}
+
+export async function saveStrikeMasteryRecord(
+  strikeId: string,
+  score: number,
+  userId?: string | null
+): Promise<StrikeMasteryRecord> {
+  let normalizedId = strikeId;
+  if (!normalizedId.startsWith('strike_')) {
+    normalizedId = `strike_${normalizedId}`;
+  }
+
+  try {
+    const key = getStrikeMasteryStorageKey(userId);
+    const masteryMap = await getStoredStrikeMasteryMap(userId);
+    const prev = masteryMap[normalizedId];
+
+    const attempts = (prev?.attempts || 0) + 1;
+    const bestScore = Math.max(prev?.bestScore || 0, score);
+    // Once mastered, it stays permanently mastered
+    const isMastered = Boolean(prev?.isMastered || bestScore >= 85 || score >= 85);
+
+    const record: StrikeMasteryRecord = {
+      strikeId: normalizedId,
+      bestScore,
+      attempts,
+      isMastered,
+      lastPracticed: new Date().toISOString(),
+    };
+
+    masteryMap[normalizedId] = record;
+    await AsyncStorage.setItem(key, JSON.stringify(masteryMap));
+    return record;
+  } catch (err) {
+    console.error('Failed to save strike mastery record', err);
+    return {
+      strikeId: normalizedId,
+      bestScore: score,
+      attempts: 1,
+      isMastered: score >= 85,
+      lastPracticed: new Date().toISOString(),
+    };
+  }
+}
+
+export async function clearStrikeMastery(userId?: string | null): Promise<void> {
+  try {
+    const key = getStrikeMasteryStorageKey(userId);
+    await AsyncStorage.setItem(key, JSON.stringify({}));
+  } catch (err) {
+    console.error('Failed to clear strike mastery', err);
+  }
+}
+
 export function computeGrade(score: number): string {
   if (score >= 95) return 'Grade A';
   if (score >= 85) return 'Grade B';
@@ -170,13 +248,20 @@ export function computeGrade(score: number): string {
   return 'Unranked';
 }
 
-export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
-  const strikeMap: Record<string, { scores: number[]; best: number }> = {};
+export function getStrikeMasteryStats(
+  history: SessionItem[],
+  masteryMap?: Record<string, StrikeMasteryRecord> | null
+): MasteryStats {
+  const strikeMap: Record<
+    string,
+    { scores: number[]; best: number; attempts: number; isMastered: boolean }
+  > = {};
   
   STRIKES_CATALOG.forEach(s => {
-    strikeMap[s.id] = { scores: [], best: 0 };
+    strikeMap[s.id] = { scores: [], best: 0, attempts: 0, isMastered: false };
   });
 
+  // 1. Process history sessions
   if (history && history.length > 0) {
     history.forEach(item => {
       // Normalize strikeId (handle 'strike_1' or '1')
@@ -193,15 +278,36 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
     });
   }
 
+  // 2. Merge persistent mastery map to guarantee mastered strikes never reset
+  if (masteryMap) {
+    Object.keys(masteryMap).forEach((key) => {
+      let normalizedId = key;
+      if (!normalizedId.startsWith('strike_')) {
+        normalizedId = `strike_${normalizedId}`;
+      }
+      if (strikeMap[normalizedId]) {
+        const record = masteryMap[key];
+        strikeMap[normalizedId].best = Math.max(strikeMap[normalizedId].best, record.bestScore);
+        strikeMap[normalizedId].attempts = Math.max(
+          strikeMap[normalizedId].scores.length,
+          record.attempts || 0
+        );
+        if (record.isMastered || strikeMap[normalizedId].best >= 85) {
+          strikeMap[normalizedId].isMastered = true;
+        }
+      }
+    });
+  }
+
   const strikes: StrikeMasteryItem[] = STRIKES_CATALOG.map(cat => {
     const data = strikeMap[cat.id];
-    const attempts = data.scores.length;
+    const attempts = data.attempts > 0 ? data.attempts : data.scores.length;
     const bestScore = data.best;
-    const avgScore = attempts > 0 
-      ? Math.round(data.scores.reduce((a, b) => a + b, 0) / attempts)
-      : 0;
+    const avgScore = data.scores.length > 0 
+      ? Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length)
+      : (bestScore > 0 ? bestScore : 0);
     const grade = computeGrade(bestScore);
-    const isMastered = bestScore >= 85;
+    const isMastered = data.isMastered || bestScore >= 85;
 
     return {
       id: cat.id,
@@ -237,7 +343,7 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
   }
 
   let rankTitle = 'Beginner (White Sash)';
-  if (history.length === 0) {
+  if (history.length === 0 && (!masteryMap || Object.keys(masteryMap).length === 0)) {
     rankTitle = 'Novice Practitioner';
   } else if (masteredCount >= 12 && overallMastery >= 90) {
     rankTitle = 'Lakan / Master (Black Belt)';
@@ -255,7 +361,7 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
     strikes,
     overallMastery,
     masteredCount,
-    totalSessions: history.length,
+    totalSessions: Math.max(history.length, attemptedStrikes.length),
     strongestStrike,
     weakestStrike,
     rankTitle
@@ -265,13 +371,38 @@ export function getStrikeMasteryStats(history: SessionItem[]): MasteryStats {
 export async function getHistory(userId?: string): Promise<SessionItem[]> {
   try {
     const key = getHistoryStorageKey(userId);
-    const raw = await AsyncStorage.getItem(key);
-    let items: SessionItem[] = raw ? JSON.parse(raw) : [];
+    let items: SessionItem[] = [];
+
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw) {
+        items = JSON.parse(raw);
+      }
+    } catch (readErr) {
+      console.warn('[historyStore] AsyncStorage read error, attempting recovery:', readErr);
+    }
 
     // Filter out legacy mock data items (ids starting with 'mock_')
-    const realItems = items.filter(item => !item.id.startsWith('mock_'));
-    if (realItems.length !== items.length) {
-      await AsyncStorage.setItem(key, JSON.stringify(realItems));
+    let realItems = items.filter(item => !item.id.startsWith('mock_'));
+
+    // Strip legacy bloated base64 videos/snapshots to ensure row fits SQLite CursorWindow limit
+    let hasBloatedMedia = false;
+    realItems = realItems.map(item => {
+      let modified = false;
+      if (item.replayVideoBase64) {
+        delete item.replayVideoBase64;
+        modified = true;
+      }
+      if (item.snapshotBase64 && item.snapshotBase64.length > 50000 && item.userImpactSnapshotUri) {
+        delete item.snapshotBase64;
+        modified = true;
+      }
+      if (modified) hasBloatedMedia = true;
+      return item;
+    });
+
+    if (hasBloatedMedia || realItems.length !== items.length) {
+      await AsyncStorage.setItem(key, JSON.stringify(realItems)).catch(() => {});
     }
 
     // If local cache is empty for this user and Supabase is configured, pull from cloud
@@ -301,7 +432,7 @@ export async function getHistory(userId?: string): Promise<SessionItem[]> {
               wrist: { score: d.score, actual: 30, ideal: 30 },
             },
           }));
-          await AsyncStorage.setItem(key, JSON.stringify(cloudItems));
+          await AsyncStorage.setItem(key, JSON.stringify(cloudItems)).catch(() => {});
           return cloudItems;
         }
       } catch (err) {
@@ -329,6 +460,9 @@ export async function saveSession(
 ): Promise<SessionItem> {
   const grade = computeGrade(score);
 
+  // 1. Immediately update and persist strike mastery record atomically
+  await saveStrikeMasteryRecord(strikeId, score, userId);
+
   const now = new Date();
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const month = months[now.getMonth()];
@@ -336,6 +470,20 @@ export async function saveSession(
   const hours = now.getHours().toString().padStart(2, '0');
   const mins = now.getMinutes().toString().padStart(2, '0');
   const dateStr = `${month} ${day} · ${hours}:${mins}`;
+
+  // Sanitize media payload: store file paths rather than multi-megabyte base64 strings
+  const finalVideoUri = mediaPayload?.userVideoUri && !mediaPayload.userVideoUri.startsWith('data:')
+    ? mediaPayload.userVideoUri
+    : undefined;
+
+  const finalSnapshotUri = mediaPayload?.userImpactSnapshotUri && !mediaPayload.userImpactSnapshotUri.startsWith('data:')
+    ? mediaPayload.userImpactSnapshotUri
+    : (snapshotBase64 && !snapshotBase64.startsWith('data:') ? snapshotBase64 : undefined);
+
+  // Keep snapshotBase64 only if no file URI exists and payload size is safe (<50KB)
+  const safeSnapshotBase64 = !finalSnapshotUri && snapshotBase64 && snapshotBase64.length < 50000
+    ? snapshotBase64
+    : undefined;
 
   const newItem: SessionItem = {
     id: 'session_' + Date.now(),
@@ -345,10 +493,10 @@ export async function saveSession(
     score,
     grade,
     date: dateStr,
-    snapshotBase64,
-    replayVideoBase64,
-    userVideoUri: mediaPayload?.userVideoUri || replayVideoBase64,
-    userImpactSnapshotUri: mediaPayload?.userImpactSnapshotUri || snapshotBase64,
+    snapshotBase64: safeSnapshotBase64,
+    replayVideoBase64: undefined, // Never store multi-MB video base64 in AsyncStorage
+    userVideoUri: finalVideoUri,
+    userImpactSnapshotUri: finalSnapshotUri,
     coachVideoUri: mediaPayload?.coachVideoUri,
     coachImpactSnapshotUri: mediaPayload?.coachImpactSnapshotUri,
     impactFrame: mediaPayload?.impactFrame,
@@ -382,6 +530,13 @@ export async function saveAnyoSession(
   const grade = computeGrade(avgScore);
   const cadenceSpeedSec = parseFloat(((totalDurationMs / 1000) / Math.max(1, stepResults.length)).toFixed(1));
 
+  // Update mastery for all strikes included in the anyo
+  for (const step of stepResults) {
+    if (step.strikeId && step.score > 0) {
+      await saveStrikeMasteryRecord(step.strikeId, step.score, userId);
+    }
+  }
+
   const now = new Date();
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const month = months[now.getMonth()];
@@ -397,6 +552,13 @@ export async function saveAnyoSession(
   };
 
   const bestSnapshot = stepResults.find(s => !!s.snapshotBase64)?.snapshotBase64;
+  const safeBestSnapshot = bestSnapshot && bestSnapshot.length < 50000 ? bestSnapshot : undefined;
+
+  // Sanitize steps for storage to prevent bloating
+  const sanitizedSteps = stepResults.map(s => ({
+    ...s,
+    snapshotBase64: undefined,
+  }));
 
   const newItem: SessionItem = {
     id: 'session_anyo_' + Date.now(),
@@ -406,11 +568,11 @@ export async function saveAnyoSession(
     score: avgScore,
     grade,
     date: dateStr,
-    snapshotBase64: bestSnapshot,
+    snapshotBase64: safeBestSnapshot,
     breakdown: firstStepBreakdown,
     routineId: routine.id,
     routineName: routine.name,
-    anyoSteps: stepResults,
+    anyoSteps: sanitizedSteps,
     totalDurationMs,
     cadenceSpeedSec
   };
@@ -427,10 +589,14 @@ export async function saveAnyoSession(
   }
 }
 
-export async function clearHistory(userId?: string): Promise<void> {
+export async function clearHistory(userId?: string, resetMastery: boolean = false): Promise<void> {
   try {
     const key = getHistoryStorageKey(userId);
     await AsyncStorage.setItem(key, JSON.stringify([]));
+    if (resetMastery) {
+      await clearStrikeMastery(userId);
+    }
+    await clearAllUserStrikeMedia().catch(() => {});
   } catch (e) {
     console.error('Failed to clear history', e);
   }

@@ -17,6 +17,7 @@ import {
 import { addXpAndStreak, SashRankInfo } from '@/constants/gamificationStore';
 import { getCoachReference } from '@/constants/referenceStore';
 import { persistUserStrikeMedia } from '@/services/mediaStorageService';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type PracticeScreenState = 'setup' | 'briefing' | 'live' | 'result';
 
@@ -29,6 +30,7 @@ export interface SessionImprovement {
 
 export function usePracticeSession() {
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{
     strikeId?: string;
     lessonId?: string;
@@ -77,6 +79,7 @@ export function usePracticeSession() {
       elbow?: number;
       shoulder?: number;
       knee?: number;
+      wrist?: number;
     };
   }>({});
 
@@ -177,11 +180,12 @@ export function usePracticeSession() {
           elbow?: number;
           shoulder?: number;
           knee?: number;
+          wrist?: number;
         };
       }
     ) => {
       // 1. Fetch previous history to compute delta
-      const historyList: SessionItem[] = await getHistory();
+      const historyList: SessionItem[] = await getHistory(user?.id);
       const prevScores = (historyList || [])
         .filter((s) => s.strikeId === selectedStrikeId)
         .map((s) => s.score);
@@ -252,7 +256,7 @@ export function usePracticeSession() {
           },
           wrist: {
             score: rawStats.wristScore,
-            actual: 0,
+            actual: impactMeta?.actualAngles?.wrist ?? 0,
             ideal: coachRef.angles.wrist || 90,
           },
           guard: {
@@ -277,11 +281,12 @@ export function usePracticeSession() {
           impactTime: meta.impactTime,
           coachImpactTime: meta.coachImpactTime,
           impactConfidence: meta.confidence,
-        }
+        },
+        user?.id
       );
 
       // 5. Award XP and streak & check promotion
-      const xpRes = await addXpAndStreak(10);
+      const xpRes = await addXpAndStreak(10, user?.id);
       if (xpRes.isPromoted && xpRes.newRank) {
         setPromotionResult({ newRank: xpRes.newRank, level: xpRes.level });
       } else {
@@ -291,7 +296,7 @@ export function usePracticeSession() {
       // 6. Navigate to result view
       setScreen('result');
     },
-    [selectedStrikeId, currentRule]
+    [selectedStrikeId, currentRule, user?.id]
   );
 
   // Action: Complete an Anyo routine
@@ -307,8 +312,8 @@ export function usePracticeSession() {
 
       setActiveRoutine(routine);
       setRoutineStepScores(steps);
-      await saveAnyoSession(routine, steps, totalDurationMs);
-      const xpRes = await addXpAndStreak(25);
+      await saveAnyoSession(routine, steps, totalDurationMs, user?.id);
+      const xpRes = await addXpAndStreak(25, user?.id);
       if (xpRes.isPromoted && xpRes.newRank) {
         setPromotionResult({ newRank: xpRes.newRank, level: xpRes.level });
       } else {
@@ -332,7 +337,7 @@ export function usePracticeSession() {
       if (snapshotBase64) setLastSnapshot(snapshotBase64);
       setScreen('result');
     },
-    [currentRule]
+    [currentRule, user?.id]
   );
 
   const [autoStartEval, setAutoStartEval] = useState(false);
@@ -402,6 +407,7 @@ export function usePracticeSession() {
       setPromotionResult(null);
       const isFromLesson = source === 'lesson';
       const targetLessonId = params.lessonId;
+      const finalScore = evaluationResult?.score?.toString() || '0';
       setSource(undefined);
       setScreen('setup');
       setEvaluationResult(null);
@@ -418,7 +424,7 @@ export function usePracticeSession() {
             pathname: `/lesson/${targetLessonId}` as any,
             params: {
               completedFromDrill: isCompleted ? '1' : '0',
-              earnedScore: evaluationResult?.score?.toString() || '0',
+              earnedScore: finalScore,
             },
           });
         } else if (router.canGoBack()) {

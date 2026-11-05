@@ -4,6 +4,7 @@ import {
   Animated,
   BackHandler,
   Image,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -21,7 +22,7 @@ import { useRouter } from 'expo-router';
 import { registerSessionVideo } from '@/services/videoCacheManager';
 
 import { MartialTheme } from '@/constants/theme';
-import { StrikeRule } from '@/constants/strikeRules';
+import { getStrikeRule, StrikeRule } from '@/constants/strikeRules';
 import { EvaluationConfig, RawPersonPose } from '@/engine/pose/poseEngineTypes';
 import { usePoseEngine } from '@/hooks/usePoseEngine';
 import { evaluatePoseFrame } from '@/engine/evaluation/strikeEvaluator';
@@ -70,6 +71,7 @@ export interface PracticeLiveProps {
         elbow?: number;
         shoulder?: number;
         knee?: number;
+        wrist?: number;
       };
     }
   ) => void;
@@ -100,6 +102,8 @@ export function PracticeLive({
   const router = useRouter();
   // Collapsible Technical Analysis drawer (collapsed by default)
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  // Watchdog timer for pose engine initialization / offline fallback
+  const [initWatchdogTimedOut, setInitWatchdogTimedOut] = useState(false);
 
   // Camera permissions
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -128,6 +132,7 @@ export function PracticeLive({
   const [countdownValue, setCountdownValue] = useState<number | string>(3);
   const [countdownSubtext, setCountdownSubtext] = useState<string>('GET READY');
   const isCountingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const recordingIntervalRef = useRef<any>(null);
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -188,6 +193,16 @@ export function PracticeLive({
   const [anyoStepScores, setAnyoStepScores] = useState<AnyoStepResult[]>([]);
   const anyoStartTimeRef = useRef(Date.now());
   const anyoStepStartTimeRef = useRef(Date.now());
+
+  // Resynchronize Anyo step state whenever an active routine is loaded or restarted
+  useEffect(() => {
+    if (activeRoutine) {
+      setCurrentAnyoStepIndex(0);
+      setAnyoStepScores([]);
+      anyoStartTimeRef.current = Date.now();
+      anyoStepStartTimeRef.current = Date.now();
+    }
+  }, [activeRoutine?.id]);
 
   // Auto-detected strike toast
   const [detectedStrike, setDetectedStrike] = useState<{ name: string; confidence: number } | null>(null);
@@ -424,6 +439,27 @@ export function PracticeLive({
     }
   }, [webReady, evaluationConfig, voiceActive, sendSessionConfig]);
 
+  // Pose engine initialization watchdog timer (12-second timeout for offline/CDN drop)
+  useEffect(() => {
+    if (webReady) {
+      setInitWatchdogTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (!webReady) {
+        setInitWatchdogTimedOut(true);
+      }
+    }, 12000);
+
+    return () => clearTimeout(timer);
+  }, [webReady]);
+
+  const handleRetryEngine = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setInitWatchdogTimedOut(false);
+    webViewRef.current?.reload();
+  };
+
   // Video player for Mode: Follow the Coach (only instantiate when mode is 'follow' to save resources and prevent decoder contention)
   const followVideoSource = useMemo(() => {
     if (mode !== 'follow') return null;
@@ -489,12 +525,26 @@ export function PracticeLive({
   const clearAllCountdownTimers = () => {
     countdownTimeoutsRef.current.forEach((t) => clearTimeout(t));
     countdownTimeoutsRef.current = [];
+    if (recoveryPromptTimeoutRef.current) {
+      clearTimeout(recoveryPromptTimeoutRef.current);
+      recoveryPromptTimeoutRef.current = null;
+    }
+    if (evalSafetyTimeoutRef.current) {
+      clearTimeout(evalSafetyTimeoutRef.current);
+      evalSafetyTimeoutRef.current = null;
+    }
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
     Speech.stop().catch(() => {});
   };
 
   // Unmount cleanup for Speech and timers
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       clearAllCountdownTimers();
     };
   }, []);
@@ -634,6 +684,7 @@ export function PracticeLive({
 
   // Complete evaluation
   const finishEvaluation = async (durationMs: number) => {
+    if (!isMountedRef.current) return;
     isCountingRef.current = false;
     clearAllCountdownTimers();
     stopVideoRecording();
@@ -656,10 +707,13 @@ export function PracticeLive({
 
     // Check if Anyo mode is active
     if (activeRoutine) {
+      const currentStepStrikeId = activeRoutine.strikes[currentAnyoStepIndex] || strikeRule.id;
+      const currentStepStrikeRule = getStrikeRule(currentStepStrikeId);
+
       const stepScore: AnyoStepResult = {
         stepIndex: currentAnyoStepIndex,
-        strikeId: strikeRule.id,
-        strikeName: strikeRule.name,
+        strikeId: currentStepStrikeRule.id,
+        strikeName: currentStepStrikeRule.name,
         score: finalScore,
         grade: finalScore >= 85 ? 'Grade A' : 'Grade B',
         durationMs: Date.now() - anyoStepStartTimeRef.current,
@@ -672,9 +726,11 @@ export function PracticeLive({
       if (currentAnyoStepIndex + 1 < activeRoutine.strikes.length) {
         // Next Anyo step
         const nextIdx = currentAnyoStepIndex + 1;
+        const nextStrikeId = activeRoutine.strikes[nextIdx];
         setCurrentAnyoStepIndex(nextIdx);
         anyoStepStartTimeRef.current = Date.now();
-        setTargetStrike(activeRoutine.strikes[nextIdx]);
+        setTargetStrike(nextStrikeId);
+        onSelectStrike?.(nextStrikeId);
         startCountdown();
       } else {
         // Anyo complete!
@@ -690,6 +746,7 @@ export function PracticeLive({
       elbow: Math.round(impactResult.detectedPose.rightAngle ?? 0),
       shoulder: Math.round(impactResult.detectedPose.rightShoulderAngle ?? 0),
       knee: Math.round(impactResult.detectedPose.leadKneeAngle ?? impactResult.detectedPose.rightKneeAngle ?? 0),
+      wrist: Math.round(impactResult.detectedPose.rightWristAngle ?? 0),
     };
 
     const finalSnapshot = impactResult.snapshotBase64 || lastSnapshot || undefined;
@@ -739,15 +796,10 @@ export function PracticeLive({
     return () => backSubscription.remove();
   }, [onExit]);
 
-  // Cleanup timers on unmount
+  // Cleanup timers and audio on unmount
   useEffect(() => {
     return () => {
       clearAllCountdownTimers();
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
-      if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
-      if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
       isCountingRef.current = false;
     };
   }, []);
@@ -769,21 +821,34 @@ export function PracticeLive({
   }
 
   if (!cameraPermission.granted) {
+    const isPermanentlyDenied = cameraPermission.canAskAgain === false;
+
     return (
       <SafeAreaView style={styles.permissionContainer} edges={['top', 'bottom']}>
         <View style={styles.permissionCard}>
           <CoachCharacter pose="thinking" size={100} />
           <Text style={styles.permissionTitle}>Camera Access Needed</Text>
           <Text style={styles.permissionDesc}>
-            To analyze your strike form, track your body angles, and give you real-time coach feedback, Arnis Trainer needs access to your camera.
+            {isPermanentlyDenied
+              ? 'Camera permission has been blocked or permanently denied in system settings. Please open device settings and allow camera access to continue practice.'
+              : 'To analyze your strike form, track your body angles, and give you real-time coach feedback, Arnis Trainer needs access to your camera.'}
           </Text>
           <View style={styles.permissionActions}>
-            <TactileButton
-              title="ALLOW CAMERA ACCESS"
-              variant="primary"
-              size="lg"
-              onPress={() => requestCameraPermission()}
-            />
+            {isPermanentlyDenied ? (
+              <TactileButton
+                title="OPEN DEVICE SETTINGS"
+                variant="primary"
+                size="lg"
+                onPress={() => Linking.openSettings()}
+              />
+            ) : (
+              <TactileButton
+                title="ALLOW CAMERA ACCESS"
+                variant="primary"
+                size="lg"
+                onPress={() => requestCameraPermission()}
+              />
+            )}
             <TouchableOpacity onPress={onExit} style={styles.permissionCancelBtn}>
               <Text style={styles.permissionCancelText}>Go Back</Text>
             </TouchableOpacity>
@@ -946,8 +1011,34 @@ export function PracticeLive({
 
           {!webReady && (
             <View style={styles.loadingBackdrop}>
-              <ActivityIndicator size="large" color={MartialTheme.colors.primary} />
-              <Text style={styles.loadingText}>{errorMsg || statusMsg || 'Preparing camera...'}</Text>
+              {initWatchdogTimedOut || errorMsg ? (
+                <View style={styles.networkErrorCard}>
+                  <CoachCharacter pose="thinking" size={85} />
+                  <Text style={styles.networkErrorTitle}>AI Camera Initializing Slowly</Text>
+                  <Text style={styles.networkErrorDesc}>
+                    {errorMsg
+                      ? errorMsg
+                      : 'The MediaPipe pose detection model is taking longer than expected to download. This can happen on slower Wi-Fi or mobile data.'}
+                  </Text>
+                  <View style={styles.networkErrorActions}>
+                    <TactileButton
+                      title="RELOAD ENGINE"
+                      variant="primary"
+                      size="md"
+                      icon={<Ionicons name="refresh" size={16} color="#FFFFFF" />}
+                      onPress={handleRetryEngine}
+                    />
+                    <TouchableOpacity onPress={onExit} style={styles.networkErrorCancelBtn}>
+                      <Text style={styles.networkErrorCancelText}>Return to Practice Menu</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <ActivityIndicator size="large" color={MartialTheme.colors.primary} />
+                  <Text style={styles.loadingText}>{statusMsg || 'Preparing camera & AI model...'}</Text>
+                </>
+              )}
             </View>
           )}
 
@@ -1353,6 +1444,50 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
     marginTop: 10,
     fontWeight: '600',
+  },
+  networkErrorCard: {
+    width: '88%',
+    maxWidth: 340,
+    backgroundColor: '#1E293B',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#334155',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  networkErrorTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#F8FAFC',
+    marginTop: 14,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  networkErrorDesc: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontWeight: '500',
+  },
+  networkErrorActions: {
+    width: '100%',
+    gap: 10,
+  },
+  networkErrorCancelBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  networkErrorCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
   },
 
   // BADGES & OVERLAYS

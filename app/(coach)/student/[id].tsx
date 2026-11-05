@@ -27,9 +27,52 @@ import { UserProfile } from '@/services/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { MentorshipService } from '@/services/mentorshipService';
 
-function SharedVideoItem({ videoUrl }: { videoUrl: string }) {
+function SharedVideoItem({
+  videoUrl,
+  snapshotUrl,
+}: {
+  videoUrl: string;
+  snapshotUrl?: string | null;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  if (!isPlaying) {
+    return (
+      <TouchableOpacity
+        style={styles.videoPlayerContainer}
+        activeOpacity={0.88}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          setIsPlaying(true);
+        }}>
+        {snapshotUrl ? (
+          <Image source={{ uri: snapshotUrl }} style={styles.videoPlayer} resizeMode="cover" />
+        ) : (
+          <View
+            style={[
+              styles.videoPlayer,
+              { backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
+            ]}>
+            <Ionicons name="videocam-outline" size={42} color="#64748B" />
+          </View>
+        )}
+        <View style={styles.videoPlayOverlay}>
+          <View style={styles.videoPlayCircle}>
+            <Ionicons name="play" size={26} color="#FFFFFF" style={{ marginLeft: 3 }} />
+          </View>
+          <Text style={styles.videoPlayPrompt}>Tap to Play Practice Video</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return <ActiveSharedVideo videoUrl={videoUrl} onStop={() => setIsPlaying(false)} />;
+}
+
+function ActiveSharedVideo({ videoUrl, onStop }: { videoUrl: string; onStop: () => void }) {
   const player = useVideoPlayer(videoUrl, (p) => {
     p.loop = true;
+    p.play();
   });
 
   return (
@@ -40,9 +83,12 @@ function SharedVideoItem({ videoUrl }: { videoUrl: string }) {
         allowsFullscreen
         allowsPictureInPicture
       />
+      <TouchableOpacity style={styles.videoCloseBtn} onPress={onStop}>
+        <Ionicons name="close-circle" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
       <View style={styles.videoControlsHint}>
-        <Ionicons name="play-circle-outline" size={14} color="#FFFFFF" />
-        <Text style={styles.videoControlsText}>Student Shared Practice Video</Text>
+        <Ionicons name="play-circle" size={14} color="#10B981" />
+        <Text style={styles.videoControlsText}>Playing Student Video</Text>
       </View>
     </View>
   );
@@ -352,6 +398,22 @@ export default function StudentDetailScreen() {
                               </Text>
                             </View>
                           )}
+                          {session.breakdown.stance && (
+                            <View style={styles.breakdownItem}>
+                              <Text style={styles.breakdownLabel}>Base Stance</Text>
+                              <Text style={styles.breakdownVal}>
+                                {session.breakdown.stance.score}%
+                              </Text>
+                            </View>
+                          )}
+                          {session.breakdown.wrist && (
+                            <View style={styles.breakdownItem}>
+                              <Text style={styles.breakdownLabel}>Wrist Snap (Pitik)</Text>
+                              <Text style={styles.breakdownVal}>
+                                {session.breakdown.wrist.score}%
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                     )}
@@ -375,7 +437,10 @@ export default function StudentDetailScreen() {
                           <Ionicons name="videocam" size={16} color="#15803D" />
                           <Text style={styles.mediaLabelShared}>STUDENT SHARED VIDEO</Text>
                         </View>
-                        <SharedVideoItem videoUrl={session.video_url} />
+                        <SharedVideoItem
+                          videoUrl={session.video_url}
+                          snapshotUrl={session.snapshot_url}
+                        />
                       </View>
                     ) : (
                       <View style={styles.videoPrivateRow}>
@@ -821,6 +886,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '700',
+  },
+  videoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  videoPlayCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: MartialTheme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  videoPlayPrompt: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  videoCloseBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderRadius: 14,
+    padding: 2,
   },
   videoPrivateRow: {
     flexDirection: 'row',

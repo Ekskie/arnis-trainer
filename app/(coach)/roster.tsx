@@ -32,7 +32,11 @@ export default function CoachRosterScreen() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadRoster = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [pending, accepted] = await Promise.all([
         MentorshipService.getCoachPendingRequests(user.id),

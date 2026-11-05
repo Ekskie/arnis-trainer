@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -45,6 +46,7 @@ export interface PracticeResultProps {
       elbow?: number;
       shoulder?: number;
       knee?: number;
+      wrist?: number;
     };
   };
   isFromLesson?: boolean;
@@ -95,21 +97,27 @@ export function PracticeResult({
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   React.useEffect(() => {
-    getGamificationStats().then((g) => {
+    getGamificationStats(user?.id).then((g) => {
       setSashInfo(getSashRankByLevel(g.level));
     });
-  }, []);
+  }, [user?.id]);
 
   const coachRef = getCoachReference(strikeRule.id);
 
   // Auto-sync metrics upon result view for authenticated students
   React.useEffect(() => {
     if (user) {
+      const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
+      const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
+      const effectiveDesc = activeRoutine
+        ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
+        : strikeRule.desc;
+
       const sessionItem = {
         id: 'session_' + Date.now(),
-        strikeId: strikeRule.id,
-        strikeName: strikeRule.name,
-        description: strikeRule.desc,
+        strikeId: effectiveId,
+        strikeName: effectiveName,
+        description: effectiveDesc,
         score: result.score,
         grade: result.grade,
         date: new Date().toLocaleDateString(),
@@ -124,20 +132,42 @@ export function PracticeResult({
 
       CloudSyncService.syncPracticeSession(user.id, sessionItem as any, false);
     }
-  }, [user]);
+  }, [user?.id, strikeRule.id, activeRoutine?.id, result.score]);
 
   const handleToggleShareVideo = async (value: boolean) => {
     setShareVideoWithCoach(value);
-    if (!user) return;
+    if (!user) {
+      if (value) {
+        setShareVideoWithCoach(false);
+        Alert.alert(
+          'Sign In Required',
+          'Please sign in or create an account to share practice recordings with certified coaches.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Sign In / Register',
+              onPress: () => router.push('/(auth)/sign-in' as any),
+            },
+          ]
+        );
+      }
+      return;
+    }
 
     if (value && (lastReplayVideo || lastSnapshot)) {
       setIsSyncingVideo(true);
       setSyncStatus('Uploading video for coach review...');
+      const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
+      const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
+      const effectiveDesc = activeRoutine
+        ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
+        : strikeRule.desc;
+
       const sessionItem = {
         id: 'session_' + Date.now(),
-        strikeId: strikeRule.id,
-        strikeName: strikeRule.name,
-        description: strikeRule.desc,
+        strikeId: effectiveId,
+        strikeName: effectiveName,
+        description: effectiveDesc,
         score: result.score,
         grade: result.grade,
         date: new Date().toLocaleDateString(),
@@ -146,7 +176,9 @@ export function PracticeResult({
         breakdown: {
           elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
           shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
-          wrist: { score: result.wristScore, actual: 0, ideal: coachRef.angles.wrist || 90 },
+          wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
+          guard: { score: result.guardScore, actual: 0, ideal: 70 },
+          stance: { score: result.stanceScore, actual: lastImpactMeta?.actualAngles?.knee || 0, ideal: 145 },
         },
       };
 

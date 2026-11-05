@@ -37,9 +37,9 @@ export default function HomeDashboardScreen() {
   const { unreadCount } = useNotifications();
 
   const [gamification, setGamification] = useState<GamificationStats>({
-    streakDays: 3,
+    streakDays: 0,
     lastTrainedDate: '',
-    totalXp: 120,
+    totalXp: 0,
     level: 1,
   });
 
@@ -305,12 +305,13 @@ export default function HomeDashboardScreen() {
       {/* Daily Guided Training & Warmup Walkthrough Modal */}
       <TodaysTrainingModal
         visible={warmupModalVisible}
+        userId={user?.id}
         onClose={() => setWarmupModalVisible(false)}
         onStartCameraTest={(strikeId) => {
           setWarmupModalVisible(false);
           router.push({
             pathname: '/evaluate',
-            params: { strikeId: strikeId || 'strike_1' },
+            params: { strikeId: strikeId || 'strike_1', mode: 'test' },
           });
         }}
       />

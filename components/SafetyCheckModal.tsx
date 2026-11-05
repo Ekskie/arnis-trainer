@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -31,6 +31,18 @@ export function SafetyCheckModal({
     stable: true,
     safeEnv: true,
   });
+
+  useEffect(() => {
+    if (visible) {
+      setChecklist({
+        wholeBody: true,
+        space: true,
+        stick: true,
+        stable: true,
+        safeEnv: true,
+      });
+    }
+  }, [visible]);
 
   const allChecked = checklist.wholeBody && checklist.space && checklist.stick && checklist.stable && checklist.safeEnv;
 

@@ -26,6 +26,7 @@ export interface CoachVsYouProps {
     elbow?: number;
     shoulder?: number;
     knee?: number;
+    wrist?: number;
   };
   userImpactTime?: number;
   coachImpactTime?: number;
@@ -63,7 +64,9 @@ export function CoachVsYou({
   const wristStatus = getStatus(userPillars.wrist);
 
   const coachElbowAngle = coachReference.angles.elbow;
-  const userElbowAngle = userActualAngles?.elbow || Math.round(strikeRule.chamber_elb + (userPillars.strikingArm / 100) * 40);
+  const userElbowAngle = typeof userActualAngles?.elbow === 'number' && userActualAngles.elbow > 0
+    ? userActualAngles.elbow
+    : Math.round(strikeRule.chamber_elb + (userPillars.strikingArm / 100) * 40);
 
   return (
     <View style={styles.card}>
@@ -230,6 +233,9 @@ export function CoachVsYou({
               <Ionicons name={wristStatus.icon} size={14} color={wristStatus.color} style={{ marginRight: 4 }} />
               <Text style={[styles.metricVerdict, { color: wristStatus.color }]}>
                 {wristStatus.text}
+                {typeof userActualAngles?.wrist === 'number'
+                  ? ` (~${userActualAngles.wrist}° deviation)`
+                  : ' (Apex Snap)'}
               </Text>
             </View>
           </View>

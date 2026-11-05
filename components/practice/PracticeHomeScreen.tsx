@@ -13,8 +13,17 @@ import { useRouter } from 'expo-router';
 import { MartialTheme } from '@/constants/theme';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
-import { ANYO_ROUTINES_CATALOG, AnyoRoutine, getHistory, getStrikeMasteryStats, MasteryStats, SessionItem } from '@/constants/historyStore';
+import {
+  ANYO_ROUTINES_CATALOG,
+  AnyoRoutine,
+  getHistory,
+  getStoredStrikeMasteryMap,
+  getStrikeMasteryStats,
+  MasteryStats,
+  SessionItem,
+} from '@/constants/historyStore';
 import { getGamificationStats } from '@/constants/gamificationStore';
+import { useAuth } from '@/contexts/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafetyCheckModal } from '@/components/SafetyCheckModal';
 
@@ -40,7 +49,8 @@ export function PracticeHomeScreen({
   setVoiceFeedbackEnabled,
 }: PracticeHomeScreenProps) {
   const router = useRouter();
-  const [streakDays, setStreakDays] = useState(1);
+  const { user } = useAuth();
+  const [streakDays, setStreakDays] = useState(0);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [showAllStrikes, setShowAllStrikes] = useState(false);
@@ -91,14 +101,17 @@ export function PracticeHomeScreen({
 
   useEffect(() => {
     async function loadData() {
-      const gStats = await getGamificationStats();
-      setStreakDays(gStats.streakDays || 1);
-      const hist = await getHistory();
+      const gStats = await getGamificationStats(user?.id);
+      setStreakDays(typeof gStats.streakDays === 'number' ? gStats.streakDays : 0);
+      const [hist, masteryMap] = await Promise.all([
+        getHistory(user?.id),
+        getStoredStrikeMasteryMap(user?.id),
+      ]);
       setHistoryList(hist || []);
-      setMasteryStats(getStrikeMasteryStats(hist || []));
+      setMasteryStats(getStrikeMasteryStats(hist || [], masteryMap));
     }
     loadData();
-  }, []);
+  }, [user?.id]);
 
   // Determine the recommended strike from actual mastery stats
   const recommendedStrike = useMemo(() => {
@@ -412,7 +425,7 @@ export function PracticeHomeScreen({
             activeOpacity={0.8}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onStartStrike(recommendedStrike.id, 'guided');
+              triggerStartStrike(recommendedStrike.id, 'guided');
             }}
           >
             <View style={[styles.modeIconCircle, { backgroundColor: '#DCFCE7' }]}>

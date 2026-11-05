@@ -79,9 +79,9 @@ export interface GamificationStats {
 }
 
 const DEFAULT_STATS: GamificationStats = {
-  streakDays: 3,
-  lastTrainedDate: new Date().toISOString().split('T')[0],
-  totalXp: 120,
+  streakDays: 0,
+  lastTrainedDate: '',
+  totalXp: 0,
   level: 1,
 };
 
@@ -115,6 +115,17 @@ export async function getGamificationStats(userId?: string): Promise<Gamificatio
       return DEFAULT_STATS;
     }
     const parsed: GamificationStats = JSON.parse(raw);
+
+    // Active streak verification: if user missed yesterday and has not trained today, streak is broken
+    const today = getTodayString();
+    const yesterday = getYesterdayString();
+    if (parsed.lastTrainedDate && parsed.lastTrainedDate !== today && parsed.lastTrainedDate !== yesterday) {
+      return {
+        ...parsed,
+        streakDays: 0,
+      };
+    }
+
     return parsed;
   } catch {
     return DEFAULT_STATS;

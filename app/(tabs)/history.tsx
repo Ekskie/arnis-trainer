@@ -26,7 +26,9 @@ import { StrikeRadarChart } from '@/components/StrikeRadarChart';
 import { WhyFailedModal } from '@/components/WhyFailedModal';
 import {
   clearHistory,
+  clearStrikeMastery,
   getHistory,
+  getStoredStrikeMasteryMap,
   getStrikeMasteryStats,
   MasteryStats,
   SessionItem,
@@ -50,7 +52,7 @@ export default function ProgressHistoryScreen() {
   const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
-  const [streakDays, setStreakDays] = useState(1);
+  const [streakDays, setStreakDays] = useState(0);
   const [userLevel, setUserLevel] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
@@ -92,11 +94,14 @@ export default function ProgressHistoryScreen() {
   useFocusEffect(
     React.useCallback(() => {
       let isMounted = true;
-      getHistory(user?.id).then((history) => {
+      Promise.all([
+        getHistory(user?.id),
+        getStoredStrikeMasteryMap(user?.id),
+      ]).then(([history, masteryMap]) => {
         if (isMounted) {
           const list = history || [];
           setHistoryList(list);
-          setMasteryStats(getStrikeMasteryStats(list));
+          setMasteryStats(getStrikeMasteryStats(list, masteryMap));
           if (list.length > 0) {
             const count = list.length;
             const sum = list.reduce((acc, curr) => acc + curr.score, 0);
@@ -114,7 +119,7 @@ export default function ProgressHistoryScreen() {
 
       getGamificationStats(user?.id).then((g) => {
         if (isMounted) {
-          setStreakDays(g.streakDays || 1);
+          setStreakDays(typeof g.streakDays === 'number' ? g.streakDays : 0);
           setUserLevel(g.level || 1);
         }
       });
@@ -122,7 +127,7 @@ export default function ProgressHistoryScreen() {
       return () => {
         isMounted = false;
       };
-    }, [])
+    }, [user?.id])
   );
 
   const sashInfo = useMemo(() => getSashRankByLevel(userLevel), [userLevel]);
@@ -202,18 +207,47 @@ export default function ProgressHistoryScreen() {
     ].filter((g) => g.items.length > 0);
   }, [historyList]);
 
+  // Precompute score deltas compared to older attempts for O(1) row rendering
+  const itemDeltaMap = useMemo(() => {
+    const deltas: Record<string, number | null> = {};
+    const strikeLatestPrevScore: Record<string, number> = {};
+
+    // Iterate backwards from oldest to newest to compute delta against the immediate previous session
+    for (let i = historyList.length - 1; i >= 0; i--) {
+      const item = historyList[i];
+      const prevScore = strikeLatestPrevScore[item.strikeId];
+      if (prevScore !== undefined) {
+        deltas[item.id] = item.score - prevScore;
+      } else {
+        deltas[item.id] = null;
+      }
+      strikeLatestPrevScore[item.strikeId] = item.score;
+    }
+    return deltas;
+  }, [historyList]);
+
   // Reset history handler
   const handleClearAll = () => {
     Alert.alert(
       'Reset Practice History',
-      'Are you sure you want to clear your recorded session history?',
+      'Choose what you would like to reset:',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Reset History',
+          text: 'Clear Sessions Only',
+          onPress: async () => {
+            await clearHistory(user?.id, false);
+            setHistoryList([]);
+            const masteryMap = await getStoredStrikeMasteryMap(user?.id);
+            setMasteryStats(getStrikeMasteryStats([], masteryMap));
+            setStats({ avgScore: 0, bestScore: 0, sessionsCount: 0 });
+          },
+        },
+        {
+          text: 'Reset Everything',
           style: 'destructive',
           onPress: async () => {
-            await clearHistory();
+            await clearHistory(user?.id, true);
             setHistoryList([]);
             setMasteryStats(getStrikeMasteryStats([]));
             setStats({ avgScore: 0, bestScore: 0, sessionsCount: 0 });
@@ -739,10 +773,7 @@ export default function ProgressHistoryScreen() {
 
                 <View style={styles.timelineGroupCard}>
                   {group.items.map((item, idx) => {
-                    const olderAttempt = historyList.find(
-                      (s, i) => s.strikeId === item.strikeId && i > historyList.indexOf(item)
-                    );
-                    const delta = olderAttempt ? item.score - olderAttempt.score : null;
+                    const delta = itemDeltaMap[item.id] ?? null;
 
                     return (
                       <TouchableOpacity

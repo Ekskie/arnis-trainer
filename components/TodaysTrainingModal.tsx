@@ -9,11 +9,14 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { addXpAndStreak } from '@/constants/gamificationStore';
+import { getHistory, SessionItem } from '@/constants/historyStore';
 
 export interface TodaysTrainingModalProps {
   visible: boolean;
   onClose: () => void;
   onStartCameraTest?: (strikeId: string) => void;
+  userId?: string;
 }
 
 interface RoutineStep {
@@ -102,13 +105,34 @@ export function TodaysTrainingModal({
   visible,
   onClose,
   onStartCameraTest,
+  userId,
 }: TodaysTrainingModalProps) {
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(DAILY_STEPS[0].durationSeconds);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
+  const [recentSessions, setRecentSessions] = useState<SessionItem[]>([]);
+  const [xpAwarded, setXpAwarded] = useState(false);
 
   const timerRef = useRef<any>(null);
+
+  // Load history when modal opens
+  useEffect(() => {
+    if (visible) {
+      getHistory(userId).then((hist) => {
+        setRecentSessions(hist || []);
+      });
+      setXpAwarded(false);
+    }
+  }, [visible, userId]);
+
+  // Award daily training XP and increment streak upon routine completion
+  useEffect(() => {
+    if (isCompleted && !xpAwarded) {
+      setXpAwarded(true);
+      addXpAndStreak(15, userId).catch(() => {});
+    }
+  }, [isCompleted, xpAwarded, userId]);
 
   // Sync timer when step changes
   useEffect(() => {
@@ -116,32 +140,40 @@ export function TodaysTrainingModal({
     setIsRunning(false);
   }, [activeStepIndex]);
 
-  // Interval timer
+  // Interval timer pure countdown
   useEffect(() => {
-    if (isRunning) {
-      timerRef.current = setInterval(() => {
-        setRemainingSeconds(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            // Advance to next step or complete
-            if (activeStepIndex < DAILY_STEPS.length - 1) {
-              setActiveStepIndex(a => a + 1);
-            } else {
-              setIsCompleted(true);
-            }
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
+    if (!isRunning) {
       if (timerRef.current) clearInterval(timerRef.current);
+      return;
     }
+
+    timerRef.current = setInterval(() => {
+      setRemainingSeconds(prev => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isRunning, activeStepIndex]);
+  }, [isRunning]);
+
+  // Step advancement on timer expiration
+  useEffect(() => {
+    if (isRunning && remainingSeconds === 0) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (activeStepIndex < DAILY_STEPS.length - 1) {
+        setActiveStepIndex(prev => prev + 1);
+      } else {
+        setIsCompleted(true);
+        setIsRunning(false);
+      }
+    }
+  }, [remainingSeconds, isRunning, activeStepIndex]);
 
   const toggleRun = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -319,23 +351,46 @@ export function TodaysTrainingModal({
                 You practiced for 12 focused minutes today.
               </Text>
 
-              {/* Star breakdown */}
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Strike 1 (Left Temple)</Text>
-                  <Text style={styles.starText}>⭐⭐⭐⭐☆</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Strike 2 (Right Temple)</Text>
-                  <Text style={styles.starText}>⭐⭐⭐☆☆</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={[styles.summaryLabel, { fontWeight: '800' }]}>Overall Precision</Text>
-                  <Text style={[styles.starText, { color: '#10B981', fontWeight: '800' }]}>78%</Text>
-                </View>
+              {/* XP & Streak Reward Badge */}
+              <View style={styles.xpRewardBadge}>
+                <Ionicons name="sparkles" size={15} color="#D97706" />
+                <Text style={styles.xpRewardText}>+15 XP Earned · Daily Streak Preserved! 🔥</Text>
               </View>
+
+              {/* Dynamic Star breakdown */}
+              {(() => {
+                const s1 = recentSessions.find((s) => s.strikeId === 'strike_1');
+                const s2 = recentSessions.find((s) => s.strikeId === 'strike_2');
+                const s1Score = s1 ? s1.score : 85;
+                const s2Score = s2 ? s2.score : 80;
+                const overallScore = Math.round((s1Score + s2Score) / 2);
+                const getStars = (score: number) => {
+                  if (score >= 90) return '⭐⭐⭐⭐⭐';
+                  if (score >= 80) return '⭐⭐⭐⭐☆';
+                  if (score >= 70) return '⭐⭐⭐☆☆';
+                  if (score >= 60) return '⭐⭐☆☆☆';
+                  return '⭐☆☆☆☆';
+                };
+
+                return (
+                  <View style={styles.summaryCard}>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Strike 1 (Left Temple)</Text>
+                      <Text style={styles.starText}>{getStars(s1Score)} ({s1Score}%)</Text>
+                    </View>
+                    <View style={styles.summaryDivider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Strike 2 (Right Temple)</Text>
+                      <Text style={styles.starText}>{getStars(s2Score)} ({s2Score}%)</Text>
+                    </View>
+                    <View style={styles.summaryDivider} />
+                    <View style={styles.summaryRow}>
+                      <Text style={[styles.summaryLabel, { fontWeight: '800' }]}>Overall Precision</Text>
+                      <Text style={[styles.starText, { color: '#10B981', fontWeight: '800' }]}>{overallScore}%</Text>
+                    </View>
+                  </View>
+                );
+              })()}
 
               <View style={styles.nextTimeCard}>
                 <Ionicons name="bulb" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
@@ -624,7 +679,24 @@ const styles = StyleSheet.create({
   completeSub: {
     fontSize: 13,
     color: '#94A3B8',
-    marginBottom: 20,
+    marginBottom: 14,
+  },
+  xpRewardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  xpRewardText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400E',
+    marginLeft: 6,
   },
   summaryCard: {
     width: '100%',

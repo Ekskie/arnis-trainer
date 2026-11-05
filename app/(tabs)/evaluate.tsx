@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from 'expo-router';
 import { usePracticeSession } from '@/hooks/usePracticeSession';
 import { PracticeHomeScreen } from '@/components/practice/PracticeHomeScreen';
@@ -7,6 +8,7 @@ import { PracticeLive } from '@/components/practice/PracticeLive';
 import { PracticeResult } from '@/components/practice/PracticeResult';
 import { StrikeVideoModal } from '@/components/StrikeVideoModal';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
+import { SafetyCheckModal } from '@/components/SafetyCheckModal';
 import { MartialTheme } from '@/constants/theme';
 
 const DEFAULT_TAB_BAR_STYLE = {
@@ -39,6 +41,31 @@ export default function EvaluateScreen() {
   const [videoModalVisible, setVideoModalVisible] = useState(false);
   const [videoModalStrikeId, setVideoModalStrikeId] = useState('strike_1');
   const [tutorialModalVisible, setTutorialModalVisible] = useState(false);
+  const [showSafetyModal, setShowSafetyModal] = useState(false);
+  const [pendingSafetyStrikeId, setPendingSafetyStrikeId] = useState<string | null>(null);
+
+  const startStrikeWithSafety = async (sid: string) => {
+    try {
+      const hasSeen = await AsyncStorage.getItem('@arnis_has_seen_safety_modal');
+      if (hasSeen === '1') {
+        practice.startStrike(sid, 'guided');
+      } else {
+        setPendingSafetyStrikeId(sid);
+        setShowSafetyModal(true);
+      }
+    } catch {
+      practice.startStrike(sid, 'guided');
+    }
+  };
+
+  const handleConfirmSafety = async () => {
+    await AsyncStorage.setItem('@arnis_has_seen_safety_modal', '1');
+    setShowSafetyModal(false);
+    if (pendingSafetyStrikeId) {
+      practice.startStrike(pendingSafetyStrikeId, 'guided');
+      setPendingSafetyStrikeId(null);
+    }
+  };
 
   // Dynamically hide tab bar on live camera evaluation or result feedback screen
   useEffect(() => {
@@ -77,7 +104,7 @@ export default function EvaluateScreen() {
               onClose={() => setVideoModalVisible(false)}
               onPracticeStrike={(sid) => {
                 setVideoModalVisible(false);
-                practice.startStrike(sid, 'guided');
+                startStrikeWithSafety(sid);
               }}
             />
           )}
@@ -87,8 +114,17 @@ export default function EvaluateScreen() {
             onClose={() => setTutorialModalVisible(false)}
             onNavigateToPractice={(sid) => {
               setTutorialModalVisible(false);
-              practice.startStrike(sid || 'strike_1', 'guided');
+              startStrikeWithSafety(sid || 'strike_1');
             }}
+          />
+
+          <SafetyCheckModal
+            visible={showSafetyModal}
+            onDismiss={() => {
+              setShowSafetyModal(false);
+              setPendingSafetyStrikeId(null);
+            }}
+            onConfirm={handleConfirmSafety}
           />
         </>
       );

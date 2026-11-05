@@ -35,14 +35,19 @@ export default function CoachConnectScreen() {
   const [showRequestModal, setShowRequestModal] = useState(false);
 
   const loadData = async () => {
-    if (!user) return;
     try {
-      const [status, coachList] = await Promise.all([
-        MentorshipService.getStudentMentorship(user.id),
-        MentorshipService.getAvailableCoaches(),
-      ]);
-      setMentorship(status);
-      setCoaches(coachList);
+      if (user) {
+        const [status, coachList] = await Promise.all([
+          MentorshipService.getStudentMentorship(user.id),
+          MentorshipService.getAvailableCoaches(),
+        ]);
+        setMentorship(status);
+        setCoaches(coachList);
+      } else {
+        const coachList = await MentorshipService.getAvailableCoaches();
+        setMentorship(null);
+        setCoaches(coachList);
+      }
     } catch (e) {
       console.error('Failed to load mentorship data:', e);
     } finally {
@@ -82,6 +87,22 @@ export default function CoachConnectScreen() {
 
   const handleOpenRequest = (coach: UserProfile) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (!user) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in or create an account to connect with a certified Guro coach and receive personalized mentorship.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign In / Register',
+            onPress: () => router.push('/(auth)/sign-in' as any),
+          },
+        ]
+      );
+      return;
+    }
+
     if (mentorship?.status === 'accepted' && mentorship.coach) {
       Alert.alert(
         'Switch Coach?',

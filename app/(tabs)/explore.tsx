@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -25,9 +25,11 @@ import { JourneyConnector } from '@/components/journey/JourneyConnector';
 import { JourneyPrerequisiteSheet } from '@/components/journey/JourneyPrerequisiteSheet';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function LearnCurriculumScreen() {
   const router = useRouter();
+  const { user } = useAuth();
 
   const [curriculumProgress, setCurriculumProgress] = useState<CurriculumProgress>({
     completedLessonIds: [],
@@ -40,25 +42,29 @@ export default function LearnCurriculumScreen() {
   const [selectedStageIndex, setSelectedStageIndex] = useState<number>(0);
   const [selectedLockedLesson, setSelectedLockedLesson] = useState<CurriculumLesson | null>(null);
   const [showPrereqSheet, setShowPrereqSheet] = useState(false);
+  const initialStageSetRef = useRef(false);
 
   // Load progress when screen is focused
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
-      getCurriculumProgress().then((prog) => {
+      getCurriculumProgress(user?.id).then((prog) => {
         if (isMounted) {
           setCurriculumProgress(prog);
-          // Auto-select the stage of current lesson
-          const currentLesson = ALL_CURRICULUM_LESSONS.find(l => l.id === prog.currentLessonId);
-          if (currentLesson) {
-            setSelectedStageIndex(currentLesson.levelNumber);
+          // Auto-select stage only on initial mount so user stage browsing isn't forcibly overridden
+          if (!initialStageSetRef.current) {
+            initialStageSetRef.current = true;
+            const currentLesson = ALL_CURRICULUM_LESSONS.find(l => l.id === prog.currentLessonId);
+            if (currentLesson) {
+              setSelectedStageIndex(currentLesson.levelNumber);
+            }
           }
         }
       });
       return () => {
         isMounted = false;
       };
-    }, [])
+    }, [user?.id])
   );
 
   const currentStage = CURRICULUM_DATA[selectedStageIndex] || CURRICULUM_DATA[0];

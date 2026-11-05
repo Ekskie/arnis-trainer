@@ -33,7 +33,11 @@ export default function CoachInboxScreen() {
   const [students, setStudents] = useState<MentorshipRequest[]>([]);
 
   const loadInbox = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [list, accepted] = await Promise.all([
         MessageService.getConversations(user.id),

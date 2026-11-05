@@ -204,33 +204,35 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
               transform: [{ translateY: toastY }],
             },
           ]}>
-          <TouchableOpacity
-            style={styles.toastContainer}
-            activeOpacity={0.9}
-            onPress={handleToastPress}>
-            <View style={styles.toastAvatarBox}>
-              {currentToast.senderAvatar ? (
-                <Image source={{ uri: currentToast.senderAvatar }} style={styles.toastAvatarImg} />
-              ) : (
-                <MaterialCommunityIcons
-                  name={currentToast.senderRole?.includes('Coach') ? 'shield-account' : 'karate'}
-                  size={20}
-                  color={currentToast.senderRole?.includes('Coach') ? '#D97706' : '#15803D'}
-                />
-              )}
-            </View>
-
-            <View style={styles.toastTextBox}>
-              <View style={styles.toastHeaderRow}>
-                <Text style={styles.toastSenderName} numberOfLines={1}>
-                  {currentToast.senderName}
-                </Text>
-                <Text style={styles.toastRolePill}>{currentToast.senderRole || 'Partner'}</Text>
+          <View style={styles.toastContainer}>
+            <TouchableOpacity
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+              activeOpacity={0.9}
+              onPress={handleToastPress}>
+              <View style={styles.toastAvatarBox}>
+                {currentToast.senderAvatar ? (
+                  <Image source={{ uri: currentToast.senderAvatar }} style={styles.toastAvatarImg} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={currentToast.senderRole?.includes('Coach') ? 'shield-account' : 'karate'}
+                    size={20}
+                    color={currentToast.senderRole?.includes('Coach') ? '#D97706' : '#15803D'}
+                  />
+                )}
               </View>
-              <Text style={styles.toastMessageContent} numberOfLines={2}>
-                {currentToast.content}
-              </Text>
-            </View>
+
+              <View style={styles.toastTextBox}>
+                <View style={styles.toastHeaderRow}>
+                  <Text style={styles.toastSenderName} numberOfLines={1}>
+                    {currentToast.senderName}
+                  </Text>
+                  <Text style={styles.toastRolePill}>{currentToast.senderRole || 'Partner'}</Text>
+                </View>
+                <Text style={styles.toastMessageContent} numberOfLines={2}>
+                  {currentToast.content}
+                </Text>
+              </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.toastCloseBtn}
@@ -238,7 +240,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close" size={16} color="#9CA3AF" />
             </TouchableOpacity>
-          </TouchableOpacity>
+          </View>
         </Animated.View>
       )}
     </NotificationContext.Provider>

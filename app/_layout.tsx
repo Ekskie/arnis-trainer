@@ -11,7 +11,7 @@ import { NotificationProvider } from '@/contexts/NotificationContext';
 import { MartialTheme } from '@/constants/theme';
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+  initialRouteName: '(tabs)',
 };
 
 function RootNavigator() {
@@ -46,7 +46,7 @@ function RootNavigator() {
           router.replace('/(coach)/roster' as any);
         }
       } else {
-        // Student is allowed in (tabs), direct-chat, coach-hub, coach-connect, lesson, and chat.
+        // Student is allowed in (tabs), direct-chat, coach-hub, coach-connect, and lesson.
         // Redirect if student enters coach-exclusive area or auth screens.
         if (inAuthGroup || inCoachGroup) {
           router.replace('/(tabs)' as any);
@@ -79,13 +79,6 @@ function RootNavigator() {
         options={{
           headerShown: false,
           animation: 'slide_from_right',
-        }}
-      />
-      <Stack.Screen
-        name="chat"
-        options={{
-          presentation: 'modal',
-          headerShown: false,
         }}
       />
       <Stack.Screen

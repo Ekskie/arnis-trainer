@@ -72,7 +72,12 @@ export function JourneyNode({
       return () => {
         pulseLoop.stop();
         bounceLoop.stop();
+        pulseAnim.setValue(1);
+        bounceAnim.setValue(0);
       };
+    } else {
+      pulseAnim.setValue(1);
+      bounceAnim.setValue(0);
     }
   }, [status, bounceAnim, pulseAnim]);
 

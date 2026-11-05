@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
@@ -17,12 +18,58 @@ if (!isSupabaseConfigured) {
   );
 }
 
+/**
+ * Universal SSR-safe storage adapter for Supabase Auth.
+ * Prevents "ReferenceError: window is not defined" when executing in Node.js / Expo CLI.
+ */
+const universalStorage = {
+  getItem: async (key: string): Promise<string | null> => {
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') return null;
+      try {
+        return window.localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    }
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') return;
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {}
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch {}
+  },
+  removeItem: async (key: string): Promise<void> => {
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') return;
+      try {
+        window.localStorage.removeItem(key);
+      } catch {}
+      return;
+    }
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch {}
+  },
+};
+
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-anon-key',
   {
     auth: {
-      storage: AsyncStorage,
+      storage: universalStorage,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,

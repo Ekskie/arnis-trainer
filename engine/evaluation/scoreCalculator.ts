@@ -9,7 +9,14 @@ export function calculateJointScore(
   minVal: number,
   maxVal: number
 ): number {
-  if (actual === null || actual === undefined || actual === 0) return 0;
+  if (
+    actual === null ||
+    actual === undefined ||
+    Number.isNaN(actual) ||
+    (actual === 0 && minVal > 0)
+  ) {
+    return 0;
+  }
   if (actual >= minVal && actual <= maxVal) return 100;
   const dev = actual < minVal ? minVal - actual : actual - maxVal;
   return Math.max(0, Math.round(100 - dev * 2));
@@ -28,7 +35,14 @@ export function calculateMultiTierJointScore(
   acceptableMin: number,
   acceptableMax: number
 ): number {
-  if (actual === null || actual === undefined || actual === 0) return 0;
+  if (
+    actual === null ||
+    actual === undefined ||
+    Number.isNaN(actual) ||
+    (actual === 0 && acceptableMin > 0)
+  ) {
+    return 0;
+  }
 
   // 1. Inside Optimal Core
   if (actual >= optimalMin && actual <= optimalMax) {

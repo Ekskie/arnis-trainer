@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { isSupabaseConfigured, supabase, UserProfile } from './supabase';
 import { isUUID } from './messageService';
 import { SessionItem } from '@/constants/historyStore';
@@ -87,23 +87,39 @@ export const CloudSyncService = {
       let snapshotUrl: string | null = null;
       let videoUrl: string | null = null;
 
-      // 1. Upload Impact Snapshot (if present)
-      if (session.snapshotBase64) {
+      // 1. Upload Impact Snapshot (if present via base64 or stored file URI)
+      const snapshotSource = session.snapshotBase64 || session.userImpactSnapshotUri;
+      if (snapshotSource) {
         try {
-          const snapshotBytes = base64ToUint8Array(session.snapshotBase64);
-          const snapshotPath = `${userId}/${session.id}_snapshot.jpg`;
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('snapshots')
-            .upload(snapshotPath, snapshotBytes, {
-              contentType: 'image/jpeg',
-              upsert: true,
-            });
+          let snapshotBytes: Uint8Array | null = null;
+          if (session.snapshotBase64) {
+            snapshotBytes = base64ToUint8Array(session.snapshotBase64);
+          } else if (session.userImpactSnapshotUri) {
+            if (session.userImpactSnapshotUri.startsWith('data:image')) {
+              snapshotBytes = base64ToUint8Array(session.userImpactSnapshotUri);
+            } else {
+              const base64Data = await FileSystem.readAsStringAsync(session.userImpactSnapshotUri, {
+                encoding: 'base64',
+              });
+              snapshotBytes = base64ToUint8Array(base64Data);
+            }
+          }
 
-          if (!uploadErr && uploadData) {
-            const { data: publicData } = supabase.storage
+          if (snapshotBytes) {
+            const snapshotPath = `${userId}/${session.id}_snapshot.jpg`;
+            const { data: uploadData, error: uploadErr } = await supabase.storage
               .from('snapshots')
-              .getPublicUrl(snapshotPath);
-            snapshotUrl = publicData.publicUrl;
+              .upload(snapshotPath, snapshotBytes, {
+                contentType: 'image/jpeg',
+                upsert: true,
+              });
+
+            if (!uploadErr && uploadData) {
+              const { data: publicData } = supabase.storage
+                .from('snapshots')
+                .getPublicUrl(snapshotPath);
+              snapshotUrl = publicData.publicUrl;
+            }
           }
         } catch (e) {
           console.warn('[CloudSync] Snapshot upload error:', e);

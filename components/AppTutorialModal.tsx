@@ -66,7 +66,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     iconName: 'sword-cross',
     iconFamily: 'MaterialCommunityIcons',
     content: {
-      heading: 'Learn Philippine Martial Arts with AI Coaching',
+      heading: 'Learn Philippine Martial Arts with Guro Mentorship',
       summary:
         'PoseFix-Arnis is your digital martial arts companion. Even if you have zero prior experience, the app will teach you step-by-step: from your first courtesy bow to mastering the 12 canonical strikes.',
       highlights: [
@@ -82,7 +82,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
           icon: 'eye',
           iconFamily: 'Ionicons',
           title: 'Follow Me & Guided Modes',
-          description: 'Follow on-screen visual instructor videos and receive real-time spoken feedback from your AI coach.',
+          description: 'Follow on-screen visual instructor videos and receive real-time voice cues and guidance during practice.',
           tag: 'Live Vision',
           tagColor: '#3B82F6',
         },
@@ -153,9 +153,9 @@ const TUTORIAL_STEPS: TutorialStep[] = [
         {
           icon: 'chatbubble-ellipses',
           iconFamily: 'Ionicons',
-          title: 'AI Coach Assistant',
-          description: 'Chat with your AI Arnis Sensei for personalized correction tips and customized training routines.',
-          tag: 'Coach',
+          title: 'Certified Guro Mentorship',
+          description: 'Connect with certified Arnis instructors for 1-on-1 direct coaching, video reviews, and personalized corrections.',
+          tag: 'Mentorship',
           tagColor: '#10B981',
         },
       ],
@@ -360,9 +360,9 @@ const TUTORIAL_STEPS: TutorialStep[] = [
         {
           icon: 'chatbubbles-outline',
           iconFamily: 'Ionicons',
-          title: 'Personalized AI Coach Assistant',
-          description: 'Analyzes all your previous sessions to recommend which strikes need the most attention today.',
-          tag: 'AI Coach',
+          title: 'Certified Guro Mentorship',
+          description: 'Your certified instructor reviews your practice evaluations and guides your sash advancement.',
+          tag: 'Mentorship',
           tagColor: '#10B981',
         },
       ],

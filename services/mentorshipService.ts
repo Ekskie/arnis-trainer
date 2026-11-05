@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSupabaseConfigured, supabase, UserProfile } from './supabase';
 import { isUUID } from './messageService';
 
@@ -12,6 +13,8 @@ export interface MentorshipRequest {
   student?: UserProfile;
   coach?: UserProfile;
 }
+
+const STORAGE_KEY_MENTORSHIP = 'arnis_mentorship_requests_local';
 
 // In-memory / local fallback for dev mode or non-UUID sessions
 let localRequests: MentorshipRequest[] = [
@@ -41,6 +44,32 @@ let localRequests: MentorshipRequest[] = [
     },
   },
 ];
+
+let localRequestsLoaded = false;
+async function ensureLocalRequestsLoaded() {
+  if (localRequestsLoaded) return;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY_MENTORSHIP);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        localRequests = parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[MentorshipService] Failed to load cached local requests:', e);
+  } finally {
+    localRequestsLoaded = true;
+  }
+}
+
+async function persistLocalRequests() {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY_MENTORSHIP, JSON.stringify(localRequests));
+  } catch (e) {
+    console.warn('[MentorshipService] Failed to persist local requests:', e);
+  }
+}
 
 const mockCoaches: UserProfile[] = [
   {
@@ -102,6 +131,8 @@ export const MentorshipService = {
    * Get the current mentorship status for a student (pending or accepted)
    */
   async getStudentMentorship(studentId: string): Promise<MentorshipRequest | null> {
+    await ensureLocalRequestsLoaded();
+
     if (!isSupabaseConfigured || !isUUID(studentId)) {
       const found = localRequests.find(
         (r) => r.student_id === studentId && (r.status === 'pending' || r.status === 'accepted')
@@ -144,6 +175,8 @@ export const MentorshipService = {
     coachId: string,
     note: string
   ): Promise<{ error: Error | null; request?: MentorshipRequest }> {
+    await ensureLocalRequestsLoaded();
+
     if (!isSupabaseConfigured || !isUUID(studentId) || !isUUID(coachId)) {
       const coach = mockCoaches.find((c) => c.id === coachId) || mockCoaches[0];
       const newReq: MentorshipRequest = {
@@ -158,6 +191,7 @@ export const MentorshipService = {
       };
       localRequests = localRequests.filter((r) => r.student_id !== studentId);
       localRequests.push(newReq);
+      await persistLocalRequests();
       return { error: null, request: newReq };
     }
 
@@ -209,7 +243,9 @@ export const MentorshipService = {
    * Cancel an existing mentorship request
    */
   async cancelMentorshipRequest(requestId: string): Promise<{ error: Error | null }> {
+    await ensureLocalRequestsLoaded();
     localRequests = localRequests.filter((r) => r.id !== requestId);
+    await persistLocalRequests();
 
     if (!isSupabaseConfigured || !isUUID(requestId)) {
       return { error: null };
@@ -236,7 +272,9 @@ export const MentorshipService = {
    * End an active mentorship union (releases student and coach to connect elsewhere)
    */
   async endMentorship(requestId: string): Promise<{ error: Error | null }> {
+    await ensureLocalRequestsLoaded();
     localRequests = localRequests.filter((r) => r.id !== requestId);
+    await persistLocalRequests();
 
     if (!isSupabaseConfigured || !isUUID(requestId)) {
       return { error: null };
@@ -266,6 +304,8 @@ export const MentorshipService = {
    * Fetch incoming pending requests for a coach
    */
   async getCoachPendingRequests(coachId: string): Promise<MentorshipRequest[]> {
+    await ensureLocalRequestsLoaded();
+
     if (!isSupabaseConfigured || !isUUID(coachId)) {
       return localRequests.filter((r) => r.coach_id === coachId && r.status === 'pending');
     }
@@ -294,6 +334,8 @@ export const MentorshipService = {
    * Fetch accepted students connected to a coach
    */
   async getCoachStudents(coachId: string): Promise<MentorshipRequest[]> {
+    await ensureLocalRequestsLoaded();
+
     if (!isSupabaseConfigured || !isUUID(coachId)) {
       return localRequests.filter((r) => r.coach_id === coachId && r.status === 'accepted');
     }
@@ -325,11 +367,14 @@ export const MentorshipService = {
     requestId: string,
     status: 'accepted' | 'declined'
   ): Promise<{ error: Error | null }> {
+    await ensureLocalRequestsLoaded();
+
     if (!isSupabaseConfigured || !isUUID(requestId)) {
       const found = localRequests.find((r) => r.id === requestId);
       if (found) {
         found.status = status;
         found.updated_at = new Date().toISOString();
+        await persistLocalRequests();
       }
       return { error: null };
     }
