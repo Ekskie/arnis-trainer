@@ -114,6 +114,82 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
 
     let STRIKE_RULES = ${JSON.stringify(strikeRules)};
 
+    // Trajectory Paths for the 12 Arnis Strikes (relative to torso anchor)
+    const STRIKE_TRAJECTORY_PATHS = {
+      "strike_1": { // Left Temple (diagonal downward slice from high right to left temple)
+        start: { dx: 0.45, dy: -0.35 },
+        apex:  { dx: -0.65, dy: 0.12 },
+        end:   { dx: -0.85, dy: 0.35 },
+        name: "Diagonal Slash (Left Temple)"
+      },
+      "strike_2": { // Right Temple (diagonal downward slice from high left to right temple)
+        start: { dx: -0.45, dy: -0.35 },
+        apex:  { dx: 0.68, dy: 0.12 },
+        end:   { dx: 0.88, dy: 0.35 },
+        name: "Diagonal Slash (Right Temple)"
+      },
+      "strike_3": { // Left Torso (horizontal slice across left ribs)
+        start: { dx: 0.50, dy: 0.20 },
+        apex:  { dx: -0.72, dy: 0.22 },
+        end:   { dx: -0.92, dy: 0.24 },
+        name: "Horizontal Cut (Left Torso)"
+      },
+      "strike_4": { // Right Torso (horizontal slice across right ribs)
+        start: { dx: -0.50, dy: 0.20 },
+        apex:  { dx: 0.74, dy: 0.22 },
+        end:   { dx: 0.94, dy: 0.24 },
+        name: "Horizontal Cut (Right Torso)"
+      },
+      "strike_5": { // Stomach Thrust (direct center forward thrust)
+        start: { dx: 0.15, dy: 0.45 },
+        apex:  { dx: 0.00, dy: 0.38 },
+        end:   { dx: -0.05, dy: 0.35 },
+        name: "Direct Stomach Thrust"
+      },
+      "strike_6": { // Left Chest Thrust
+        start: { dx: 0.20, dy: 0.25 },
+        apex:  { dx: -0.45, dy: 0.02 },
+        end:   { dx: -0.65, dy: -0.08 },
+        name: "High Left Chest Thrust"
+      },
+      "strike_7": { // Right Chest Thrust
+        start: { dx: -0.20, dy: 0.25 },
+        apex:  { dx: 0.48, dy: 0.02 },
+        end:   { dx: 0.68, dy: -0.08 },
+        name: "High Right Chest Thrust"
+      },
+      "strike_8": { // Left Knee (low diagonal cut)
+        start: { dx: 0.40, dy: 0.25 },
+        apex:  { dx: -0.60, dy: 0.65 },
+        end:   { dx: -0.80, dy: 0.85 },
+        name: "Low Knee Cut (Left)"
+      },
+      "strike_9": { // Right Knee (low diagonal cut)
+        start: { dx: -0.40, dy: 0.25 },
+        apex:  { dx: 0.62, dy: 0.65 },
+        end:   { dx: 0.82, dy: 0.85 },
+        name: "Low Knee Cut (Right)"
+      },
+      "strike_10": { // Left Eye Thrust
+        start: { dx: 0.18, dy: 0.15 },
+        apex:  { dx: -0.45, dy: -0.22 },
+        end:   { dx: -0.68, dy: -0.30 },
+        name: "High Left Eye Thrust"
+      },
+      "strike_11": { // Right Eye Thrust
+        start: { dx: -0.18, dy: 0.15 },
+        apex:  { dx: 0.48, dy: -0.22 },
+        end:   { dx: 0.70, dy: -0.30 },
+        name: "High Right Eye Thrust"
+      },
+      "strike_12": { // Crown Strike (vertical downward overhead strike)
+        start: { dx: 0.02, dy: -0.75 },
+        apex:  { dx: 0.00, dy: -0.35 },
+        end:   { dx: 0.00, dy: 0.05 },
+        name: "Vertical Crown Strike"
+      }
+    };
+
     // CanvasRenderingContext2D roundRect Polyfill for Android WebView compatibility
     if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
       CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
@@ -271,16 +347,18 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
     // Motion history & Kinetic Chain buffer per person
     const personHistories = {};
 
-    function updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, timestamp) {
+    function updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, timestamp, userWristDx, userWristDy) {
       if (!personHistories[personIdx]) {
         personHistories[personIdx] = {
           frames: [],
           phase: "idle",
           peakVelocity: 0,
+          peakVectorScore: 0,
           targetZoneStartTime: null,
           isStaticHold: false,
           chamberDetected: false,
           driveDetected: false,
+          apexDetected: false,
           dynamicKineticScore: 70
         };
       }
@@ -297,12 +375,14 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       history.push({
         x: rightWrist ? rightWrist.x : 0,
         y: rightWrist ? rightWrist.y : 0,
+        dx: typeof userWristDx === 'number' ? userWristDx : 0,
+        dy: typeof userWristDy === 'number' ? userWristDy : 0,
         dist: wristDist,
         angle: rightAngle || 0,
         t: timestamp
       });
 
-      if (history.length > 20) {
+      if (history.length > 24) {
         history.shift();
       }
 
@@ -333,47 +413,156 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       }
 
       const rules = STRIKE_RULES[activeStrike];
+      const pathData = STRIKE_TRAJECTORY_PATHS[activeStrike] || STRIKE_TRAJECTORY_PATHS.strike_1;
+      const isThrustStrike = ['strike_5', 'strike_6', 'strike_7', 'strike_10', 'strike_11'].indexOf(activeStrike) !== -1;
       let phase = pState.phase || "idle";
       let isApex = false;
+      let vectorAlignmentScore = 50;
+      let chamberScore = 50;
+      let apexTargetScore = 50;
+      let trajectoryAccuracy = 60;
 
-      if (rules) {
-        const elDiffChamber = rightAngle !== null ? Math.abs(rightAngle - rules.chamber_elb) : 99;
+      // Track elbow extension delta over recent frames (~100-140ms) for 3D thrust detection
+      let elbowExtDelta = 0;
+      if (history.length >= 4 && rightAngle !== null) {
+        const priorAngle = history[Math.max(0, history.length - 4)].angle || 0;
+        elbowExtDelta = rightAngle - priorAngle;
+      }
+
+      if (rules && pathData && typeof userWristDx === 'number' && typeof userWristDy === 'number') {
+        // --- 1. CHAMBER PROXIMITY CHECK ---
+        const chDx = userWristDx - pathData.start.dx;
+        const chDy = userWristDy - pathData.start.dy;
+        const chamberDist = Math.sqrt(chDx * chDx + chDy * chDy);
+
+        if (chamberDist <= 0.40) {
+          chamberScore = 100;
+          pState.chamberDetected = true;
+        } else if (chamberDist <= 0.65) {
+          chamberScore = Math.round(80 + ((0.65 - chamberDist) / 0.25) * 20);
+          pState.chamberDetected = true;
+        } else {
+          chamberScore = Math.max(15, Math.round(80 - (chamberDist - 0.65) * 85));
+        }
+
+        // --- 2. TRAJECTORY CUTTING VECTOR EVALUATION ---
+        // Ideal canonical vector from start to apex
+        const idealDx = pathData.apex.dx - pathData.start.dx;
+        const idealDy = pathData.apex.dy - pathData.start.dy;
+        const idealMag = Math.sqrt(idealDx * idealDx + idealDy * idealDy) || 0.001;
+        const idealNormX = idealDx / idealMag;
+        const idealNormY = idealDy / idealMag;
+
+        // User's active dynamic motion vector over last 6-10 frames (~120-200ms)
+        let userMotionDx = 0;
+        let userMotionDy = 0;
+        if (history.length >= 6) {
+          const recentPt = history[history.length - 1];
+          const priorPt = history[Math.max(0, history.length - 6)];
+          userMotionDx = recentPt.dx - priorPt.dx;
+          userMotionDy = recentPt.dy - priorPt.dy;
+        }
+        const userMotionMag = Math.sqrt(userMotionDx * userMotionDx + userMotionDy * userMotionDy);
+
+        if (userMotionMag >= 0.05) {
+          const uNormX = userMotionDx / userMotionMag;
+          const uNormY = userMotionDy / userMotionMag;
+          const dot = uNormX * idealNormX + uNormY * idealNormY; // -1.0 to +1.0
+
+          if (dot >= 0.50) {
+            // High fidelity motion along the strike path
+            vectorAlignmentScore = Math.min(100, Math.round(75 + ((dot - 0.50) / 0.50) * 25));
+          } else if (dot >= 0.0) {
+            // Partially deviating cut
+            vectorAlignmentScore = Math.max(30, Math.round(45 + (dot / 0.50) * 30));
+          } else {
+            // Complete opposite or perpendicular vector (e.g. wrong strike)
+            vectorAlignmentScore = Math.max(0, Math.round(30 + dot * 30));
+          }
+
+          if (vectorAlignmentScore > pState.peakVectorScore) {
+            pState.peakVectorScore = vectorAlignmentScore;
+          }
+        } else {
+          // Idle or minimal motion
+          vectorAlignmentScore = pState.peakVectorScore > 0 ? Math.round(pState.peakVectorScore * 0.95) : 40;
+        }
+
+        // --- 3. APEX IMPACT TARGET PROXIMITY ---
+        const apDx = userWristDx - pathData.apex.dx;
+        const apDy = userWristDy - pathData.apex.dy;
+        const apexDist = Math.sqrt(apDx * apDx + apDy * apDy);
         const isInTargetRange = rightAngle !== null && rightAngle >= (rules.right_min - 10) && rightAngle <= (rules.right_max + 10);
 
-        // 1. Kinetic Sequence Phase Progression
-        if (elDiffChamber < 28 || (velocity < 0.12 && !isInTargetRange)) {
+        // Z-Axis Biomechanical Compensation for Thrust Strikes (Strikes 5, 6, 7, 10, 11)
+        // Direct forward thrusting toward the 2D camera compresses (dx, dy) displacement.
+        // Rapid elbow expansion (chambered flexion ~80 deg extending to ~165 deg) directly confirms kinetic thrust drive.
+        if (isThrustStrike && elbowExtDelta >= 16 && (apexDist <= 0.65 || isInTargetRange)) {
+          const thrustBoost = Math.min(100, Math.round(80 + Math.min(20, (elbowExtDelta - 16) * 1.5)));
+          vectorAlignmentScore = Math.max(vectorAlignmentScore, thrustBoost);
+          if (vectorAlignmentScore > pState.peakVectorScore) {
+            pState.peakVectorScore = vectorAlignmentScore;
+          }
+        }
+
+        if (apexDist <= 0.38) {
+          apexTargetScore = 100;
+        } else if (apexDist <= 0.65) {
+          apexTargetScore = Math.round(75 + ((0.65 - apexDist) / 0.27) * 25);
+        } else {
+          apexTargetScore = Math.max(10, Math.round(75 - (apexDist - 0.65) * 85));
+        }
+
+        // Composite Trajectory Accuracy for active strike
+        trajectoryAccuracy = Math.round(
+          chamberScore * 0.25 +
+          pState.peakVectorScore * 0.45 +
+          apexTargetScore * 0.30
+        );
+
+        // --- 4. 4-PHASE KINETIC STATE-MACHINE TRANSITIONS ---
+        const elDiffChamber = rightAngle !== null ? Math.abs(rightAngle - rules.chamber_elb) : 99;
+
+        // Phase 1: Chambering
+        if ((chamberDist <= 0.55 || elDiffChamber < 28) && (velocity < 0.16 || phase === "idle" || phase === "recovering")) {
           phase = "chambering";
           pState.chamberDetected = true;
           pState.targetZoneStartTime = null;
           pState.isStaticHold = false;
-        } else if (velocity >= 0.16 && (phase === "chambering" || phase === "idle" || phase === "driving")) {
-          phase = "driving";
+        }
+        // Phase 2: Cutting Acceleration (or Dynamic Thrust Extension)
+        else if (((velocity >= 0.16 && userMotionMag >= 0.05) || (isThrustStrike && elbowExtDelta >= 16)) && (phase === "chambering" || phase === "idle" || phase === "cutting")) {
+          phase = "cutting";
           pState.driveDetected = true;
         }
 
-        // 2. Apex Hit Detection via kinematic peak or rapid deceleration
+        // Phase 3: Apex Impact Detection
         if (history.length >= 3 && rightAngle !== null) {
           const curr = history[history.length - 1];
           const prev1 = history[history.length - 2];
           const prev2 = history[history.length - 3];
 
           const isLocalPeakExt = prev1.dist >= prev2.dist && curr.dist < prev1.dist;
-          const isSnapDecel = phase === "driving" && velocity < 0.22 && pState.peakVelocity >= 0.24;
+          const isSnapDecel = phase === "cutting" && velocity < 0.22 && pState.peakVelocity >= 0.22;
+          const isThrustApex = isThrustStrike && (elbowExtDelta >= 12 || velocity >= 0.16) && (apexDist <= 0.55 || isInTargetRange);
           
-          if (isInTargetRange && (isLocalPeakExt || isSnapDecel || (velocity >= 0.18))) {
+          if ((apexDist <= 0.55 || isInTargetRange) && (isLocalPeakExt || isSnapDecel || (velocity >= 0.18) || isThrustApex)) {
             phase = "apex_hit";
             isApex = true;
+            pState.apexDetected = true;
           }
         }
 
-        // 3. Recovery Phase detection
+        // Phase 4: Recovery (Bawi) back toward guard
         if (phase === "apex_hit" && velocity < 0.15 && !isApex) {
           phase = "recovering";
         }
 
-        // 4. Anti-Static Gaming Detection:
-        // If the user simply stands motionless in the target range without any dynamic swing acceleration
-        if (isInTargetRange) {
+        // Anti-Static Gaming Detection
+        if (isThrustStrike && elbowExtDelta >= 14) {
+          pState.isStaticHold = false;
+          pState.targetZoneStartTime = null;
+        } else if (isInTargetRange) {
           if (pState.targetZoneStartTime === null) {
             pState.targetZoneStartTime = timestamp;
           } else if (timestamp - pState.targetZoneStartTime > 950 && pState.peakVelocity < 0.14) {
@@ -384,24 +573,26 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
           pState.isStaticHold = false;
         }
 
-        // 5. Dynamic Kinetic Execution Score (DKS)
-        let kineticScore = 75;
+        // Dynamic Kinetic Chain Score
+        let kineticScore = 65;
         if (pState.isStaticHold) {
-          kineticScore = 40; // Penalty for freezing without swinging
-        } else {
-          if (pState.chamberDetected && pState.driveDetected && isApex) {
-            kineticScore = 100; // Complete kinetic chain
-          } else if (pState.driveDetected || pState.peakVelocity >= 0.22) {
-            kineticScore = 90;
-          } else if (pState.chamberDetected) {
-            kineticScore = 80;
-          }
+          kineticScore = 35;
+        } else if (pState.chamberDetected && pState.driveDetected && pState.apexDetected) {
+          kineticScore = 100;
+        } else if (pState.driveDetected && pState.apexDetected) {
+          kineticScore = 90;
+        } else if (pState.driveDetected) {
+          kineticScore = 80;
+        } else if (pState.chamberDetected) {
+          kineticScore = 75;
         }
+
         pState.dynamicKineticScore = kineticScore;
         pState.phase = phase;
 
-        // Reset peak velocity decay over time so next rep requires new acceleration
-        pState.peakVelocity = Math.max(0, pState.peakVelocity * 0.94);
+        // Decay peak scores gradually
+        pState.peakVelocity = Math.max(0, pState.peakVelocity * 0.95);
+        pState.peakVectorScore = Math.max(0, pState.peakVectorScore * 0.99);
       }
 
       return {
@@ -412,7 +603,14 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         phase: phase,
         isApex: isApex,
         isStaticHold: pState.isStaticHold,
-        kineticScore: pState.dynamicKineticScore
+        kineticScore: pState.dynamicKineticScore,
+        trajectoryAccuracy: trajectoryAccuracy,
+        vectorAlignmentScore: vectorAlignmentScore,
+        chamberScore: chamberScore,
+        apexTargetScore: apexTargetScore,
+        chamberDetected: pState.chamberDetected,
+        driveDetected: pState.driveDetected,
+        apexDetected: pState.apexDetected
       };
     }
 
@@ -938,82 +1136,6 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       ctx.restore();
     }
 
-    // Trajectory Paths for the 12 Arnis Strikes (relative to torso anchor)
-    const STRIKE_TRAJECTORY_PATHS = {
-      "strike_1": { // Left Temple (diagonal downward slice from high right to left temple)
-        start: { dx: 0.45, dy: -0.35 },
-        apex:  { dx: -0.65, dy: 0.12 },
-        end:   { dx: -0.85, dy: 0.35 },
-        name: "Diagonal Slash (Left Temple)"
-      },
-      "strike_2": { // Right Temple (diagonal downward slice from high left to right temple)
-        start: { dx: -0.45, dy: -0.35 },
-        apex:  { dx: 0.68, dy: 0.12 },
-        end:   { dx: 0.88, dy: 0.35 },
-        name: "Diagonal Slash (Right Temple)"
-      },
-      "strike_3": { // Left Torso (horizontal slice across left ribs)
-        start: { dx: 0.50, dy: 0.20 },
-        apex:  { dx: -0.72, dy: 0.22 },
-        end:   { dx: -0.92, dy: 0.24 },
-        name: "Horizontal Cut (Left Torso)"
-      },
-      "strike_4": { // Right Torso (horizontal slice across right ribs)
-        start: { dx: -0.50, dy: 0.20 },
-        apex:  { dx: 0.74, dy: 0.22 },
-        end:   { dx: 0.94, dy: 0.24 },
-        name: "Horizontal Cut (Right Torso)"
-      },
-      "strike_5": { // Stomach Thrust (direct center forward thrust)
-        start: { dx: 0.15, dy: 0.45 },
-        apex:  { dx: 0.00, dy: 0.38 },
-        end:   { dx: -0.05, dy: 0.35 },
-        name: "Direct Stomach Thrust"
-      },
-      "strike_6": { // Left Chest Thrust
-        start: { dx: 0.20, dy: 0.25 },
-        apex:  { dx: -0.45, dy: 0.02 },
-        end:   { dx: -0.65, dy: -0.08 },
-        name: "High Left Chest Thrust"
-      },
-      "strike_7": { // Right Chest Thrust
-        start: { dx: -0.20, dy: 0.25 },
-        apex:  { dx: 0.48, dy: 0.02 },
-        end:   { dx: 0.68, dy: -0.08 },
-        name: "High Right Chest Thrust"
-      },
-      "strike_8": { // Left Knee (low diagonal cut)
-        start: { dx: 0.40, dy: 0.25 },
-        apex:  { dx: -0.60, dy: 0.65 },
-        end:   { dx: -0.80, dy: 0.85 },
-        name: "Low Knee Cut (Left)"
-      },
-      "strike_9": { // Right Knee (low diagonal cut)
-        start: { dx: -0.40, dy: 0.25 },
-        apex:  { dx: 0.62, dy: 0.65 },
-        end:   { dx: 0.82, dy: 0.85 },
-        name: "Low Knee Cut (Right)"
-      },
-      "strike_10": { // Left Eye Thrust
-        start: { dx: 0.18, dy: 0.15 },
-        apex:  { dx: -0.45, dy: -0.22 },
-        end:   { dx: -0.68, dy: -0.30 },
-        name: "High Left Eye Thrust"
-      },
-      "strike_11": { // Right Eye Thrust
-        start: { dx: -0.18, dy: 0.15 },
-        apex:  { dx: 0.48, dy: -0.22 },
-        end:   { dx: 0.70, dy: -0.30 },
-        name: "High Right Eye Thrust"
-      },
-      "strike_12": { // Crown Strike (vertical downward overhead strike)
-        start: { dx: 0.02, dy: -0.75 },
-        apex:  { dx: 0.00, dy: -0.35 },
-        end:   { dx: 0.00, dy: 0.05 },
-        name: "Vertical Crown Strike"
-      }
-    };
-
     function drawStrikeTrajectoryGuide(strikeId, anchorX, anchorY, scale, ctx, timestamp) {
       if (!trajectoryGuideEnabled) return;
       const pathData = STRIKE_TRAJECTORY_PATHS[strikeId] || STRIKE_TRAJECTORY_PATHS.strike_1;
@@ -1189,35 +1311,61 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       return bestStrike;
     }
 
-    function drawAutoDetectHUD(ctx, now) {
-      if (!autoDetectMode) return;
+    function drawKineticPhaseHUD(ctx, primaryPerson, now) {
       ctx.save();
       const canvasW = canvasElement.width;
-      const isRecent = (now - lastDetectedStrikeTime) < 3200 && detectedStrikeBannerText;
-      const bannerW = isRecent ? Math.min(340, canvasW - 20) : Math.min(260, canvasW - 20);
+      const bannerW = Math.min(340, canvasW - 24);
       const bannerH = 34;
       const bannerX = (canvasW - bannerW) / 2;
       const bannerY = 16;
 
-      ctx.fillStyle = isRecent ? "rgba(16, 185, 129, 0.92)" : "rgba(15, 23, 42, 0.88)";
-      ctx.strokeStyle = isRecent ? "#34D399" : "rgba(245, 158, 11, 0.8)";
+      const rules = STRIKE_RULES[activeStrike];
+      const strikeTitle = rules ? rules.name.toUpperCase() : "TARGET STRIKE";
+      const phase = primaryPerson ? primaryPerson.motionPhase : "idle";
+      const isWrongTraj = primaryPerson && primaryPerson.diagnosticFlags && primaryPerson.diagnosticFlags.includes('WRONG_TRAJECTORY');
+
+      let phaseText = "READY TO STRIKE";
+      let phaseBg = "rgba(30, 41, 59, 0.88)";
+      let phaseBorder = "rgba(255, 255, 255, 0.25)";
+
+      if (isWrongTraj) {
+        phaseText = "⚠️ MISALIGNED CUT";
+        phaseBg = "rgba(239, 68, 68, 0.92)"; // red
+        phaseBorder = "#FCA5A5";
+      } else if (phase === "apex_hit" || (primaryPerson && primaryPerson.isApex)) {
+        phaseText = "3. APEX HIT 🎯";
+        phaseBg = "rgba(16, 185, 129, 0.92)"; // green
+        phaseBorder = "#86EFAC";
+      } else if (phase === "cutting") {
+        phaseText = "2. CUTTING ARC ⚡";
+        phaseBg = "rgba(234, 88, 12, 0.90)"; // orange
+        phaseBorder = "#FED7AA";
+      } else if (phase === "recovering") {
+        phaseText = "4. RECOVERY (BAWI) 🛡️";
+        phaseBg = "rgba(2, 132, 199, 0.90)"; // blue
+        phaseBorder = "#BAE6FD";
+      } else if (phase === "chambering") {
+        phaseText = "1. CHAMBERING 🥋";
+        phaseBg = "rgba(245, 158, 11, 0.90)";
+        phaseBorder = "#FDE68A";
+      }
+
+      ctx.fillStyle = phaseBg;
+      ctx.strokeStyle = phaseBorder;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       if (ctx.roundRect) {
-        ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 8);
+        ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 10);
       } else {
         ctx.rect(bannerX, bannerY, bannerW, bannerH);
       }
       ctx.fill();
       ctx.stroke();
 
-      ctx.font = "bold 12px sans-serif";
+      ctx.font = "bold 11.5px sans-serif";
       ctx.textAlign = "center";
       ctx.fillStyle = "#FFFFFF";
-      const label = isRecent
-        ? "⚡ IDENTIFIED: " + detectedStrikeBannerText + " (" + detectedStrikeConfidence + "%)"
-        : "✨ AUTO-DETECT: Strike Any Form";
-      ctx.fillText(label, canvasW / 2, bannerY + 21);
+      ctx.fillText(strikeTitle + " • " + phaseText, canvasW / 2, bannerY + 21);
       ctx.restore();
     }
 
@@ -1322,11 +1470,11 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       } catch (e) {}
     }
 
-    // Capture Canvas Snapshot helper
+    // Capture un-mirrored Canvas Snapshot helper (matches Coach camera perspective)
     window.captureSnapshot = () => {
       try {
-        if (canvasElement) {
-          const snap = canvasElement.toDataURL("image/jpeg", 0.75);
+        const snap = captureUnmirroredSnapshot(lastRenderedLandmarks, lastRenderedPersons);
+        if (snap) {
           sendToReactNative({ type: "SNAPSHOT_CAPTURED", base64: snap });
         }
       } catch(e) {
@@ -1355,6 +1503,164 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       { primary: "#f59e0b", secondary: "rgba(245, 158, 11, 0.4)" },
       { primary: "#ec4899", secondary: "rgba(236, 72, 153, 0.4)" }
     ];
+
+    let snapshotCanvas = null;
+    let snapshotCtx = null;
+    let lastRenderedLandmarks = [];
+    let lastRenderedPersons = [];
+
+    function drawPersonSkeleton(ctx, landmarks, data, personIdx, width, height) {
+      if (!landmarks || !data) return;
+
+      const leftShoulder = landmarks[11];
+      const leftElbow = landmarks[13];
+      const leftWrist = landmarks[15];
+      const rightShoulder = landmarks[12];
+      const rightElbow = landmarks[14];
+      const rightWrist = landmarks[16];
+      const leftHip = landmarks[23];
+      const rightHip = landmarks[24];
+      const leftKnee = landmarks[25];
+      const rightKnee = landmarks[26];
+      const leftAnkle = landmarks[27];
+      const rightAnkle = landmarks[28];
+
+      const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
+      const connectorColor = colors.secondary;
+      const rightColor = data.isRightGood ? "#10b981" : "#ef4444";
+      const legStanceColor = data.stanceScore >= 80 ? "#10b981" : (data.isStanceHigh ? "#f59e0b" : "#ef4444");
+      const guardArmColor = data.guardScore >= 80 ? "#10b981" : (data.isGuardLow ? "#ef4444" : "#f59e0b");
+
+      const torsoConnections = [
+        [11, 12], // shoulder-to-shoulder
+        [11, 23], [12, 24], [23, 24] // torso
+      ];
+
+      ctx.save();
+      ctx.lineWidth = 4;
+
+      // Draw basic torso lines
+      ctx.strokeStyle = connectorColor;
+      torsoConnections.forEach(([p1, p2]) => {
+        const joint1 = landmarks[p1];
+        const joint2 = landmarks[p2];
+        if (joint1 && joint2 && joint1.visibility > 0.4 && joint2.visibility > 0.4) {
+          ctx.beginPath();
+          ctx.moveTo(joint1.x * width, joint1.y * height);
+          ctx.lineTo(joint2.x * width, joint2.y * height);
+          ctx.stroke();
+        }
+      });
+
+      // Draw left leg (with stance glow)
+      ctx.strokeStyle = legStanceColor;
+      ctx.beginPath();
+      if (leftHip && leftKnee && leftHip.visibility > 0.4 && leftKnee.visibility > 0.4) {
+        ctx.moveTo(leftHip.x * width, leftHip.y * height);
+        ctx.lineTo(leftKnee.x * width, leftKnee.y * height);
+      }
+      if (leftKnee && leftAnkle && leftKnee.visibility > 0.4 && leftAnkle.visibility > 0.4) {
+        ctx.lineTo(leftAnkle.x * width, leftAnkle.y * height);
+      }
+      ctx.stroke();
+
+      // Draw right leg (with stance glow)
+      ctx.strokeStyle = legStanceColor;
+      ctx.beginPath();
+      if (rightHip && rightKnee && rightHip.visibility > 0.4 && rightKnee.visibility > 0.4) {
+        ctx.moveTo(rightHip.x * width, rightHip.y * height);
+        ctx.lineTo(rightKnee.x * width, rightKnee.y * height);
+      }
+      if (rightKnee && rightAnkle && rightKnee.visibility > 0.4 && rightAnkle.visibility > 0.4) {
+        ctx.lineTo(rightAnkle.x * width, rightAnkle.y * height);
+      }
+      ctx.stroke();
+
+      // Draw left arm (Check hand guard arm)
+      ctx.strokeStyle = guardArmColor;
+      if (leftShoulder && leftElbow && leftShoulder.visibility > 0.4 && leftElbow.visibility > 0.4) {
+        ctx.beginPath();
+        ctx.moveTo(leftShoulder.x * width, leftShoulder.y * height);
+        ctx.lineTo(leftElbow.x * width, leftElbow.y * height);
+        ctx.stroke();
+      }
+      if (leftElbow && leftWrist && leftElbow.visibility > 0.4 && leftWrist.visibility > 0.4) {
+        ctx.beginPath();
+        ctx.moveTo(leftElbow.x * width, leftElbow.y * height);
+        ctx.lineTo(leftWrist.x * width, leftWrist.y * height);
+        ctx.stroke();
+      }
+
+      // Draw right arm (Striking arm)
+      ctx.strokeStyle = rightColor;
+      if (rightShoulder && rightElbow && rightShoulder.visibility > 0.4 && rightElbow.visibility > 0.4) {
+        ctx.beginPath();
+        ctx.moveTo(rightShoulder.x * width, rightShoulder.y * height);
+        ctx.lineTo(rightElbow.x * width, rightElbow.y * height);
+        ctx.stroke();
+      }
+      if (rightElbow && rightWrist && rightElbow.visibility > 0.4 && rightWrist.visibility > 0.4) {
+        ctx.beginPath();
+        ctx.moveTo(rightElbow.x * width, rightElbow.y * height);
+        ctx.lineTo(rightWrist.x * width, rightWrist.y * height);
+        ctx.stroke();
+      }
+
+      // Draw joint points
+      const corePoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+      landmarks.forEach((joint, idx) => {
+        if (joint.visibility < 0.4) return;
+        if (!corePoints.includes(idx)) return;
+
+        let ptColor = colors.primary;
+        if (idx === 13 || idx === 15) ptColor = guardArmColor;
+        if (idx === 14 || idx === 16) ptColor = rightColor;
+        if (idx === 25 || idx === 26) ptColor = legStanceColor;
+
+        ctx.beginPath();
+        ctx.arc(joint.x * width, joint.y * height, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = ptColor;
+        ctx.fill();
+      });
+
+      ctx.restore();
+    }
+
+    function captureUnmirroredSnapshot(landmarksList, personsList) {
+      if (!canvasElement || !video || video.readyState < 2) return null;
+      const w = canvasElement.width || video.videoWidth;
+      const h = canvasElement.height || video.videoHeight;
+      if (!w || !h) return null;
+
+      if (!snapshotCanvas) {
+        snapshotCanvas = document.createElement("canvas");
+        snapshotCtx = snapshotCanvas.getContext("2d");
+      }
+      if (!snapshotCtx) return null;
+
+      if (snapshotCanvas.width !== w || snapshotCanvas.height !== h) {
+        snapshotCanvas.width = w;
+        snapshotCanvas.height = h;
+      }
+
+      snapshotCtx.save();
+      snapshotCtx.setTransform(1, 0, 0, 1, 0, 0);
+      snapshotCtx.clearRect(0, 0, w, h);
+      // Draw un-mirrored camera frame to match the third-person Coach perspective
+      snapshotCtx.drawImage(video, 0, 0, w, h);
+
+      if (landmarksList && landmarksList.length > 0) {
+        landmarksList.forEach((landmarks, personIdx) => {
+          const data = personsList && personsList[personIdx];
+          if (data) {
+            drawPersonSkeleton(snapshotCtx, landmarks, data, personIdx, w, h);
+          }
+        });
+      }
+      snapshotCtx.restore();
+
+      return snapshotCanvas.toDataURL("image/jpeg", 0.75);
+    }
 
     function isStickColor(r, g, b, mode) {
       if (mode === 'red') {
@@ -1504,7 +1810,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
               delegate: "GPU"
             },
             runningMode: "VIDEO",
-            numPoses: 4,
+            numPoses: 1,
             minPoseDetectionConfidence: 0.65,
             minPosePresenceConfidence: 0.65,
             minTrackingConfidence: 0.65
@@ -1518,7 +1824,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
               delegate: "CPU"
             },
             runningMode: "VIDEO",
-            numPoses: 4,
+            numPoses: 1,
             minPoseDetectionConfidence: 0.65,
             minPosePresenceConfidence: 0.65,
             minTrackingConfidence: 0.65
@@ -1811,13 +2117,15 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             const midShldY = (leftShoulder.y + rightShoulder.y) / 2;
             const midHipX = (leftHip.x + rightHip.x) / 2;
             const midHipY = (leftHip.y + rightHip.y) / 2;
-            torsoScale = Math.sqrt((midShldX - midHipX) * (midShldX - midHipX) + (midShldY - midHipY) * (midShldY - midHipY)) || 0.28;
+            const rawTorsoDist = Math.sqrt((midShldX - midHipX) * (midShldX - midHipX) + (midShldY - midHipY) * (midShldY - midHipY));
+            torsoScale = Math.max(0.12, rawTorsoDist || 0.28);
 
             if (leftWrist && leftWrist.visibility > 0.35) {
               const dx = leftWrist.x - chestX;
               const dy = leftWrist.y - chestY;
               const rawDist = Math.sqrt(dx * dx + dy * dy);
-              normGuardDist = parseFloat((rawDist / torsoScale).toFixed(2));
+              const computedRatio = rawDist / torsoScale;
+              normGuardDist = Number.isFinite(computedRatio) ? parseFloat(computedRatio.toFixed(2)) : 1.0;
 
               if (normGuardDist <= 0.45) {
                 guardScore = 100;
@@ -1867,14 +2175,30 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             }
           }
 
-          // 5. STRIKING ARM ACCURACY
+          // 5. STRIKING ARM ACCURACY (Multi-Tier Biomechanical Calibration)
+          // Inside [optimal_min, optimal_max] (25th-75th percentile): 100%
+          // Inside [right_min, optimal_min) or (optimal_max, right_max] (10th-90th percentile): 80% - 99%
+          // Outside [right_min, right_max]: drops below 80% at 2 points per degree of deviation.
           let elbowScore = 0;
           if (rightAngle !== null && rules) {
-            if (rightAngle >= rules.right_min && rightAngle <= rules.right_max) {
+            const optMin = typeof rules.optimal_min === 'number' ? rules.optimal_min : rules.right_min;
+            const optMax = typeof rules.optimal_max === 'number' ? rules.optimal_max : rules.right_max;
+            const accMin = rules.right_min;
+            const accMax = rules.right_max;
+
+            if (rightAngle >= optMin && rightAngle <= optMax) {
               elbowScore = 100;
+            } else if (rightAngle >= accMin && rightAngle < optMin) {
+              const range = optMin - accMin;
+              const prog = range > 0 ? (rightAngle - accMin) / range : 1;
+              elbowScore = Math.round(80 + prog * 19);
+            } else if (rightAngle > optMax && rightAngle <= accMax) {
+              const range = accMax - optMax;
+              const prog = range > 0 ? (accMax - rightAngle) / range : 1;
+              elbowScore = Math.round(80 + prog * 19);
             } else {
-              const dev = rightAngle < rules.right_min ? rules.right_min - rightAngle : rightAngle - rules.right_max;
-              elbowScore = Math.max(0, Math.round(100 - dev * 2.2));
+              const dev = rightAngle < accMin ? accMin - rightAngle : rightAngle - accMax;
+              elbowScore = Math.max(0, Math.round(79 - dev * 2));
             }
           }
 
@@ -1899,14 +2223,46 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             }
           }
 
-          const strikingArmComposite = Math.round(elbowScore * 0.75 + shoulderScore * 0.25);
+          // Mirrored shoulder center and torso scale for kinetic trajectory alignment
+          const lsX = (1 - leftShoulder.x) * canvasElement.width;
+          const lsY = leftShoulder.y * canvasElement.height;
+          const rsX = (1 - rightShoulder.x) * canvasElement.width;
+          const rsY = rightShoulder.y * canvasElement.height;
+          const anchorX = (lsX + rsX) / 2;
+          const anchorY = (lsY + rsY) / 2;
+          const shoulderSpan = Math.sqrt((rsX - lsX) * (rsX - lsX) + (rsY - lsY) * (rsY - lsY)) || 80;
+          const scale = Math.max(120, shoulderSpan * 2.1);
+
+          let userWristDx = 0;
+          let userWristDy = 0;
+          if (rightWrist) {
+            const rwX = (1 - rightWrist.x) * canvasElement.width;
+            const rwY = rightWrist.y * canvasElement.height;
+            userWristDx = (rwX - anchorX) / scale;
+            userWristDy = (rwY - anchorY) / scale;
+          }
+
+          // Dynamic Motion Tracking & 4-Phase Kinetic Trajectory State Machine
+          const motionState = updateMotionHistory(
+            personIdx,
+            rightWrist,
+            rightShoulder,
+            rightAngle,
+            performance.now(),
+            userWristDx,
+            userWristDy
+          );
+
+          const trajectoryAccuracy = motionState.trajectoryAccuracy || 60;
+          const strikingArmComposite = Math.round(
+            elbowScore * 0.35 +
+            shoulderScore * 0.25 +
+            trajectoryAccuracy * 0.40
+          );
 
           // Kinematic stick tracking (zero-latency, rock-solid 60 FPS, no GPU stalls)
           const stickLeft = detectStick(leftWrist, leftElbow);
           const stickRight = detectStick(rightWrist, rightElbow);
-
-          // Dynamic Motion Tracking & Kinetic Sequence Calculation
-          const motionState = updateMotionHistory(personIdx, rightWrist, rightShoulder, rightAngle, performance.now());
 
           // Diagnostic issue flags
           const diagnosticFlags = [];
@@ -1915,6 +2271,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
           } else if (motionState.kineticScore >= 90) {
             diagnosticFlags.push('KINETIC_FLOW_EXCELLENT');
           }
+          if (trajectoryAccuracy < 60) diagnosticFlags.push('WRONG_TRAJECTORY');
           if (isGuardLow) diagnosticFlags.push('GUARD_LOW');
           if (isStanceHigh) diagnosticFlags.push('STANCE_HIGH');
           if (rightAngle !== null && rules) {
@@ -1929,19 +2286,23 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
                                   (!rightAnkle || rightAnkle.visibility < 0.35 || rightAnkle.y > 0.96);
           if (isFeetOutOfView) diagnosticFlags.push('FEET_CROPPED');
 
-          // 6. COMPOSITE 5-PILLAR HOLISTIC ACCURACY (Incorporating Dynamic Kinetic Flow)
-          // 35% Striking Arm | 25% Guard Hand | 20% Stance | 10% Power/Wrist | 10% Kinetic Flow
+          // 6. COMPOSITE 4-PILLAR HOLISTIC ACCURACY
+          // 40% Striking Arm (Joints + Trajectory) | 25% Guard Hand | 20% Stance | 15% Pitik Wrist Snap
           let compositeAccuracy = Math.round(
-            strikingArmComposite * 0.35 +
+            strikingArmComposite * 0.40 +
             guardScore * 0.25 +
             stanceScore * 0.20 +
-            wristScore * 0.10 +
-            motionState.kineticScore * 0.10
+            wristScore * 0.15
           );
 
-          // Anti-Static Gaming Penalty: If user froze in pose without swinging, penalize score
-          if (motionState.isStaticHold) {
-            compositeAccuracy = Math.max(25, compositeAccuracy - 30);
+          // STRICT ARNIS MOTION GATING:
+          // 1. Static Hold (didn't swing/chamber properly): Cap score to fail
+          if (motionState.isStaticHold || !motionState.driveDetected) {
+            compositeAccuracy = Math.min(55, compositeAccuracy);
+          }
+          // 2. Trajectory Mismatch (< 60% alignment with target strike vector): Cap to fail (< 75%)
+          else if (trajectoryAccuracy < 60) {
+            compositeAccuracy = Math.min(64, compositeAccuracy);
           }
 
           // Track Stick Tip for Motion Ribbon
@@ -1978,45 +2339,6 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
 
           const trajMetrics = calculateTrajectoryMetrics(personIdx);
 
-          // Dynamic Auto-Strike Identification (Freeflow Mode)
-          let autoDetectedStrike = null;
-          if (autoDetectMode) {
-            autoDetectedStrike = classifyStrikeMotion(landmarks, {
-              rightAngle: rightAngle,
-              rightShoulderAngle: rightShoulderAngle,
-              leftAngle: leftAngle
-            }, trajMetrics);
-
-            const now = performance.now();
-            // Require dynamic kinetic swing, NOT a static hold, and confident score (>=75%)
-            const hasDynamicMotion = (motionState.isApex || motionState.velocity >= 0.18) && !motionState.isStaticHold;
-            const isHighConfidence = autoDetectedStrike && autoDetectedStrike.confidence >= 75;
-            const cooldownPassed = (now - lastDetectedStrikeTime) >= 900;
-
-            if (hasDynamicMotion && isHighConfidence && cooldownPassed) {
-              const isApex = motionState.isApex;
-              const isNewStrike = autoDetectedStrike.id !== lastDetectedStrikeId;
-
-              // Only trigger on swing apex hit or dynamic strike transition
-              if (isApex || isNewStrike) {
-                lastDetectedStrikeId = autoDetectedStrike.id;
-                lastDetectedStrikeTime = now;
-                detectedStrikeBannerText = autoDetectedStrike.name;
-                detectedStrikeConfidence = autoDetectedStrike.confidence;
-
-                // Sync engine active strike so ghost silhouette and grading adapt to detected form!
-                activeStrike = autoDetectedStrike.id;
-
-                sendToReactNative({
-                  type: "AUTO_DETECTED_STRIKE",
-                  strikeId: autoDetectedStrike.id,
-                  strikeName: autoDetectedStrike.name,
-                  confidence: autoDetectedStrike.confidence
-                });
-              }
-            }
-          }
-
           // Zero-latency Apex chime and notification to React Native
           if (motionState.isApex) {
             const nowWall = Date.now();
@@ -2031,7 +2353,39 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             }
           }
 
-          personsData.push({
+          function pickRaw2DPoint(lm) {
+            if (!lm) return undefined;
+            return {
+              x: parseFloat(lm.x.toFixed(5)),
+              y: parseFloat(lm.y.toFixed(5)),
+              visibility: parseFloat(((lm.visibility !== undefined ? lm.visibility : 1)).toFixed(3))
+            };
+          }
+
+          const rawPose2d = {
+            timestampMs: Math.round(performance.now()),
+            frameWidth: canvasElement.width || 640,
+            frameHeight: canvasElement.height || 480,
+            source: 'mediapipe_2d',
+            coordinateSpace: 'raw_unmirrored_normalized',
+            landmarks: {
+              nose: pickRaw2DPoint(landmarks[0]),
+              leftShoulder: pickRaw2DPoint(leftShoulder),
+              rightShoulder: pickRaw2DPoint(rightShoulder),
+              leftElbow: pickRaw2DPoint(leftElbow),
+              rightElbow: pickRaw2DPoint(rightElbow),
+              leftWrist: pickRaw2DPoint(leftWrist),
+              rightWrist: pickRaw2DPoint(rightWrist),
+              leftHip: pickRaw2DPoint(leftHip),
+              rightHip: pickRaw2DPoint(rightHip),
+              leftKnee: pickRaw2DPoint(leftKnee),
+              rightKnee: pickRaw2DPoint(rightKnee),
+              leftAnkle: pickRaw2DPoint(leftAnkle),
+              rightAnkle: pickRaw2DPoint(rightAnkle)
+            }
+          };
+
+          const personEntry = {
             id: personIdx,
             leftAngle: leftAngle,
             rightAngle: rightAngle,
@@ -2070,110 +2424,17 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             isGuardLow: isGuardLow,
             isStanceHigh: isStanceHigh,
             isFeetOutOfView: isFeetOutOfView,
-            diagnosticFlags: diagnosticFlags
-          });
+            diagnosticFlags: diagnosticFlags,
+            rawPose2d: rawPose2d
+          };
 
-          // Draw skeleton connectors with neon colors based on person index
-          const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
-          const connectorColor = colors.secondary;
-          const leftColor = isLeftGood ? "#10b981" : "#ef4444";
-          const rightColor = isRightGood ? "#10b981" : "#ef4444";
-          
-          // Color-code leg skeleton according to martial stance stability
-          const legStanceColor = stanceScore >= 80 ? "#10b981" : (isStanceHigh ? "#f59e0b" : "#ef4444");
-
-          const torsoConnections = [
-            [11, 12], // shoulder-to-shoulder
-            [11, 23], [12, 24], [23, 24] // torso
-          ];
-
-          // Draw basic torso lines
-          canvasCtx.lineWidth = 4;
-          canvasCtx.strokeStyle = connectorColor;
-          torsoConnections.forEach(([p1, p2]) => {
-            const joint1 = landmarks[p1];
-            const joint2 = landmarks[p2];
-            if (joint1 && joint2 && joint1.visibility > 0.4 && joint2.visibility > 0.4) {
-              canvasCtx.beginPath();
-              canvasCtx.moveTo(joint1.x * canvasElement.width, joint1.y * canvasElement.height);
-              canvasCtx.lineTo(joint2.x * canvasElement.width, joint2.y * canvasElement.height);
-              canvasCtx.stroke();
-            }
-          });
-
-          // Draw left leg (with stance glow)
-          canvasCtx.strokeStyle = legStanceColor;
-          canvasCtx.beginPath();
-          if (leftHip && leftKnee && leftHip.visibility > 0.4 && leftKnee.visibility > 0.4) {
-            canvasCtx.moveTo(leftHip.x * canvasElement.width, leftHip.y * canvasElement.height);
-            canvasCtx.lineTo(leftKnee.x * canvasElement.width, leftKnee.y * canvasElement.height);
-          }
-          if (leftKnee && leftAnkle && leftKnee.visibility > 0.4 && leftAnkle.visibility > 0.4) {
-            canvasCtx.lineTo(leftAnkle.x * canvasElement.width, leftAnkle.y * canvasElement.height);
-          }
-          canvasCtx.stroke();
-
-          // Draw right leg (with stance glow)
-          canvasCtx.strokeStyle = legStanceColor;
-          canvasCtx.beginPath();
-          if (rightHip && rightKnee && rightHip.visibility > 0.4 && rightKnee.visibility > 0.4) {
-            canvasCtx.moveTo(rightHip.x * canvasElement.width, rightHip.y * canvasElement.height);
-            canvasCtx.lineTo(rightKnee.x * canvasElement.width, rightKnee.y * canvasElement.height);
-          }
-          if (rightKnee && rightAnkle && rightKnee.visibility > 0.4 && rightAnkle.visibility > 0.4) {
-            canvasCtx.lineTo(rightAnkle.x * canvasElement.width, rightAnkle.y * canvasElement.height);
-          }
-          canvasCtx.stroke();
-
-          // Draw left arm (Check hand guard arm)
-          const guardArmColor = guardScore >= 80 ? "#10b981" : (isGuardLow ? "#ef4444" : "#f59e0b");
-          canvasCtx.strokeStyle = guardArmColor;
-          if (leftShoulder && leftElbow && leftShoulder.visibility > 0.4 && leftElbow.visibility > 0.4) {
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(leftShoulder.x * canvasElement.width, leftShoulder.y * canvasElement.height);
-            canvasCtx.lineTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
-            canvasCtx.stroke();
-          }
-          if (leftElbow && leftWrist && leftElbow.visibility > 0.4 && leftWrist.visibility > 0.4) {
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(leftElbow.x * canvasElement.width, leftElbow.y * canvasElement.height);
-            canvasCtx.lineTo(leftWrist.x * canvasElement.width, leftWrist.y * canvasElement.height);
-            canvasCtx.stroke();
-          }
-
-          // Draw right arm (Striking arm)
-          canvasCtx.strokeStyle = rightColor;
-          if (rightShoulder && rightElbow && rightShoulder.visibility > 0.4 && rightElbow.visibility > 0.4) {
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(rightShoulder.x * canvasElement.width, rightShoulder.y * canvasElement.height);
-            canvasCtx.lineTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
-            canvasCtx.stroke();
-          }
-          if (rightElbow && rightWrist && rightElbow.visibility > 0.4 && rightWrist.visibility > 0.4) {
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(rightElbow.x * canvasElement.width, rightElbow.y * canvasElement.height);
-            canvasCtx.lineTo(rightWrist.x * canvasElement.width, rightWrist.y * canvasElement.height);
-            canvasCtx.stroke();
-          }
-
-          // Draw joint points
-          landmarks.forEach((joint, idx) => {
-            if (joint.visibility < 0.4) return;
-            const corePoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
-            if (!corePoints.includes(idx)) return;
-
-            let ptColor = colors.primary;
-            if (idx === 13 || idx === 15) ptColor = guardArmColor;
-            if (idx === 14 || idx === 16) ptColor = rightColor;
-            if (idx === 25 || idx === 26) ptColor = legStanceColor;
-
-            canvasCtx.beginPath();
-            canvasCtx.arc(joint.x * canvasElement.width, joint.y * canvasElement.height, 6, 0, 2 * Math.PI);
-            canvasCtx.fillStyle = ptColor;
-            canvasCtx.fill();
-          });
+          personsData.push(personEntry);
+          drawPersonSkeleton(canvasCtx, landmarks, personEntry, personIdx, canvasElement.width, canvasElement.height);
         });
       }
+
+      lastRenderedLandmarks = validLandmarksList;
+      lastRenderedPersons = personsData;
 
       // Send state back to React Native (throttled to ~18 FPS to protect JNI bridge, with bypass only on transient apex impact)
       const now = performance.now();
@@ -2197,18 +2458,20 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         }
       }
 
-      // Trigger snapshot automatically when user achieves correct form (green posture)
+      // Trigger un-mirrored snapshot automatically when user achieves correct form (green posture)
       if (personsData.length > 0) {
         const hasGoodPosture = personsData.some(p => p.accuracy >= 85 || p.isApex);
         const wallNow = Date.now();
         if (hasGoodPosture && (!window.__lastAutoSnap || wallNow - window.__lastAutoSnap > 3500)) {
           window.__lastAutoSnap = wallNow;
           try {
-            const snap = canvasElement.toDataURL("image/jpeg", 0.75);
-            sendToReactNative({
-              type: "SNAPSHOT_CAPTURED",
-              base64: snap
-            });
+            const snap = captureUnmirroredSnapshot(validLandmarksList, personsData);
+            if (snap) {
+              sendToReactNative({
+                type: "SNAPSHOT_CAPTURED",
+                base64: snap
+              });
+            }
           } catch(e) {}
         }
       }
@@ -2284,8 +2547,18 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
               headTopY = shoulderY - Math.max(120, shoulderSpan * 0.95);
             }
 
-            // Position badge 28px cleanly above the top of the head
-            const pillW = 210;
+            // Metric text for all 4 martial pillars (Striking Arm, Kalasag Guard, Tindig Stance, Pitik Wrist Snap)
+            canvasCtx.font = "bold 11px sans-serif";
+            const armCol = data.isRightGood ? "⚔️" : "⚔️";
+            const guardCol = data.guardScore >= 80 ? "🛡️" : "⚠️";
+            const stanceCol = data.stanceScore >= 80 ? "🦵" : "⚠️";
+            const wristScoreVal = typeof data.wristScore === 'number' ? data.wristScore : 85;
+            const wristCol = wristScoreVal >= 80 ? "⚡" : "⚠️";
+            const hudStr = "ARM " + data.elbowScore + "% · " + guardCol + " GUARD " + data.guardScore + "% · " + stanceCol + " STANCE " + data.stanceScore + "% · " + wristCol + " SNAP " + wristScoreVal + "%";
+
+            // Dynamically sized pill based on measured text width
+            const measuredW = canvasCtx.measureText ? canvasCtx.measureText(hudStr).width : 270;
+            const pillW = Math.max(220, Math.round(measuredW + 22));
             const pillH = 26;
             let absX = (1 - avgX) * canvasElement.width;
             // Clamp horizontal position so pill is always fully visible inside screen
@@ -2311,14 +2584,9 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             canvasCtx.fill();
             canvasCtx.stroke();
 
-            // Metric text
-            canvasCtx.font = "bold 11px sans-serif";
+            // Render metric text
             canvasCtx.textAlign = "center";
             canvasCtx.fillStyle = "#ffffff";
-            const armCol = data.isRightGood ? "⚔️" : "⚔️";
-            const guardCol = data.guardScore >= 80 ? "🛡️" : "⚠️";
-            const stanceCol = data.stanceScore >= 80 ? "🦵" : "⚠️";
-            const hudStr = "ARM " + data.elbowScore + "% · " + guardCol + " GUARD " + data.guardScore + "% · " + stanceCol + " STANCE " + data.stanceScore + "%";
             canvasCtx.fillText(hudStr, absX, absY + 4);
             canvasCtx.restore();
           }
@@ -2475,10 +2743,8 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
           drawFormCoachHUD(canvasCtx, formCoachPhase, activeStrike, performance.now());
         }
 
-        // 12. Draw Auto-Detect Mode Banner HUD
-        if (autoDetectMode) {
-          drawAutoDetectHUD(canvasCtx, performance.now());
-        }
+        // 12. Draw Live Kinetic Phase HUD (Always locked to target strike)
+        drawKineticPhaseHUD(canvasCtx, primaryPersonObj, performance.now());
 
         // 13. 3-Meter Visual Ergonomics: Draw Peripheral Edge Glow & Status Indicator
         drawPeripheralEdgeGlow(canvasCtx, primaryPersonObj, canvasElement.width, canvasElement.height, performance.now());
@@ -2492,9 +2758,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         if (formCoachMode) {
           drawFormCoachHUD(canvasCtx, formCoachPhase, activeStrike, performance.now());
         }
-        if (autoDetectMode) {
-          drawAutoDetectHUD(canvasCtx, performance.now());
-        }
+        drawKineticPhaseHUD(canvasCtx, null, performance.now());
       }
       } catch (err) {
         console.warn("drawOutput error:", err);

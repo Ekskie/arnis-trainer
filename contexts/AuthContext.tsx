@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSupabaseConfigured, supabase, UserProfile, UserRole } from '@/services/supabase';
 import { setActiveCurriculumUserId, resetCurriculumProgress } from '@/constants/curriculumStore';
 import { setActiveHistoryUserId, clearHistory, clearStrikeMastery } from '@/constants/historyStore';
@@ -20,7 +19,9 @@ interface AuthContextType {
     displayName: string,
     role: UserRole,
     bio?: string
-  ) => Promise<{ error: Error | null }>;
+  ) => Promise<{ error: Error | null; needsEmailConfirmation?: boolean }>;
+  resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
+  resendConfirmationEmail: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ error: Error | null }>;
   refreshProfile: () => Promise<void>;
@@ -31,7 +32,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEV_MOCK_USER_KEY = 'arnis_dev_mock_user';
+const CLOUD_UNAVAILABLE_MSG =
+  'Cloud authentication is unavailable in this build. Please verify Supabase environment settings.';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
@@ -60,12 +62,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', userId)
         .maybeSingle();
 
+      if (error) {
+        console.warn('[AuthContext] Error fetching profile:', error.message);
+      }
+
       if (!data) {
-        // Profile does not exist yet; create it from metadata
+        // Profile does not exist yet; create it from signup metadata
         const newProfile: UserProfile = {
           id: userId,
           role: fallbackData?.role || 'student',
-          display_name: fallbackData?.display_name || fallbackData?.displayName || userEmail?.split('@')[0] || 'Arnisador',
+          display_name:
+            fallbackData?.display_name ||
+            fallbackData?.displayName ||
+            userEmail?.split('@')[0] ||
+            'Arnisador',
           email: userEmail || null,
           bio: fallbackData?.bio || '',
           rank_sash: fallbackData?.role === 'coach' ? 'Guro / Instructor' : 'White Sash',
@@ -77,6 +87,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select()
           .maybeSingle();
 
+        if (insErr) {
+          console.warn('[AuthContext] Profile auto-create warning:', insErr.message);
+        }
+
         if (insertedData) {
           setProfile(insertedData as UserProfile);
           return;
@@ -86,9 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      if (data) {
-        setProfile(data as UserProfile);
-      }
+      setProfile(data as UserProfile);
     } catch (err) {
       console.error('[AuthContext] Error loading profile:', err);
     }
@@ -106,41 +118,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 6000);
 
     if (!isSupabaseConfigured) {
-      // Check for local dev mock session
-      AsyncStorage.getItem(DEV_MOCK_USER_KEY)
-        .then((stored) => {
-          if (stored && isMounted) {
-            try {
-              const parsed = JSON.parse(stored);
-              setProfile(parsed.profile);
-              setUser(parsed.user);
-            } catch (e) {
-              console.warn('[AuthContext] Failed to parse stored mock profile');
-            }
-          }
-        })
-        .catch((err) => console.warn('[AuthContext] Dev mock load error:', err))
-        .finally(() => {
-          if (isMounted) {
-            clearTimeout(timeoutTimer);
-            setIsLoading(false);
-          }
-        });
+      clearTimeout(timeoutTimer);
+      setIsLoading(false);
       return () => {
         isMounted = false;
-        clearTimeout(timeoutTimer);
       };
     }
 
     // Live Supabase initialization
     supabase.auth
       .getSession()
-      .then(({ data: { session } }) => {
+      .then(({ data: { session: activeSession } }) => {
         if (!isMounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          fetchProfile(session.user.id, session.user.email, session.user.user_metadata)
+        setSession(activeSession);
+        setUser(activeSession?.user ?? null);
+        if (activeSession?.user) {
+          fetchProfile(
+            activeSession.user.id,
+            activeSession.user.email,
+            activeSession.user.user_metadata
+          )
             .catch((err) => console.warn('[AuthContext] Profile fetch error:', err))
             .finally(() => {
               if (isMounted) {
@@ -165,12 +162,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
       if (!isMounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email, session.user.user_metadata).catch(() => {});
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      if (nextSession?.user) {
+        await fetchProfile(
+          nextSession.user.id,
+          nextSession.user.email,
+          nextSession.user.user_metadata
+        ).catch(() => {});
       } else {
         setProfile(null);
       }
@@ -192,25 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
-      // Local development mock sign-in
-      const mockRole: UserRole = email.toLowerCase().includes('coach') ? 'coach' : 'student';
-      const mockUser: any = {
-        id: `mock-${Date.now()}`,
-        email,
-        user_metadata: { display_name: email.split('@')[0], role: mockRole },
-      };
-      const mockProf: UserProfile = {
-        id: mockUser.id,
-        role: mockRole,
-        display_name: email.split('@')[0] || 'Arnis Warrior',
-        email,
-        bio: mockRole === 'coach' ? 'Master Instructor / Arnis Guro' : 'Dedicated Student',
-        rank_sash: mockRole === 'coach' ? 'Guro / Instructor' : 'White Sash',
-      };
-      setUser(mockUser);
-      setProfile(mockProf);
-      await AsyncStorage.setItem(DEV_MOCK_USER_KEY, JSON.stringify({ user: mockUser, profile: mockProf }));
-      return { error: null };
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
     }
 
     try {
@@ -229,7 +212,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { error: null };
     } catch (err: any) {
-      return { error: err };
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
@@ -239,31 +222,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     displayName: string,
     role: UserRole,
     bio?: string
-  ): Promise<{ error: Error | null }> => {
+  ): Promise<{ error: Error | null; needsEmailConfirmation?: boolean }> => {
     if (!isSupabaseConfigured) {
-      // Local development mock sign-up
-      const mockUser: any = {
-        id: `mock-${Date.now()}`,
-        email,
-        user_metadata: { display_name: displayName, role },
-      };
-      const mockProf: UserProfile = {
-        id: mockUser.id,
-        role,
-        display_name: displayName,
-        email,
-        bio: bio || '',
-        rank_sash: role === 'coach' ? 'Guro / Instructor' : 'White Sash',
-      };
-      setUser(mockUser);
-      setProfile(mockProf);
-      await AsyncStorage.setItem(DEV_MOCK_USER_KEY, JSON.stringify({ user: mockUser, profile: mockProf }));
-      return { error: null };
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
     }
 
     try {
+      const cleanEmail = email.trim();
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         options: {
           data: {
@@ -278,12 +245,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error };
       }
 
+      // If Confirm Email is enabled in Supabase, session will be null until user clicks verification link
+      if (!data.session) {
+        return { error: null, needsEmailConfirmation: true };
+      }
+
       if (data.user) {
         const newProfile: UserProfile = {
           id: data.user.id,
           role,
           display_name: displayName.trim(),
-          email: data.user.email || email,
+          email: data.user.email || cleanEmail,
           bio: bio || '',
           rank_sash: role === 'coach' ? 'Guro / Instructor' : 'White Sash',
         };
@@ -293,74 +265,122 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .upsert(newProfile);
 
         if (profileError) {
-          console.warn('[AuthContext] Profile upsert warning:', profileError);
+          console.warn('[AuthContext] Profile upsert warning:', profileError.message);
         }
 
         setProfile(newProfile);
       }
 
-      return { error: null };
+      return { error: null, needsEmailConfirmation: false };
     } catch (err: any) {
-      return { error: err };
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
+  const resetPasswordForEmail = async (email: string): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
+    }
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      return { error: new Error('Please enter your email address.') };
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+      return { error: error ? new Error(error.message) : null };
+    } catch (err: any) {
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
+  const resendConfirmationEmail = async (email: string): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
+    }
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      return { error: new Error('Please enter your email address.') };
+    }
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: cleanEmail,
+      });
+      return { error: error ? new Error(error.message) : null };
+    } catch (err: any) {
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
   const signOut = async () => {
-    if (!isSupabaseConfigured) {
-      await AsyncStorage.removeItem(DEV_MOCK_USER_KEY);
-      setUser(null);
-      setProfile(null);
-      return;
+    if (isSupabaseConfigured) {
+      await supabase.auth.signOut().catch((err) => {
+        console.warn('[AuthContext] signOut warning:', err);
+      });
     }
-
-    await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
     setSession(null);
   };
 
+  const deleteUserBucketFiles = async (bucket: 'snapshots' | 'practice-videos', userId: string) => {
+    try {
+      const { data: files, error: listError } = await supabase.storage
+        .from(bucket)
+        .list(userId, { limit: 1000 });
+      if (listError || !files || files.length === 0) return;
+
+      const paths = files.map((f) => `${userId}/${f.name}`);
+      const { error: removeError } = await supabase.storage.from(bucket).remove(paths);
+      if (removeError) {
+        console.warn(`[AuthContext] Storage cleanup notice (${bucket}):`, removeError.message);
+      }
+    } catch (e) {
+      console.warn(`[AuthContext] Storage cleanup exception (${bucket}):`, e);
+    }
+  };
+
   const deleteAccount = async (): Promise<{ error: Error | null }> => {
     const currentUserId = user?.id;
+    if (!currentUserId) {
+      return { error: new Error('No active user session found.') };
+    }
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
+    }
 
     try {
-      if (isSupabaseConfigured && currentUserId) {
-        // 1. Attempt to invoke the delete_user_account RPC
-        const { error: rpcError } = await supabase.rpc('delete_user_account');
+      // 1. Best-effort cleanup of stored media files belonging to this user
+      await Promise.all([
+        deleteUserBucketFiles('snapshots', currentUserId),
+        deleteUserBucketFiles('practice-videos', currentUserId),
+      ]);
 
-        if (rpcError) {
-          console.warn('[AuthContext] delete_user_account RPC warning, attempting direct profile delete:', rpcError);
-          // Fallback: delete row directly from public.profiles
-          const { error: profileDelError } = await supabase
-            .from('profiles')
-            .delete()
-            .eq('id', currentUserId);
-          if (profileDelError) {
-            console.warn('[AuthContext] Direct profile delete warning:', profileDelError);
-          }
-        }
-
-        // 2. Sign out session from Supabase
-        await supabase.auth.signOut().catch((e) => console.warn('[AuthContext] SignOut error during delete:', e));
+      // 2. Delete auth + cascaded profile/sessions/messages on server
+      const { error: rpcError } = await supabase.rpc('delete_user_account');
+      if (rpcError) {
+        return {
+          error: new Error(
+            rpcError.message ||
+              'Could not delete your server account. Please verify your internet connection and try again.'
+          ),
+        };
       }
 
-      // 3. Clean up user-specific local storage caches & media files
-      if (currentUserId) {
-        await resetCurriculumProgress(currentUserId).catch(() => {});
-        await clearHistory(currentUserId, true).catch(() => {});
-        await clearStrikeMastery(currentUserId).catch(() => {});
-        await clearGamificationStats(currentUserId).catch(() => {});
-        await clearAllUserStrikeMedia().catch(() => {});
-      }
+      // 3. Sign out local session (ignore errors since auth.users row was already removed)
+      await supabase.auth.signOut().catch(() => {});
 
-      // 4. Remove mock user session if any
-      await AsyncStorage.removeItem(DEV_MOCK_USER_KEY).catch(() => {});
+      // 4. Clean up user-specific local storage caches & media files
+      await resetCurriculumProgress(currentUserId).catch(() => {});
+      await clearHistory(currentUserId, true).catch(() => {});
+      await clearStrikeMastery(currentUserId).catch(() => {});
+      await clearGamificationStats(currentUserId).catch(() => {});
+      await clearAllUserStrikeMedia().catch(() => {});
 
-      // 5. Reset active user store IDs
+      // 5. Reset active user store IDs & React context state
       setActiveCurriculumUserId(null);
       setActiveHistoryUserId(null);
       setActiveGamificationUserId(null);
-
-      // 6. Clear React context state
       setUser(null);
       setProfile(null);
       setSession(null);
@@ -368,24 +388,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: null };
     } catch (err: any) {
       console.error('[AuthContext] Error deleting account:', err);
-      // Ensure state is wiped even if an unexpected network error occurs
-      setUser(null);
-      setProfile(null);
-      setSession(null);
-      return { error: err };
+      return {
+        error: err instanceof Error ? err : new Error('Failed to delete account. Please try again.'),
+      };
     }
   };
 
   const updateProfile = async (updates: Partial<UserProfile>): Promise<{ error: Error | null }> => {
     if (!profile) return { error: new Error('No user profile found') };
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
+    }
 
+    const previous = profile;
     const updated = { ...profile, ...updates, updated_at: new Date().toISOString() };
     setProfile(updated);
-
-    if (!isSupabaseConfigured) {
-      await AsyncStorage.setItem(DEV_MOCK_USER_KEY, JSON.stringify({ user, profile: updated }));
-      return { error: null };
-    }
 
     try {
       const { error } = await supabase
@@ -393,32 +410,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .update(updates)
         .eq('id', profile.id);
 
-      return { error: error ? new Error(error.message) : null };
+      if (error) {
+        setProfile(previous);
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
     } catch (err: any) {
-      return { error: err };
+      setProfile(previous);
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
   const updatePassword = async (newPassword: string): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
-      return { error: null };
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
     }
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       return { error: error ? new Error(error.message) : null };
     } catch (err: any) {
-      return { error: err };
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
   const updateEmail = async (newEmail: string): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
-      if (profile) {
-        const updated = { ...profile, email: newEmail };
-        setProfile(updated);
-        await AsyncStorage.setItem(DEV_MOCK_USER_KEY, JSON.stringify({ user, profile: updated }));
-      }
-      return { error: null };
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
     }
     try {
       const { error } = await supabase.auth.updateUser({ email: newEmail });
@@ -428,7 +445,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { error: null };
     } catch (err: any) {
-      return { error: err };
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   };
 
@@ -442,6 +459,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isConfigured: isSupabaseConfigured,
         signIn,
         signUp,
+        resetPasswordForEmail,
+        resendConfirmationEmail,
         signOut,
         deleteAccount,
         refreshProfile,

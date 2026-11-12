@@ -1,3 +1,5 @@
+import { Raw2DPoseFrame } from '@/engine/reference/referenceTypes';
+
 export interface EvaluationConfig {
   strikeId: string;
   mode: 'follow' | 'guided' | 'test';
@@ -54,4 +56,6 @@ export interface RawPersonPose {
     peakVelocity: number;
     smoothness: number;
   };
+  /** Optional raw 2D MediaPipe sample for non-grading shadow reference evaluation. */
+  rawPose2d?: Raw2DPoseFrame;
 }

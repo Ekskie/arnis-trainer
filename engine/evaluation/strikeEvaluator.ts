@@ -9,6 +9,7 @@ import {
 import { generateCoachFeedback } from './feedbackGenerator';
 import { StrikeRule } from '@/constants/strikeRules';
 import { RawPersonPose } from '@/engine/pose/poseEngineTypes';
+import { ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
 
 export interface EvaluatedFrameData {
   accuracy: number;
@@ -92,7 +93,10 @@ export function evaluatePoseFrame(
     wrist: wristScore,
   };
 
-  const accuracy = calculateOverallScore(pillars);
+  let accuracy = person.accuracy !== undefined ? person.accuracy : calculateOverallScore(pillars);
+  if (person.isStaticHold) {
+    accuracy = Math.min(55, accuracy);
+  }
 
   // Voice / visual correction prompt
   let correctionPrompt: string | null = null;
@@ -149,6 +153,7 @@ export interface BestSessionInput {
   kineticPhases?: KineticPhaseScores;
   durationMs?: number;
   diagnosticFlags?: string[];
+  shadowEvaluation?: ShadowEvaluationReport;
 }
 
 /**
@@ -192,5 +197,6 @@ export function compileSessionResult(
     feedback,
     diagnosticFlags: data.diagnosticFlags || [],
     durationMs: data.durationMs,
+    shadowEvaluation: data.shadowEvaluation,
   };
 }

@@ -135,6 +135,12 @@ CREATE POLICY "Users can update their own practice sessions"
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete their own practice sessions" ON public.practice_sessions;
+CREATE POLICY "Users can delete their own practice sessions"
+  ON public.practice_sessions FOR DELETE
+  TO authenticated
+  USING (auth.uid() = user_id);
+
 -- 4. CURRICULUM PROGRESS (Journey milestones & quiz completion)
 CREATE TABLE IF NOT EXISTS public.curriculum_progress (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -175,6 +181,12 @@ CREATE POLICY "Users can insert or update their curriculum progress"
 DROP POLICY IF EXISTS "Users can update their own curriculum progress" ON public.curriculum_progress;
 CREATE POLICY "Users can update their own curriculum progress"
   ON public.curriculum_progress FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete their own curriculum progress" ON public.curriculum_progress;
+CREATE POLICY "Users can delete their own curriculum progress"
+  ON public.curriculum_progress FOR DELETE
   TO authenticated
   USING (auth.uid() = user_id);
 
@@ -233,21 +245,32 @@ BEGIN
 END $$;
 
 -- 7. STORAGE BUCKETS (Snapshots & Practice Videos)
--- Note: Create buckets 'snapshots' and 'practice-videos' in Supabase Dashboard -> Storage
--- Insert bucket creation if storage extensions are active:
+-- Both buckets are private; access is gated via authenticated RLS + signed URLs.
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('snapshots', 'snapshots', true)
-ON CONFLICT (id) DO NOTHING;
+VALUES ('snapshots', 'snapshots', false)
+ON CONFLICT (id) DO UPDATE SET public = false;
 
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('practice-videos', 'practice-videos', false)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET public = false;
 
--- Storage Policies for snapshots (public read, authenticated upload)
+-- Storage Policies for snapshots (authenticated owner + accepted coach SELECT, owner INSERT/UPDATE/DELETE)
 DROP POLICY IF EXISTS "Snapshots are publicly accessible" ON storage.objects;
-CREATE POLICY "Snapshots are publicly accessible"
+DROP POLICY IF EXISTS "Users and accepted coaches can view snapshots" ON storage.objects;
+CREATE POLICY "Users and accepted coaches can view snapshots"
   ON storage.objects FOR SELECT
-  USING (bucket_id = 'snapshots');
+  TO authenticated
+  USING (
+    bucket_id = 'snapshots' AND (
+      auth.uid()::text = (storage.foldername(name))[1]
+      OR EXISTS (
+        SELECT 1 FROM public.mentorship_requests
+        WHERE student_id::text = (storage.foldername(name))[1]
+          AND coach_id = auth.uid()
+          AND status = 'accepted'
+      )
+    )
+  );
 
 DROP POLICY IF EXISTS "Authenticated users can upload snapshots" ON storage.objects;
 CREATE POLICY "Authenticated users can upload snapshots"
@@ -255,7 +278,20 @@ CREATE POLICY "Authenticated users can upload snapshots"
   TO authenticated
   WITH CHECK (bucket_id = 'snapshots' AND auth.uid()::text = (storage.foldername(name))[1]);
 
--- Storage Policies for practice-videos (authenticated access)
+DROP POLICY IF EXISTS "Users can update their own snapshots" ON storage.objects;
+CREATE POLICY "Users can update their own snapshots"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'snapshots' AND auth.uid()::text = (storage.foldername(name))[1])
+  WITH CHECK (bucket_id = 'snapshots' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+DROP POLICY IF EXISTS "Users can delete their own snapshots" ON storage.objects;
+CREATE POLICY "Users can delete their own snapshots"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'snapshots' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+-- Storage Policies for practice-videos (owner access + accepted coach only when session is shared)
 DROP POLICY IF EXISTS "Users can upload their own practice videos" ON storage.objects;
 CREATE POLICY "Users can upload their own practice videos"
   ON storage.objects FOR INSERT
@@ -269,14 +305,35 @@ CREATE POLICY "Users and coaches can view shared practice videos"
   USING (
     bucket_id = 'practice-videos' AND (
       auth.uid()::text = (storage.foldername(name))[1]
-      OR EXISTS (
-        SELECT 1 FROM public.mentorship_requests
-        WHERE student_id::text = (storage.foldername(name))[1]
-          AND coach_id = auth.uid()
-          AND status = 'accepted'
+      OR (
+        EXISTS (
+          SELECT 1 FROM public.mentorship_requests
+          WHERE student_id::text = (storage.foldername(name))[1]
+            AND coach_id = auth.uid()
+            AND status = 'accepted'
+        )
+        AND EXISTS (
+          SELECT 1 FROM public.practice_sessions ps
+          WHERE ps.user_id::text = (storage.foldername(name))[1]
+            AND ps.id = split_part(storage.filename(name), '_video', 1)
+            AND ps.is_shared_with_coach = true
+        )
       )
     )
   );
+
+DROP POLICY IF EXISTS "Users can update their own practice videos" ON storage.objects;
+CREATE POLICY "Users can update their own practice videos"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'practice-videos' AND auth.uid()::text = (storage.foldername(name))[1])
+  WITH CHECK (bucket_id = 'practice-videos' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+DROP POLICY IF EXISTS "Users can delete their own practice videos" ON storage.objects;
+CREATE POLICY "Users can delete their own practice videos"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'practice-videos' AND auth.uid()::text = (storage.foldername(name))[1]);
 
 -- 8. ACCOUNT DELETION RPC FUNCTION
 -- Allows an authenticated user to completely delete their account from auth.users,

@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arnis-trainer.local/schemas/expert-strike-reference-v1.json",
+  "title": "ExpertStrikeReferenceV1",
+  "description": "Offline-exported AlphaPose COCO-17 expert movement reference contract for 12-strike Arnis shadow evaluation. Uses V2 normalization (shoulder midpoint origin, fixed median shoulder-width scale per demonstration) and 2D image-plane angles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "strikeId",
+    "strikeNumber",
+    "provenance",
+    "captureContext",
+    "normalization",
+    "activityLandmarks",
+    "wristTrajectory",
+    "bodyJointMeasurements"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "strikeId": {
+      "type": "string",
+      "pattern": "^strike_([1-9]|1[0-2])$"
+    },
+    "strikeNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    },
+    "name": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "poseBackend",
+        "keypointFormat",
+        "cleanedDatasetVersion",
+        "demoCount",
+        "frameCount"
+      ],
+      "properties": {
+        "poseBackend": {
+          "type": "string",
+          "const": "AlphaPose"
+        },
+        "keypointFormat": {
+          "type": "string",
+          "const": "COCO-17"
+        },
+        "cleanedDatasetVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "demoCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frameCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exportedAt": {
+          "type": "string"
+        },
+        "sourceVideos": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "captureContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cameraView", "footwork", "handedness", "nominalFps"],
+      "properties": {
+        "cameraView": {
+          "type": "string",
+          "enum": ["front"]
+        },
+        "footwork": {
+          "type": "string",
+          "enum": ["without_footwork", "with_footwork"]
+        },
+        "handedness": {
+          "type": "string",
+          "enum": ["right", "left"]
+        },
+        "nominalFps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalizationVersion",
+        "coordinateConvention",
+        "origin",
+        "scaleBasis",
+        "angleDimension",
+        "minKeypointConfidence"
+      ],
+      "properties": {
+        "normalizationVersion": {
+          "type": "string",
+          "const": "v2_median_shoulder_width"
+        },
+        "coordinateConvention": {
+          "type": "string",
+          "enum": ["anatomical_mirrored_2d", "unmirrored_image_2d"],
+          "description": "anatomical_mirrored_2d: +x = practitioner anatomical right when facing front camera, +y = downward. unmirrored_image_2d: +x = viewer right (practitioner anatomical left), +y = downward."
+        },
+        "origin": {
+          "type": "string",
+          "const": "shoulder_midpoint"
+        },
+        "scaleBasis": {
+          "type": "string",
+          "const": "fixed_median_shoulder_width_per_demo"
+        },
+        "angleDimension": {
+          "type": "string",
+          "const": "2d"
+        },
+        "minKeypointConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "activityLandmarks": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reviewed temporal landmarks normalized to [0, 1] progress across the active strike window. Wrist-speed events are strictly kinematic landmarks, not confirmed physical impacts.",
+      "required": ["medianDurationMs", "iqrDurationMs", "landmarks"],
+      "properties": {
+        "medianDurationMs": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "iqrDurationMs": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "landmarks": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "normalizedTimeMedian",
+              "normalizedTimeRange",
+              "wristPosMedian",
+              "isKinematicLandmarkOnly"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": [
+                  "onset",
+                  "chamber_peak",
+                  "kinematic_peak_speed",
+                  "turning_point",
+                  "follow_through_end",
+                  "recovery"
+                ]
+              },
+              "label": { "type": "string" },
+              "normalizedTimeMedian": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "normalizedTimeRange": {
+                "type": "array",
+                "items": { "type": "number", "minimum": 0, "maximum": 1 },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "wristPosMedian": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["dx", "dy"],
+                "properties": {
+                  "dx": { "type": "number" },
+                  "dy": { "type": "number" }
+                }
+              },
+              "isKinematicLandmarkOnly": {
+                "type": "boolean",
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "wristTrajectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["joint", "resampleCount", "samples"],
+      "properties": {
+        "joint": {
+          "type": "string",
+          "enum": ["right_wrist", "left_wrist"]
+        },
+        "resampleCount": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "samples": {
+          "type": "array",
+          "minItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["u", "dxMedian", "dyMedian", "dxIqr", "dyIqr"],
+            "properties": {
+              "u": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "dxMedian": { "type": "number" },
+              "dyMedian": { "type": "number" },
+              "dxIqr": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "dyIqr": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "speedMedian": {
+                "type": "number",
+                "minimum": 0
+              },
+              "directionUnit": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["ux", "uy"],
+                "properties": {
+                  "ux": { "type": "number", "minimum": -1, "maximum": 1 },
+                  "uy": { "type": "number", "minimum": -1, "maximum": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bodyJointMeasurements": {
+      "type": "object",
+      "description": "Quality-filtered 2D AlphaPose body-joint measurements. Provisional or low-quality joints must be tagged reliabilityStatus='provisional' or 'excluded' and never treated as grading standards.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reliabilityStatus", "sampleCount", "phases"],
+        "properties": {
+          "reliabilityStatus": {
+            "type": "string",
+            "enum": ["verified", "provisional", "excluded"]
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "exclusionReason": {
+            "type": "string"
+          },
+          "cocoKeypoints": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0, "maximum": 16 },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "sampleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "phases": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p10", "p25", "median", "p75", "p90"],
+              "properties": {
+                "p10": { "type": "number" },
+                "p25": { "type": "number" },
+                "median": { "type": "number" },
+                "p75": { "type": "number" },
+                "p90": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

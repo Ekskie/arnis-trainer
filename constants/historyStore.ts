@@ -10,6 +10,7 @@ export interface SessionItem {
   score: number;
   grade: string;
   date: string;
+  isSharedWithCoach?: boolean;
   snapshotBase64?: string;
   replayVideoBase64?: string;
   userVideoUri?: string;
@@ -160,6 +161,43 @@ export function setActiveHistoryUserId(userId: string | null) {
 export function getHistoryStorageKey(userId?: string | null): string {
   const uid = userId !== undefined ? userId : activeHistoryUserId;
   return uid ? `@arnis_pose_sessions_${uid}` : '@arnis_pose_sessions';
+}
+
+export const AUTO_SHARE_COACH_PREF_KEY = '@arnis_auto_share_with_coach';
+export const SHARE_TELEMETRY_PREF_KEY = '@arnis_share_telemetry_with_coach';
+
+export async function getAutoShareCoachPreference(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(AUTO_SHARE_COACH_PREF_KEY);
+    return val === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function setAutoShareCoachPreference(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AUTO_SHARE_COACH_PREF_KEY, enabled ? 'true' : 'false');
+  } catch (err) {
+    console.warn('[historyStore] Failed to save auto-share preference:', err);
+  }
+}
+
+export async function getShareTelemetryPreference(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(SHARE_TELEMETRY_PREF_KEY);
+    return val !== 'false'; // default to true
+  } catch {
+    return true;
+  }
+}
+
+export async function setShareTelemetryPreference(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SHARE_TELEMETRY_PREF_KEY, enabled ? 'true' : 'false');
+  } catch (err) {
+    console.warn('[historyStore] Failed to save telemetry preference:', err);
+  }
 }
 
 export interface StrikeMasteryRecord {
@@ -424,6 +462,7 @@ export async function getHistory(userId?: string): Promise<SessionItem[]> {
             score: d.score,
             grade: d.grade,
             date: d.date,
+            isSharedWithCoach: Boolean(d.is_shared_with_coach),
             snapshotBase64: d.snapshot_url,
             userVideoUri: d.video_url,
             breakdown: d.breakdown || {
@@ -485,6 +524,8 @@ export async function saveSession(
     ? snapshotBase64
     : undefined;
 
+  const autoShare = await getAutoShareCoachPreference();
+
   const newItem: SessionItem = {
     id: 'session_' + Date.now(),
     strikeId,
@@ -493,6 +534,7 @@ export async function saveSession(
     score,
     grade,
     date: dateStr,
+    isSharedWithCoach: autoShare,
     snapshotBase64: safeSnapshotBase64,
     replayVideoBase64: undefined, // Never store multi-MB video base64 in AsyncStorage
     userVideoUri: finalVideoUri,
@@ -560,6 +602,8 @@ export async function saveAnyoSession(
     snapshotBase64: undefined,
   }));
 
+  const autoShare = await getAutoShareCoachPreference();
+
   const newItem: SessionItem = {
     id: 'session_anyo_' + Date.now(),
     strikeId: routine.id,
@@ -568,6 +612,7 @@ export async function saveAnyoSession(
     score: avgScore,
     grade,
     date: dateStr,
+    isSharedWithCoach: autoShare,
     snapshotBase64: safeBestSnapshot,
     breakdown: firstStepBreakdown,
     routineId: routine.id,
@@ -599,5 +644,79 @@ export async function clearHistory(userId?: string, resetMastery: boolean = fals
     await clearAllUserStrikeMedia().catch(() => {});
   } catch (e) {
     console.error('Failed to clear history', e);
+  }
+}
+
+/**
+ * Update the sharing status of an individual session locally.
+ */
+export async function updateSessionSharing(
+  sessionId: string,
+  isShared: boolean,
+  userId?: string
+): Promise<SessionItem | null> {
+  try {
+    const key = getHistoryStorageKey(userId);
+    const history = await getHistory(userId);
+    let updatedItem: SessionItem | null = null;
+    const updated = history.map((item) => {
+      if (item.id === sessionId) {
+        updatedItem = { ...item, isSharedWithCoach: isShared };
+        return updatedItem;
+      }
+      return item;
+    });
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+    return updatedItem;
+  } catch (e) {
+    console.error('Failed to update session sharing in historyStore', e);
+    return null;
+  }
+}
+
+/**
+ * Bulk update all stored sessions to shared or private.
+ */
+export async function bulkSetSessionsSharing(
+  userId: string | undefined,
+  isShared: boolean
+): Promise<void> {
+  try {
+    const key = getHistoryStorageKey(userId);
+    const history = await getHistory(userId);
+    const updated = history.map((item) => ({
+      ...item,
+      isSharedWithCoach: isShared,
+    }));
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to bulk set sessions sharing in historyStore', e);
+  }
+}
+
+/**
+ * Attach or update the recorded video URI for a practice session locally.
+ */
+export async function updateSessionVideo(
+  sessionId: string,
+  videoUri: string,
+  userId?: string
+): Promise<SessionItem | null> {
+  try {
+    const key = getHistoryStorageKey(userId);
+    const history = await getHistory(userId);
+    let updatedItem: SessionItem | null = null;
+    const updated = history.map((item) => {
+      if (item.id === sessionId) {
+        updatedItem = { ...item, userVideoUri: videoUri };
+        return updatedItem;
+      }
+      return item;
+    });
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+    return updatedItem;
+  } catch (e) {
+    console.error('Failed to update session video in historyStore', e);
+    return null;
   }
 }

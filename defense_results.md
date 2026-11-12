@@ -9,7 +9,7 @@
 ## 1. Executive Summary & Defense Committee Key Findings
 
 1. **High Keypoint Agreement (PCK@0.20 = 98.6%):** Demonstrates that real-time mobile pose predictions align with expert AlphaPose ground-truth within the standard biomechanical tolerance window.
-2. **Superior Keypoint Similarity (OKS = 0.8928):** Substantially exceeds the academic benchmark threshold ($\ge 0.85$), proving joint localization fidelity during dynamic cutting arcs.
+2. **Superior Keypoint Similarity (OKS = 0.8928):** Substantially exceeds the academic benchmark threshold ($\\ge 0.85$), proving joint localization fidelity during dynamic cutting arcs.
 3. **Empirical Multi-Tier Calibration:** All 12 canonical Arnis strikes have been partitioned into Chamber ($P_25$ extension), Optimal Core ($P_25 - P_75$), and Acceptable Range ($P_10 - P_90$) based on 14,764 expert frames.
 
 ---

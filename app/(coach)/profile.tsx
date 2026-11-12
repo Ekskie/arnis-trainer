@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 
 import { MartialTheme } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import AppPrivacyAboutModal from '@/components/AppPrivacyAboutModal';
 
 export default function CoachProfileScreen() {
   const router = useRouter();
@@ -196,6 +197,7 @@ export default function CoachProfileScreen() {
 
   // Delete Coach Account State & 2-Step Confirmation
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [aboutModalVisible, setAboutModalVisible] = useState(false);
 
   const handleDeleteAccount = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -222,7 +224,11 @@ export default function CoachProfileScreen() {
                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                       const { error } = await deleteAccount();
                       if (error) {
-                        Alert.alert('Notice', 'Account removed from device.');
+                        Alert.alert(
+                          'Deletion Failed',
+                          error.message || 'Could not delete your coach account. Please verify your connection and try again.'
+                        );
+                        return;
                       }
                       router.replace('/(auth)/welcome' as any);
                     } catch (e: any) {
@@ -393,6 +399,19 @@ export default function CoachProfileScreen() {
             <Text style={styles.codeText}>Kalasag ng Espiritu (Protection of Spirit)</Text>
           </View>
         </View>
+
+        {/* About & Privacy Notice */}
+        <TouchableOpacity
+          style={styles.aboutBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setAboutModalVisible(true);
+          }}
+          activeOpacity={0.8}>
+          <Ionicons name="information-circle-outline" size={18} color="#374151" />
+          <Text style={styles.aboutBtnText}>About & Privacy Notice</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9CA3AF" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
 
         {/* Sign Out Button */}
         <TouchableOpacity
@@ -639,6 +658,12 @@ export default function CoachProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* About & Privacy Notice Modal */}
+      <AppPrivacyAboutModal
+        visible={aboutModalVisible}
+        onClose={() => setAboutModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -888,6 +913,23 @@ const styles = StyleSheet.create({
   },
   codeText: {
     fontSize: 13,
+    fontWeight: '700',
+    color: MartialTheme.colors.text,
+  },
+  aboutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    gap: 10,
+    marginTop: 4,
+  },
+  aboutBtnText: {
+    fontSize: 14,
     fontWeight: '700',
     color: MartialTheme.colors.text,
   },

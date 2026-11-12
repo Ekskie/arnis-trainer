@@ -6,6 +6,7 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -14,6 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
 
@@ -32,7 +35,11 @@ import {
   getStrikeMasteryStats,
   MasteryStats,
   SessionItem,
+  updateSessionSharing,
+  updateSessionVideo,
 } from '@/constants/historyStore';
+import { CloudSyncService } from '@/services/cloudSyncService';
+import CoachSharedDataModal from '@/components/CoachSharedDataModal';
 import {
   getGamificationStats,
   getSashRankByLevel,
@@ -41,22 +48,54 @@ import {
 
 import { getStrikeRule } from '@/constants/strikeRules';
 import { getCoachReference } from '@/constants/referenceStore';
+import { getCurriculumProgress, isStrikeUnlocked } from '@/constants/curriculumStore';
 import { CoachVsYou } from '@/components/comparison/CoachVsYou';
 import { ComparisonPlayer } from '@/components/comparison/ComparisonPlayer';
 
 const { width } = Dimensions.get('window');
+
+function HistoryModalVideoPlayer({ videoUri }: { videoUri: string }) {
+  const player = useVideoPlayer(videoUri, (p) => {
+    p.loop = true;
+    p.play();
+  });
+
+  React.useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [player]);
+
+  return (
+    <View style={styles.historyNativeVideoBox}>
+      <VideoView
+        player={player}
+        style={styles.historyNativeVideoView}
+        allowsFullscreen
+        allowsPictureInPicture={false}
+        contentFit="contain"
+      />
+    </View>
+  );
+}
 
 export default function ProgressHistoryScreen() {
   const router = useRouter();
   const { user, profile, signOut } = useAuth();
   const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [streakDays, setStreakDays] = useState(0);
   const [userLevel, setUserLevel] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null);
   const [whySession, setWhySession] = useState<SessionItem | null>(null);
   const [comparisonSession, setComparisonSession] = useState<SessionItem | null>(null);
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
 
   const [stats, setStats] = useState({
     avgScore: 0,
@@ -124,6 +163,12 @@ export default function ProgressHistoryScreen() {
         }
       });
 
+      getCurriculumProgress(user?.id).then((prog) => {
+        if (isMounted) {
+          setCompletedLessonIds(prog.completedLessonIds);
+        }
+      });
+
       return () => {
         isMounted = false;
       };
@@ -135,7 +180,7 @@ export default function ProgressHistoryScreen() {
   const getStarCount = (bestScore: number) => {
     if (bestScore >= 95) return 5;
     if (bestScore >= 85) return 4;
-    if (bestScore >= 70) return 3;
+    if (bestScore >= 75) return 3;
     if (bestScore >= 50) return 2;
     if (bestScore > 0) return 1;
     return 0;
@@ -144,7 +189,7 @@ export default function ProgressHistoryScreen() {
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return MartialTheme.colors.primary;
-    if (score >= 70) return MartialTheme.colors.bamboo;
+    if (score >= 75) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
 
@@ -166,7 +211,7 @@ export default function ProgressHistoryScreen() {
     if (currentFocusStrike.attempts === 0) {
       return `Start Strike ${currentFocusStrike.strikeNumber} to lock in the proper chamber and slicing angle.`;
     }
-    if (currentFocusStrike.bestScore < 70) {
+    if (currentFocusStrike.bestScore < 75) {
       return `Pin your Kalasag guard hand to your chest and keep your diagonal path consistent.`;
     }
     if (currentFocusStrike.bestScore < 85) {
@@ -336,6 +381,16 @@ export default function ProgressHistoryScreen() {
           <View style={styles.streakPill}>
             <Text style={styles.streakPillText}>🔥 {streakDays}d</Text>
           </View>
+
+          <TouchableOpacity
+            style={styles.headerPrivacyBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setPrivacyModalVisible(true);
+            }}
+            activeOpacity={0.7}>
+            <Ionicons name="shield-checkmark-outline" size={17} color="#15803D" />
+          </TouchableOpacity>
 
           {user && (
             <TouchableOpacity
@@ -519,37 +574,61 @@ export default function ProgressHistoryScreen() {
           {/* Compact 3-column game progression grid */}
           <View style={styles.masteryGrid}>
             {masteryStats.strikes.map((st) => {
-              const isFocus = st.id === currentFocusStrike?.id;
-              const isPracticed = st.attempts > 0;
-              const isMastered = st.isMastered;
+              const isUnlocked = isStrikeUnlocked(st.id, completedLessonIds);
+              const isFocus = isUnlocked && st.id === currentFocusStrike?.id;
+              const isPracticed = isUnlocked && st.attempts > 0;
+              const isMastered = isUnlocked && st.isMastered;
+
+              const handlePressNode = () => {
+                if (!isUnlocked) {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                  const prevNum = st.strikeNumber > 1 ? st.strikeNumber - 1 : 1;
+                  Alert.alert(
+                    'Strike Locked 🔒',
+                    `Complete and pass Strike ${prevNum} with at least Grade C (75%+) in the Journey first to unlock Strike ${st.strikeNumber}.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Go to Journey 🗺️',
+                        onPress: () => router.push('/explore' as any),
+                      },
+                    ]
+                  );
+                  return;
+                }
+
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/evaluate',
+                  params: { strikeId: st.id, mode: 'guided' },
+                });
+              };
 
               return (
                 <TouchableOpacity
                   key={st.id}
                   style={[
                     styles.gridNode,
+                    !isUnlocked && styles.gridNodeLocked,
                     isFocus && styles.gridNodeFocus,
                     isMastered && styles.gridNodeMastered,
                   ]}
                   activeOpacity={0.75}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push({
-                      pathname: '/evaluate',
-                      params: { strikeId: st.id, mode: 'guided' },
-                    });
-                  }}
+                  onPress={handlePressNode}
                 >
                   {/* Status Circle Badge */}
                   <View
                     style={[
                       styles.nodeCircle,
+                      !isUnlocked && styles.nodeCircleLocked,
                       isMastered && styles.nodeCircleMastered,
                       !isMastered && isPracticed && styles.nodeCirclePracticed,
                       isFocus && styles.nodeCircleFocus,
                     ]}
                   >
-                    {isMastered ? (
+                    {!isUnlocked ? (
+                      <Ionicons name="lock-closed" size={15} color="#9CA3AF" />
+                    ) : isMastered ? (
                       <Ionicons name="checkmark" size={18} color="#FFFFFF" />
                     ) : isPracticed ? (
                       <Ionicons name="star" size={16} color={MartialTheme.colors.bambooDark} />
@@ -558,7 +637,7 @@ export default function ProgressHistoryScreen() {
                     )}
                   </View>
 
-                  <Text style={styles.nodeTitle} numberOfLines={1}>
+                  <Text style={[styles.nodeTitle, !isUnlocked && styles.nodeTitleLocked]} numberOfLines={1}>
                     Strike {st.strikeNumber}
                   </Text>
                   <Text style={styles.nodeTarget} numberOfLines={1}>
@@ -566,7 +645,9 @@ export default function ProgressHistoryScreen() {
                   </Text>
 
                   {/* Score or Status indicator */}
-                  {isMastered ? (
+                  {!isUnlocked ? (
+                    <Text style={styles.nodeScoreLocked}>Locked 🔒</Text>
+                  ) : isMastered ? (
                     <Text style={styles.nodeScoreMastered}>Mastered ✓</Text>
                   ) : isPracticed ? (
                     <Text style={styles.nodeScorePracticed}>{st.bestScore}%</Text>
@@ -811,6 +892,17 @@ export default function ProgressHistoryScreen() {
                             {delta !== null && delta > 0 && (
                               <Text style={styles.sessionDeltaPositive}>↑ +{delta}</Text>
                             )}
+                            {item.isSharedWithCoach ? (
+                              <View style={styles.sessionSharedBadge}>
+                                <Ionicons name="eye" size={9} color="#15803D" />
+                                <Text style={styles.sessionSharedBadgeText}>Shared</Text>
+                              </View>
+                            ) : (
+                              <View style={styles.sessionPrivateBadge}>
+                                <Ionicons name="lock-closed" size={8} color="#64748B" />
+                                <Text style={styles.sessionPrivateBadgeText}>Private</Text>
+                              </View>
+                            )}
                           </View>
                         </View>
 
@@ -1022,6 +1114,50 @@ export default function ProgressHistoryScreen() {
                 </View>
               </View>
 
+              {/* Coach Sharing Instant Control Bar */}
+              {selectedSession && (
+                <View style={styles.modalSharingBar}>
+                  <View
+                    style={[
+                      styles.modalSharingIconBox,
+                      { backgroundColor: selectedSession.isSharedWithCoach ? '#DCFCE7' : '#F1F5F9' },
+                    ]}>
+                    <Ionicons
+                      name={selectedSession.isSharedWithCoach ? 'shield-checkmark' : 'lock-closed'}
+                      size={18}
+                      color={selectedSession.isSharedWithCoach ? '#15803D' : '#64748B'}
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginHorizontal: 10 }}>
+                    <Text style={styles.modalSharingTitle}>
+                      {selectedSession.isSharedWithCoach ? 'Shared with Guro Coach' : 'Private to Your Device'}
+                    </Text>
+                    <Text style={styles.modalSharingSub}>
+                      {selectedSession.isSharedWithCoach
+                        ? 'Coach can review your video & posture angles'
+                        : 'Hidden from coach review'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={Boolean(selectedSession.isSharedWithCoach)}
+                    onValueChange={async (newVal) => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      const sId = selectedSession.id;
+                      setSelectedSession({ ...selectedSession, isSharedWithCoach: newVal });
+                      setHistoryList((prev) =>
+                        prev.map((item) => (item.id === sId ? { ...item, isSharedWithCoach: newVal } : item))
+                      );
+                      await updateSessionSharing(sId, newVal, user?.id);
+                      if (user?.id) {
+                        await CloudSyncService.updateSessionSharing(user.id, sId, newVal, selectedSession);
+                      }
+                    }}
+                    trackColor={{ false: '#E2E8F0', true: '#86EFAC' }}
+                    thumbColor={selectedSession.isSharedWithCoach ? '#15803D' : '#94A3B8'}
+                  />
+                </View>
+              )}
+
               {/* Coach vs You Posture & Video Comparison for Strike Sessions */}
               {selectedSession && !selectedSession.routineId && (
                 <CoachVsYou
@@ -1051,37 +1187,96 @@ export default function ProgressHistoryScreen() {
                 />
               )}
 
-              {/* Video Replay if available (for Anyo routines or standalone) */}
-              {selectedSession?.routineId && selectedSession?.replayVideoBase64 && (
+              {/* Video Replay or Screen Recording Attachment */}
+              {selectedSession && (selectedSession.userVideoUri || selectedSession.replayVideoBase64) ? (
                 <View style={styles.videoReplayContainer}>
-                  <Text style={styles.videoReplayHeading}>SESSION MOTION REPLAY</Text>
-                  <View style={styles.videoWrapper}>
-                    <WebView
-                      originWhitelist={['*']}
-                      source={{
-                        html: `
-                          <!DOCTYPE html>
-                          <html>
-                            <head>
-                              <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                              <style>body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; } video { width: 100%; height: 100%; object-fit: contain; }</style>
-                            </head>
-                            <body><video src="${selectedSession.replayVideoBase64}" autoplay loop muted playsinline controls></video></body>
-                          </html>
-                        `,
+                  <View style={styles.modalVideoHeadingRow}>
+                    <Text style={styles.videoReplayHeading}>SESSION MOTION REPLAY</Text>
+                    <TouchableOpacity
+                      style={styles.modalChangeVideoBtn}
+                      onPress={async () => {
+                        const currentSession = selectedSession;
+                        if (!currentSession) return;
+                        try {
+                          const res = await ImagePicker.launchImageLibraryAsync({
+                            mediaTypes: ['videos'],
+                            allowsEditing: false,
+                            quality: 1,
+                          });
+                          if (!res.canceled && res.assets && res.assets[0]?.uri) {
+                            const newUri = res.assets[0].uri;
+                            await updateSessionVideo(currentSession.id, newUri, user?.id);
+                            setSelectedSession({ ...currentSession, userVideoUri: newUri });
+                            setHistoryList((prev) =>
+                              prev.map((s) => (s.id === currentSession.id ? { ...s, userVideoUri: newUri } : s))
+                            );
+                            if (currentSession.isSharedWithCoach && user?.id) {
+                              await CloudSyncService.updateSessionSharing(user.id, currentSession.id, true, {
+                                ...currentSession,
+                                userVideoUri: newUri,
+                              });
+                            }
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          }
+                        } catch (err) {
+                          console.warn('Error replacing video:', err);
+                        }
                       }}
-                      style={{ flex: 1 }}
-                    />
+                      activeOpacity={0.75}>
+                      <Ionicons name="swap-horizontal" size={12} color="#2563EB" />
+                      <Text style={styles.modalChangeVideoBtnText}>Change Video</Text>
+                    </TouchableOpacity>
                   </View>
+                  <HistoryModalVideoPlayer
+                    videoUri={selectedSession.userVideoUri || selectedSession.replayVideoBase64!}
+                  />
                 </View>
-              )}
+              ) : (
+                <>
+                  {/* Snapshot if available */}
+                  {selectedSession?.snapshotBase64 && (
+                    <View style={styles.videoReplayContainer}>
+                      <Text style={styles.videoReplayHeading}>IMPACT ZONE SNAPSHOT</Text>
+                      <Image source={{ uri: selectedSession.snapshotBase64 }} style={styles.snapshotImg} resizeMode="contain" />
+                    </View>
+                  )}
 
-              {/* Snapshot if available for Anyo routines */}
-              {selectedSession?.routineId && selectedSession?.snapshotBase64 && !selectedSession?.replayVideoBase64 && (
-                <View style={styles.videoReplayContainer}>
-                  <Text style={styles.videoReplayHeading}>IMPACT ZONE SNAPSHOT</Text>
-                  <Image source={{ uri: selectedSession.snapshotBase64 }} style={styles.snapshotImg} resizeMode="contain" />
-                </View>
+                  {/* Attach Video Button */}
+                  <TouchableOpacity
+                    style={styles.modalAttachVideoBtn}
+                    onPress={async () => {
+                      const currentSession = selectedSession;
+                      if (!currentSession) return;
+                      try {
+                        const res = await ImagePicker.launchImageLibraryAsync({
+                          mediaTypes: ['videos'],
+                          allowsEditing: false,
+                          quality: 1,
+                        });
+                        if (!res.canceled && res.assets && res.assets[0]?.uri) {
+                          const newUri = res.assets[0].uri;
+                          await updateSessionVideo(currentSession.id, newUri, user?.id);
+                          setSelectedSession({ ...currentSession, userVideoUri: newUri });
+                          setHistoryList((prev) =>
+                            prev.map((s) => (s.id === currentSession.id ? { ...s, userVideoUri: newUri } : s))
+                          );
+                          if (currentSession.isSharedWithCoach && user?.id) {
+                            await CloudSyncService.updateSessionSharing(user.id, currentSession.id, true, {
+                              ...currentSession,
+                              userVideoUri: newUri,
+                            });
+                          }
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }
+                      } catch (err) {
+                        console.warn('Error attaching video:', err);
+                      }
+                    }}
+                    activeOpacity={0.8}>
+                    <Ionicons name="videocam-outline" size={16} color={MartialTheme.colors.primary} />
+                    <Text style={styles.modalAttachVideoBtnText}>Attach Screen Recording / Video</Text>
+                  </TouchableOpacity>
+                </>
               )}
 
               {/* Why button */}
@@ -1149,10 +1344,22 @@ export default function ProgressHistoryScreen() {
           strikeRule={getStrikeRule(comparisonSession.strikeId)}
           coachReference={getCoachReference(comparisonSession.strikeId)}
           userVideoUri={comparisonSession.userVideoUri || comparisonSession.replayVideoBase64}
+          userSnapshotUri={comparisonSession.userImpactSnapshotUri || comparisonSession.snapshotBase64}
           userImpactTime={comparisonSession.impactTime ?? 1.45}
           coachImpactTime={comparisonSession.coachImpactTime ?? getCoachReference(comparisonSession.strikeId).impactTime}
         />
       )}
+      {/* Coach Shared Data & Privacy Modal */}
+      <CoachSharedDataModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        onSessionsUpdated={async () => {
+          const items = await getHistory(user?.id);
+          setHistoryList(items);
+          const masteryMap = await getStoredStrikeMasteryMap(user?.id);
+          setMasteryStats(getStrikeMasteryStats(items, masteryMap));
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1487,6 +1694,12 @@ const styles = StyleSheet.create({
     borderColor: MartialTheme.colors.primary,
     backgroundColor: '#F0FDF4',
   },
+  gridNodeLocked: {
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
+    borderBottomColor: '#D1D5DB',
+    opacity: 0.65,
+  },
   nodeCircle: {
     width: 34,
     height: 34,
@@ -1497,6 +1710,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
+  },
+  nodeCircleLocked: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
   },
   nodeCircleMastered: {
     backgroundColor: MartialTheme.colors.primary,
@@ -1520,12 +1737,21 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.text,
     textAlign: 'center',
   },
+  nodeTitleLocked: {
+    color: '#9CA3AF',
+  },
   nodeTarget: {
     fontSize: 9.5,
     color: MartialTheme.colors.textMuted,
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 1,
+  },
+  nodeScoreLocked: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    marginTop: 4,
   },
   nodeScoreMastered: {
     fontSize: 10,
@@ -1960,5 +2186,118 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#FECACA',
+  },
+  headerPrivacyBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  sessionSharedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  sessionSharedBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  sessionPrivateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  sessionPrivateBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  modalSharingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalSharingIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSharingTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  modalSharingSub: {
+    fontSize: 10.5,
+    color: MartialTheme.colors.textSecondary,
+    marginTop: 1,
+  },
+  historyNativeVideoBox: {
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  historyNativeVideoView: {
+    width: '100%',
+    height: '100%',
+  },
+  modalVideoHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  modalChangeVideoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+  },
+  modalChangeVideoBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  modalAttachVideoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#BBF7D0',
+    marginTop: 10,
+  },
+  modalAttachVideoBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#15803D',
   },
 });

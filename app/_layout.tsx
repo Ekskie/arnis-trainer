@@ -1,14 +1,52 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { Stack, type ErrorBoundaryProps, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { MartialTheme } from '@/constants/theme';
+
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: MartialTheme.colors.background,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 28,
+        gap: 14,
+      }}>
+      <Text style={{ fontSize: 22, fontWeight: '900', color: MartialTheme.colors.text, textAlign: 'center' }}>
+        Something Went Wrong
+      </Text>
+      <Text
+        style={{
+          fontSize: 14,
+          color: MartialTheme.colors.textSecondary,
+          textAlign: 'center',
+          lineHeight: 20,
+        }}>
+        {error?.message || 'An unexpected error interrupted this screen. Tap Try Again to recover.'}
+      </Text>
+      <TouchableOpacity
+        onPress={retry}
+        style={{
+          backgroundColor: MartialTheme.colors.primary,
+          paddingHorizontal: 22,
+          paddingVertical: 12,
+          borderRadius: 12,
+          marginTop: 6,
+        }}
+        activeOpacity={0.85}>
+        <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>Try Again</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',

@@ -314,7 +314,7 @@ export default function LearnCurriculumScreen() {
         )}
       </ScrollView>
 
-      {/* Prerequisite & Test-Out Challenge Sheet */}
+      {/* Prerequisite & Guidance Sheet */}
       <JourneyPrerequisiteSheet
         visible={showPrereqSheet}
         onClose={() => setShowPrereqSheet(false)}
@@ -323,6 +323,12 @@ export default function LearnCurriculumScreen() {
         stageLevel={currentStage.levelNumber}
         prerequisiteNames={prerequisiteNames}
         onStartTestOut={handleStartTestOut}
+        onGoToCurrentLesson={() => {
+          setShowPrereqSheet(false);
+          if (curriculumProgress.currentLessonId) {
+            router.push(`/lesson/${curriculumProgress.currentLessonId}` as any);
+          }
+        }}
       />
     </SafeAreaView>
   );

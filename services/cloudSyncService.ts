@@ -68,6 +68,136 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Extract the storage object key from a Supabase Storage URL (public/sign) or raw path.
+ */
+function extractStoragePath(bucket: string, storedValue: string): string | null {
+  if (!storedValue) return null;
+  if (storedValue.startsWith('data:')) return null;
+
+  const marker = `/storage/v1/object/`;
+  const idx = storedValue.indexOf(marker);
+  if (idx !== -1) {
+    const rest = storedValue.slice(idx + marker.length).split('?')[0];
+    // rest is e.g. "public/snapshots/uid/file.jpg" or "sign/snapshots/uid/file.jpg" or "snapshots/uid/file.jpg"
+    const segments = rest.split('/');
+    const bucketIdx = segments.indexOf(bucket);
+    if (bucketIdx !== -1 && bucketIdx + 1 < segments.length) {
+      return decodeURIComponent(segments.slice(bucketIdx + 1).join('/'));
+    }
+  }
+
+  if (!storedValue.startsWith('http://') && !storedValue.startsWith('https://')) {
+    return storedValue.replace(/^\/+/, '');
+  }
+  return null;
+}
+
+/**
+ * Resolve a private bucket URL or object path into a fresh signed URL for authenticated viewing.
+ */
+async function resolvePrivateStorageUrl(
+  bucket: 'snapshots' | 'practice-videos',
+  storedValue?: string | null
+): Promise<string | null> {
+  if (!storedValue) return null;
+  const path = extractStoragePath(bucket, storedValue);
+  if (!path) return storedValue;
+
+  try {
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, 60 * 60 * 24);
+    if (!error && data?.signedUrl) {
+      return data.signedUrl;
+    }
+  } catch (e) {
+    console.warn(`[CloudSync] Could not sign URL in ${bucket}:`, e);
+  }
+  return storedValue;
+}
+
+/**
+ * Upload video safely to Supabase Storage with memory-safe binary/blob streaming
+ * and 365-day signed URL generation for coach reviews.
+ */
+async function uploadVideoToStorage(
+  userId: string,
+  sessionId: string,
+  videoSource: string
+): Promise<string | null> {
+  const isWebm = videoSource.startsWith('data:video/webm') || /\.webm(\?|$)/i.test(videoSource);
+  const ext = isWebm ? 'webm' : 'mp4';
+  const contentType = isWebm ? 'video/webm' : 'video/mp4';
+  const videoPath = `${userId}/${sessionId}_video.${ext}`;
+  try {
+    let uploadSuccess = false;
+
+    // Strategy A: Native fetch -> blob (zero base64 allocation, streamable, fast)
+    if (
+      videoSource.startsWith('file://') ||
+      videoSource.startsWith('content://') ||
+      videoSource.startsWith('ph://') ||
+      videoSource.startsWith('/')
+    ) {
+      try {
+        const response = await fetch(videoSource);
+        const blob = await response.blob();
+        const { error: blobErr } = await supabase.storage
+          .from('practice-videos')
+          .upload(videoPath, blob, {
+            contentType,
+            upsert: true,
+          });
+
+        if (!blobErr) {
+          uploadSuccess = true;
+        } else {
+          console.warn('[CloudSync] Blob upload error, attempting fallback:', blobErr);
+        }
+      } catch (blobFetchErr) {
+        console.warn('[CloudSync] Fetch to blob failed, trying base64 fallback:', blobFetchErr);
+      }
+    }
+
+    // Strategy B: Fallback to base64 read if Strategy A did not succeed
+    if (!uploadSuccess) {
+      let videoBytes: Uint8Array | null = null;
+      if (videoSource.startsWith('data:video')) {
+        videoBytes = base64ToUint8Array(videoSource);
+      } else {
+        const base64Video = await FileSystem.readAsStringAsync(videoSource, {
+          encoding: 'base64',
+        });
+        videoBytes = base64ToUint8Array(base64Video);
+      }
+
+      if (videoBytes) {
+        const { error: uploadErr } = await supabase.storage
+          .from('practice-videos')
+          .upload(videoPath, videoBytes, {
+            contentType,
+            upsert: true,
+          });
+        if (!uploadErr) {
+          uploadSuccess = true;
+        } else {
+          console.error('[CloudSync] Fallback upload failed:', uploadErr);
+        }
+      }
+    }
+
+    if (uploadSuccess) {
+      // Store canonical storage path (resolved via signed URL when viewed)
+      return videoPath;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[CloudSync] Failed to upload video to storage:', err);
+    return null;
+  }
+}
+
 export const CloudSyncService = {
   /**
    * Sync a practice session to Supabase.
@@ -115,10 +245,10 @@ export const CloudSyncService = {
               });
 
             if (!uploadErr && uploadData) {
-              const { data: publicData } = supabase.storage
-                .from('snapshots')
-                .getPublicUrl(snapshotPath);
-              snapshotUrl = publicData.publicUrl;
+              // Store object path; coach and student views resolve short-lived signed URLs from private bucket
+              snapshotUrl = snapshotPath;
+            } else if (uploadErr) {
+              console.warn('[CloudSync] Snapshot upload failed:', uploadErr.message);
             }
           }
         } catch (e) {
@@ -130,38 +260,7 @@ export const CloudSyncService = {
       if (shareVideoWithCoach) {
         const videoSource = session.userVideoUri || session.replayVideoBase64;
         if (videoSource) {
-          try {
-            let videoBytes: Uint8Array | null = null;
-            if (videoSource.startsWith('file://') || videoSource.startsWith('/')) {
-              const base64Video = await FileSystem.readAsStringAsync(videoSource, {
-                encoding: 'base64',
-              });
-              videoBytes = base64ToUint8Array(base64Video);
-            } else if (session.replayVideoBase64) {
-              videoBytes = base64ToUint8Array(session.replayVideoBase64);
-            }
-
-            if (videoBytes) {
-              const videoPath = `${userId}/${session.id}_video.mp4`;
-              const { error: videoUploadErr } = await supabase.storage
-                .from('practice-videos')
-                .upload(videoPath, videoBytes, {
-                  contentType: 'video/mp4',
-                  upsert: true,
-                });
-
-              if (!videoUploadErr) {
-                // Get signed URL for authenticated coach access
-                const { data: signedData } = await supabase.storage
-                  .from('practice-videos')
-                  .createSignedUrl(videoPath, 60 * 60 * 24 * 7); // 7-day signed URL
-
-                videoUrl = signedData?.signedUrl || videoPath;
-              }
-            }
-          } catch (e) {
-            console.warn('[CloudSync] Video upload error:', e);
-          }
+          videoUrl = await uploadVideoToStorage(userId, session.id, videoSource);
         }
       }
 
@@ -197,6 +296,97 @@ export const CloudSyncService = {
   },
 
   /**
+   * Update the coach sharing status for a single practice session in Supabase.
+   * If toggled ON and video hasn't been uploaded yet, uploads the local video first.
+   */
+  async updateSessionSharing(
+    userId: string,
+    sessionId: string,
+    isShared: boolean,
+    session?: SessionItem
+  ): Promise<{ error: Error | null; videoUrl?: string }> {
+    if (!isSupabaseConfigured) {
+      return { error: null };
+    }
+
+    try {
+      let videoUrl: string | undefined = undefined;
+
+      // If turning ON and session is provided, verify whether video needs uploading
+      if (isShared && session) {
+        const { data: existing } = await supabase
+          .from('practice_sessions')
+          .select('id, video_url')
+          .eq('id', sessionId)
+          .single();
+
+        if (existing?.video_url) {
+          videoUrl = existing.video_url;
+        } else {
+          const videoSource = session.userVideoUri || session.replayVideoBase64;
+          if (videoSource) {
+            videoUrl = await uploadVideoToStorage(userId, sessionId, videoSource) || undefined;
+          }
+        }
+      }
+
+      // Update the DB row
+      const updatePayload: Record<string, any> = {
+        is_shared_with_coach: isShared,
+      };
+      if (videoUrl) {
+        updatePayload.video_url = videoUrl;
+      }
+
+      const { error: updateErr } = await supabase
+        .from('practice_sessions')
+        .update(updatePayload)
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+
+      if (updateErr) {
+        // If session was never synced to cloud, perform a full sync
+        if (session) {
+          return await this.syncPracticeSession(userId, session, isShared);
+        }
+        return { error: new Error(updateErr.message) };
+      }
+
+      return { error: null, videoUrl };
+    } catch (err: any) {
+      console.error('[CloudSync] Error updating session sharing:', err);
+      return { error: err };
+    }
+  },
+
+  /**
+   * Bulk update all practice sessions sharing status for a student in Supabase.
+   */
+  async bulkUpdateSharing(
+    userId: string,
+    isShared: boolean
+  ): Promise<{ error: Error | null }> {
+    if (!isSupabaseConfigured) {
+      return { error: null };
+    }
+
+    try {
+      const { error } = await supabase
+        .from('practice_sessions')
+        .update({ is_shared_with_coach: isShared })
+        .eq('user_id', userId);
+
+      if (error) {
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
+    } catch (err: any) {
+      console.error('[CloudSync] Error during bulk sharing update:', err);
+      return { error: err };
+    }
+  },
+
+  /**
    * Sync a completed curriculum lesson to Supabase
    */
   async syncCurriculumProgress(
@@ -205,11 +395,13 @@ export const CloudSyncService = {
     status: string,
     score: number = 0,
     quizPassed: boolean = false
-  ): Promise<void> {
-    if (!isSupabaseConfigured) return;
+  ): Promise<{ error: Error | null }> {
+    if (!isSupabaseConfigured || !isUUID(userId)) {
+      return { error: null };
+    }
 
     try {
-      await supabase.from('curriculum_progress').upsert(
+      const { error } = await supabase.from('curriculum_progress').upsert(
         {
           user_id: userId,
           lesson_id: lessonId,
@@ -221,8 +413,14 @@ export const CloudSyncService = {
         },
         { onConflict: 'user_id,lesson_id' }
       );
-    } catch (e) {
+      if (error) {
+        console.warn('[CloudSync] Failed to sync curriculum progress:', error.message);
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
+    } catch (e: any) {
       console.warn('[CloudSync] Failed to sync curriculum progress:', e);
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 
@@ -233,50 +431,14 @@ export const CloudSyncService = {
     profile: UserProfile | null;
     sessions: CloudPracticeSession[];
     curriculum: CloudCurriculumItem[];
+    error?: string | null;
   }> {
     if (!isSupabaseConfigured || !isUUID(studentId)) {
       return {
-        profile: {
-          id: studentId,
-          role: 'student',
-          display_name: 'Demo Student (Offline)',
-          email: 'student@arnis.local',
-          rank_sash: 'Green Sash',
-          bio: 'Training in Laguna Arnis branch',
-        },
-        sessions: [
-          {
-            id: 'mock_s1',
-            user_id: studentId,
-            strike_id: 'strike_1',
-            strike_name: 'Left Temple Strike',
-            score: 88,
-            grade: 'A',
-            date: new Date().toLocaleDateString(),
-            breakdown: {
-              elbow: { score: 90, actual: 45, ideal: 45 },
-              shoulder: { score: 85, actual: 60, ideal: 55 },
-              wrist: { score: 92, actual: 30, ideal: 30 },
-            },
-            is_shared_with_coach: true,
-          },
-        ],
-        curriculum: [
-          {
-            user_id: studentId,
-            lesson_id: 'les_0_1',
-            status: 'mastered',
-            score: 95,
-            quiz_passed: true,
-          },
-          {
-            user_id: studentId,
-            lesson_id: 'les_0_2',
-            status: 'mastered',
-            score: 90,
-            quiz_passed: true,
-          },
-        ],
+        profile: null,
+        sessions: [],
+        curriculum: [],
+        error: 'Invalid or unconfigured student record.',
       };
     }
 
@@ -291,14 +453,37 @@ export const CloudSyncService = {
         supabase.from('curriculum_progress').select('*').eq('user_id', studentId),
       ]);
 
+      const firstError =
+        profileRes.error?.message ||
+        sessionsRes.error?.message ||
+        curriculumRes.error?.message ||
+        null;
+
+      const rawSessions = (sessionsRes.data || []) as CloudPracticeSession[];
+      const resolvedSessions = await Promise.all(
+        rawSessions.map(async (s) => ({
+          ...s,
+          snapshot_url: await resolvePrivateStorageUrl('snapshots', s.snapshot_url),
+          video_url: s.is_shared_with_coach
+            ? await resolvePrivateStorageUrl('practice-videos', s.video_url)
+            : null,
+        }))
+      );
+
       return {
-        profile: profileRes.data as UserProfile,
-        sessions: (sessionsRes.data || []) as CloudPracticeSession[],
+        profile: (profileRes.data as UserProfile) || null,
+        sessions: resolvedSessions,
         curriculum: (curriculumRes.data || []) as CloudCurriculumItem[],
+        error: firstError,
       };
-    } catch (e) {
+    } catch (e: any) {
       console.error('[CloudSync] Error fetching student data for coach:', e);
-      return { profile: null, sessions: [], curriculum: [] };
+      return {
+        profile: null,
+        sessions: [],
+        curriculum: [],
+        error: e?.message || 'Unable to fetch student data.',
+      };
     }
   },
 };

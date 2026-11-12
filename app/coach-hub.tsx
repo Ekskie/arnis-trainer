@@ -18,6 +18,8 @@ import { MartialTheme, createShadow } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { MentorshipRequest, MentorshipService } from '@/services/mentorshipService';
+import { getHistory } from '@/constants/historyStore';
+import CoachSharedDataModal from '@/components/CoachSharedDataModal';
 
 export default function CoachHubScreen() {
   const router = useRouter();
@@ -34,11 +36,25 @@ export default function CoachHubScreen() {
 
   const [loading, setLoading] = useState(true);
   const [mentorship, setMentorship] = useState<MentorshipRequest | null>(null);
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [sharedVideosCount, setSharedVideosCount] = useState<number>(0);
+  const [totalVideosCount, setTotalVideosCount] = useState<number>(0);
+
+  const loadSharingStats = useCallback(async () => {
+    try {
+      const items = await getHistory(user?.id);
+      setTotalVideosCount(items.length);
+      setSharedVideosCount(items.filter((s) => s.isSharedWithCoach).length);
+    } catch (e) {
+      console.warn('[CoachHub] Failed to load sharing stats:', e);
+    }
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       if (!user) {
         setLoading(false);
+        loadSharingStats();
         return;
       }
 
@@ -47,8 +63,9 @@ export default function CoachHubScreen() {
         .catch((err) => console.warn('[CoachHub] Failed to fetch mentorship:', err))
         .finally(() => setLoading(false));
 
+      loadSharingStats();
       refreshUnreadCount().catch(() => {});
-    }, [user, refreshUnreadCount])
+    }, [user, refreshUnreadCount, loadSharingStats])
   );
 
   const handleOpenDirectChat = () => {
@@ -81,9 +98,13 @@ export default function CoachHubScreen() {
           style: 'destructive',
           onPress: async () => {
             setLoading(true);
-            await MentorshipService.endMentorship(mentorship.id);
-            setMentorship(null);
+            const res = await MentorshipService.endMentorship(mentorship.id);
             setLoading(false);
+            if (res.error) {
+              Alert.alert('Could Not Leave Coach', res.error.message || 'Please try again.');
+              return;
+            }
+            setMentorship(null);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             Alert.alert('Mentorship Ended', 'You can now browse and connect with a new coach.');
           },
@@ -104,9 +125,13 @@ export default function CoachHubScreen() {
           style: 'destructive',
           onPress: async () => {
             setLoading(true);
-            await MentorshipService.cancelMentorshipRequest(mentorship.id);
-            setMentorship(null);
+            const res = await MentorshipService.cancelMentorshipRequest(mentorship.id);
             setLoading(false);
+            if (res.error) {
+              Alert.alert('Could Not Cancel Request', res.error.message || 'Please try again.');
+              return;
+            }
+            setMentorship(null);
           },
         },
       ]
@@ -221,6 +246,33 @@ export default function CoachHubScreen() {
               </View>
             </View>
 
+            {/* Coach Shared Data & Privacy Control */}
+            <TouchableOpacity
+              style={styles.privacyCard}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setPrivacyModalVisible(true);
+              }}
+              activeOpacity={0.8}>
+              <View style={styles.privacyCardIcon}>
+                <Ionicons name="shield-checkmark" size={20} color="#15803D" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.privacyCardTitle}>Coach Shared Data & Privacy</Text>
+                <Text style={styles.privacyCardDesc}>
+                  {sharedVideosCount > 0
+                    ? `${sharedVideosCount} of ${totalVideosCount} practice recordings shared`
+                    : 'All recordings kept private to your device'}
+                </Text>
+              </View>
+              <View style={styles.privacyBadge}>
+                <Text style={styles.privacyBadgeText}>
+                  {sharedVideosCount > 0 ? `${sharedVideosCount} Shared` : 'Private'}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color="#6B7280" />
+              </View>
+            </TouchableOpacity>
+
             {/* Primary Action Button */}
             <TouchableOpacity
               style={styles.messageCoachBtn}
@@ -323,9 +375,28 @@ export default function CoachHubScreen() {
               <Text style={styles.findCoachBtnText}>Find a Certified Guro</Text>
               <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
             </TouchableOpacity>
+
+            {/* Privacy settings shortcut */}
+            <TouchableOpacity
+              style={styles.emptyPrivacyBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setPrivacyModalVisible(true);
+              }}
+              activeOpacity={0.75}>
+              <Ionicons name="shield-checkmark-outline" size={15} color="#4B5563" />
+              <Text style={styles.emptyPrivacyBtnText}>Manage Shared Data & Privacy</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+
+      {/* Coach Shared Data & Privacy Modal */}
+      <CoachSharedDataModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        onSessionsUpdated={loadSharingStats}
+      />
     </SafeAreaView>
   );
 }
@@ -653,5 +724,56 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#DC2626',
+  },
+  privacyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 10,
+  },
+  privacyCardIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  privacyCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
+  },
+  privacyCardDesc: {
+    fontSize: 11,
+    color: MartialTheme.colors.textSecondary,
+    marginTop: 1,
+  },
+  privacyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  privacyBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: MartialTheme.colors.primary,
+  },
+  emptyPrivacyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    width: '100%',
+  },
+  emptyPrivacyBtnText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#4B5563',
   },
 });

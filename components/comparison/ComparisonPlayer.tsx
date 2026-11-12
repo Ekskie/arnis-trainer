@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -44,6 +44,7 @@ export function ComparisonPlayer({
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [effectiveUserVideo, setEffectiveUserVideo] = useState<string | null>(userVideoUri || null);
+  const [isUserVideoFlipped, setIsUserVideoFlipped] = useState(false);
   const [currentTimeProgress, setCurrentTimeProgress] = useState(0.4); // 0.0 to 1.0 progress for scrub slider
   const [scrubTrackWidth, setScrubTrackWidth] = useState<number>(0);
   const totalVideoDuration = 3.5; // Canonical duration estimate
@@ -133,6 +134,20 @@ export function ComparisonPlayer({
     return () => clearInterval(interval);
   }, [visible, isPlaying, coachPlayer]);
 
+  const syncWebViewFlip = useCallback((flipped: boolean) => {
+    userWebRef.current?.injectJavaScript(`
+      (function() {
+        var v = document.getElementById('userVid') || document.querySelector('video');
+        if (v) { v.style.transform = '${flipped ? 'scaleX(-1)' : 'none'}'; }
+      })();
+      true;
+    `);
+  }, []);
+
+  useEffect(() => {
+    syncWebViewFlip(isUserVideoFlipped);
+  }, [isUserVideoFlipped, syncWebViewFlip]);
+
   // Pause when dismissed; resume when opened
   useEffect(() => {
     if (!visible) {
@@ -152,6 +167,7 @@ export function ComparisonPlayer({
         true;
       `);
       setIsPlaying(false);
+      setIsUserVideoFlipped(false);
     } else {
       if (coachPlayer) {
         try {
@@ -183,6 +199,14 @@ export function ComparisonPlayer({
       }
     };
   }, [visible, coachPlayer, userPlayer]);
+
+  // Toggle horizontal mirror flip on user video/snapshot pane
+  const toggleUserFlip = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setIsUserVideoFlipped((prev) => !prev);
+  };
 
   // Synchronized Play / Pause
   const togglePlayPause = () => {
@@ -408,15 +432,43 @@ export function ComparisonPlayer({
               <View style={styles.playerTagUser}>
                 <Text style={styles.playerTagUserText}>YOUR TECHNIQUE</Text>
               </View>
-              <Text style={styles.playerImpactPill}>
-                {effectiveUserVideo ? `Impact @ ${userImpactTime.toFixed(2)}s` : 'Apex Snapshot'}
-              </Text>
+              <View style={styles.playerHeaderRight}>
+                {(effectiveUserVideo || userSnapshotUri) && (
+                  <TouchableOpacity
+                    onPress={toggleUserFlip}
+                    style={[
+                      styles.flipToggleBtn,
+                      isUserVideoFlipped && styles.flipToggleBtnActive,
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name="flip-horizontal"
+                      size={13}
+                      color={isUserVideoFlipped ? '#1E40AF' : MartialTheme.colors.textSecondary}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={[
+                        styles.flipToggleText,
+                        isUserVideoFlipped && styles.flipToggleTextActive,
+                      ]}
+                    >
+                      {isUserVideoFlipped ? 'Flipped' : 'Flip View'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <Text style={styles.playerImpactPill}>
+                  {effectiveUserVideo ? `Impact @ ${userImpactTime.toFixed(2)}s` : 'Apex Snapshot'}
+                </Text>
+              </View>
             </View>
             <View style={styles.videoWrapper}>
               {userVideoSource ? (
                 <VideoView
                   player={userPlayer}
-                  style={{ width: '100%', height: '100%' }}
+                  style={[styles.userVideoView, isUserVideoFlipped && styles.flippedMedia]}
+                  surfaceType="textureView"
                   contentFit="contain"
                   allowsPictureInPicture={false}
                 />
@@ -428,12 +480,13 @@ export function ComparisonPlayer({
                   style={{ flex: 1 }}
                   allowsInlineMediaPlayback={true}
                   mediaPlaybackRequiresUserAction={false}
+                  onLoadEnd={() => syncWebViewFlip(isUserVideoFlipped)}
                 />
               ) : userSnapshotUri ? (
                 <View style={styles.snapshotFallbackWrapper}>
                   <Image
                     source={{ uri: userSnapshotUri }}
-                    style={styles.snapshotFallbackImage}
+                    style={[styles.snapshotFallbackImage, isUserVideoFlipped && styles.flippedMedia]}
                     resizeMode="contain"
                   />
                   <View style={styles.snapshotFallbackTag}>
@@ -681,9 +734,43 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
   },
+  playerHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  flipToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+  },
+  flipToggleBtnActive: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#93C5FD',
+  },
+  flipToggleText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: MartialTheme.colors.textSecondary,
+  },
+  flipToggleTextActive: {
+    color: '#1E40AF',
+  },
   videoWrapper: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  userVideoView: {
+    width: '100%',
+    height: '100%',
+  },
+  flippedMedia: {
+    transform: [{ scaleX: -1 }],
   },
   snapshotFallbackWrapper: {
     flex: 1,

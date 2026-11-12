@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -20,7 +21,7 @@ import { UserRole } from '@/services/supabase';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { signUp } = useAuth();
+  const { signUp, resendConfirmationEmail } = useAuth();
 
   const [role, setRole] = useState<UserRole>('student');
   const [displayName, setDisplayName] = useState('');
@@ -31,6 +32,8 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
   const handleRegister = async () => {
     if (!displayName.trim()) {
@@ -54,7 +57,7 @@ export default function RegisterScreen() {
     setErrorMessage(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const { error } = await signUp(
+    const { error, needsEmailConfirmation } = await signUp(
       email,
       password,
       displayName,
@@ -67,11 +70,65 @@ export default function RegisterScreen() {
     if (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setErrorMessage(error.message || 'Failed to create account. Please try again.');
+    } else if (needsEmailConfirmation) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPendingConfirmationEmail(email.trim());
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // Navigation is automatically handled by RootLayout based on role!
     }
   };
+
+  const handleResendConfirmation = async () => {
+    if (!pendingConfirmationEmail) return;
+    setResending(true);
+    const { error } = await resendConfirmationEmail(pendingConfirmationEmail);
+    setResending(false);
+    if (error) {
+      Alert.alert('Resend Failed', error.message);
+    } else {
+      Alert.alert('Email Sent', `A new confirmation email was sent to ${pendingConfirmationEmail}.`);
+    }
+  };
+
+  if (pendingConfirmationEmail) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.confirmationContainer}>
+          <View style={styles.confirmationIconCircle}>
+            <Ionicons name="mail-open-outline" size={44} color={MartialTheme.colors.primary} />
+          </View>
+          <Text style={styles.confirmationTitle}>Verify Your Email</Text>
+          <Text style={styles.confirmationDesc}>
+            We sent a confirmation link to{' '}
+            <Text style={{ fontWeight: '800', color: MartialTheme.colors.text }}>
+              {pendingConfirmationEmail}
+            </Text>
+            . Open the link in your inbox, then sign in to enter the dojo.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.submitButton}
+            onPress={() => router.replace('/(auth)/login' as any)}
+            activeOpacity={0.88}>
+            <Text style={styles.submitButtonText}>Go to Sign In</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.resendSecondaryBtn}
+            onPress={handleResendConfirmation}
+            disabled={resending}>
+            {resending ? (
+              <ActivityIndicator size="small" color={MartialTheme.colors.primary} />
+            ) : (
+              <Text style={styles.resendSecondaryText}>Resend Verification Email</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -482,6 +539,44 @@ const styles = StyleSheet.create({
     color: MartialTheme.colors.textSecondary,
   },
   loginLink: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: MartialTheme.colors.primary,
+  },
+  confirmationContainer: {
+    flex: 1,
+    paddingHorizontal: 28,
+    justifyContent: 'center',
+    gap: 16,
+  },
+  confirmationIconCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  confirmationTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+    textAlign: 'center',
+  },
+  confirmationDesc: {
+    fontSize: 14,
+    color: MartialTheme.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 8,
+  },
+  resendSecondaryBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  resendSecondaryText: {
     fontSize: 14,
     fontWeight: '800',
     color: MartialTheme.colors.primary,

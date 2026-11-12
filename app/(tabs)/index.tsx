@@ -28,6 +28,7 @@ import {
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
 import { TodaysTrainingModal } from '@/components/TodaysTrainingModal';
+import { ScoringLegendCard } from '@/components/home/ScoringLegendCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 
@@ -250,6 +251,9 @@ export default function HomeDashboardScreen() {
             style={{ marginTop: 14 }}
           />
         </View>
+
+        {/* --- SCORING LEGEND: 4-PILLAR SCORING WEIGHTS CARD --- */}
+        <ScoringLegendCard />
 
         {/* --- PRIORITY 3: YOUR JOURNEY STEPPING STONES --- */}
         <View style={styles.journeyCard}>

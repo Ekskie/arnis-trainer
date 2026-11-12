@@ -26,6 +26,9 @@ import { getStrikeRule, StrikeRule } from '@/constants/strikeRules';
 import { EvaluationConfig, RawPersonPose } from '@/engine/pose/poseEngineTypes';
 import { usePoseEngine } from '@/hooks/usePoseEngine';
 import { evaluatePoseFrame } from '@/engine/evaluation/strikeEvaluator';
+import { Raw2DPoseFrame, ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
+import { evaluateShadowReference } from '@/engine/reference/shadowEvaluator';
+import { computeGrade } from '@/engine/evaluation/scoreCalculator';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
 import { AnyoRoutine, AnyoStepResult } from '@/constants/historyStore';
@@ -60,6 +63,7 @@ export interface PracticeLiveProps {
         apex: number;
         recovery: number;
       };
+      shadowEvaluation?: ShadowEvaluationReport;
     },
     snapshotBase64?: string,
     replayVideoBase64?: string,
@@ -104,6 +108,7 @@ export function PracticeLive({
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   // Watchdog timer for pose engine initialization / offline fallback
   const [initWatchdogTimedOut, setInitWatchdogTimedOut] = useState(false);
+  const [webLoadError, setWebLoadError] = useState<string | null>(null);
 
   // Camera permissions
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -159,6 +164,8 @@ export function PracticeLive({
     stanceScore: 0,
   });
   const impactDetectorRef = useRef(new ImpactDetector());
+  const shadowFramesRef = useRef<Raw2DPoseFrame[]>([]);
+  const shadowCalFramesRef = useRef<Raw2DPoseFrame[]>([]);
 
   // Ghost guide visibility override: visible in free practice & waiting, hidden in formal evaluation
   const [ghostGuideVisible, setGhostGuideVisible] = useState(countdownState === 'practice' || countdownState === 'waiting_for_frame');
@@ -208,13 +215,15 @@ export function PracticeLive({
   const [detectedStrike, setDetectedStrike] = useState<{ name: string; confidence: number } | null>(null);
   const detectedOpacity = useRef(new Animated.Value(0)).current;
 
-  // Voice speech throttling (2.5s cadence)
+  // Voice speech throttling (2.5s cadence) with queue stabilization
   const lastSpokenTimestampRef = useRef(0);
   const speakCorrection = (text: string) => {
     if (!voiceActive) return;
     const now = Date.now();
     if (now - lastSpokenTimestampRef.current > 2500) {
       lastSpokenTimestampRef.current = now;
+      // Stop prior utterance to prevent audio queue backlog or jitter
+      Speech.stop().catch(() => {});
       Speech.speak(text, { language: 'en-US', rate: 1.05 });
     }
   };
@@ -344,9 +353,20 @@ export function PracticeLive({
         }
       }
 
+      // Collect neutral ready-stance calibration frames before strike window (for V2 shoulder-width fallback)
+      if ((countdownState === 'waiting_for_frame' || countdownState === 'counting') && primaryPerson.rawPose2d) {
+        shadowCalFramesRef.current.push(primaryPerson.rawPose2d);
+        if (shadowCalFramesRef.current.length > 30) {
+          shadowCalFramesRef.current.shift();
+        }
+      }
+
       // Track multi-phase progress & apex moments during evaluating window
       if (countdownState === 'evaluating') {
         impactDetectorRef.current.addFrame(primaryPerson, strikeRule, lastSnapshot || undefined);
+        if (primaryPerson.rawPose2d && shadowFramesRef.current.length < 180) {
+          shadowFramesRef.current.push(primaryPerson.rawPose2d);
+        }
 
         if (!apexHitDetectedRef.current) {
           // Phase 1: Chamber preparation
@@ -457,6 +477,7 @@ export function PracticeLive({
   const handleRetryEngine = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setInitWatchdogTimedOut(false);
+    setWebLoadError(null);
     webViewRef.current?.reload();
   };
 
@@ -511,6 +532,8 @@ export function PracticeLive({
   // Initiate evaluation: step into camera view first, then auto-countdown once detected
   const handleStartEvaluationFlow = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    shadowCalFramesRef.current = [];
+    shadowFramesRef.current = [];
     setCountdownState('waiting_for_frame');
     userFramedSinceRef.current = null;
     setCoachPrompt('Step back into camera view so your whole body is visible');
@@ -631,6 +654,7 @@ export function PracticeLive({
 
   // Timed evaluation window
   const startEvaluationWindow = () => {
+    Speech.stop().catch(() => {});
     setCountdownState('evaluating');
     bestScoreRef.current = 0;
     chamberScoreRef.current = 0;
@@ -645,6 +669,7 @@ export function PracticeLive({
     setTrajectoryGuide(false);
 
     impactDetectorRef.current.reset(Date.now());
+    shadowFramesRef.current = [];
     startVideoRecording();
 
     // Video replay recording is handled seamlessly by WebView canvas stream
@@ -697,12 +722,21 @@ export function PracticeLive({
     setShowRecoveryPrompt(false);
 
     // Calculate Multi-Phase Kinetic Score: 25% Chamber + 50% Apex + 25% Recovery
-    const sChamber = chamberScoreRef.current > 0 ? chamberScoreRef.current : Math.max(bestAnglesRef.current.elbowScore, 65);
-    const sApex = apexScoreRef.current > 0 ? apexScoreRef.current : (bestScoreRef.current > 0 ? bestScoreRef.current : 70);
+    const hadValidApex = apexHitDetectedRef.current;
+    const sChamber = chamberScoreRef.current > 0 ? chamberScoreRef.current : (bestScoreRef.current > 0 ? Math.min(bestScoreRef.current, 60) : 40);
+    const sApex = hadValidApex && apexScoreRef.current > 0
+      ? apexScoreRef.current
+      : (hadValidApex && bestScoreRef.current > 0 ? bestScoreRef.current : 40);
     // If recovery was never detected/completed within grace window, apply penalty (35)
     const sRecovery = recoveryScoreRef.current > 0 ? recoveryScoreRef.current : 35;
 
-    const multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
+    let multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
+
+    // Trajectory & Dynamic Apex Gating:
+    // If no valid dynamic apex was reached (e.g. static hold, erratic motion, or wrong direction), strike fails (< 75%)
+    if (!hadValidApex) {
+      multiPhaseScore = Math.min(60, multiPhaseScore);
+    }
     const finalScore = Math.max(10, Math.min(100, multiPhaseScore));
 
     // Check if Anyo mode is active
@@ -715,7 +749,7 @@ export function PracticeLive({
         strikeId: currentStepStrikeRule.id,
         strikeName: currentStepStrikeRule.name,
         score: finalScore,
-        grade: finalScore >= 85 ? 'Grade A' : 'Grade B',
+        grade: computeGrade(finalScore),
         durationMs: Date.now() - anyoStepStartTimeRef.current,
         snapshotBase64: lastSnapshot || undefined,
       };
@@ -752,6 +786,11 @@ export function PracticeLive({
     const finalSnapshot = impactResult.snapshotBase64 || lastSnapshot || undefined;
     const finalReplayVideo = recordedUri || recordedVideoUriRef.current || lastReplayVideo || undefined;
 
+    // Non-grading shadow reference evaluation (runs alongside baseline rules evaluator)
+    const shadowEvaluation = evaluateShadowReference(strikeRule.id, shadowFramesRef.current, {
+      calibrationFrames: shadowCalFramesRef.current,
+    });
+
     onComplete(
       {
         score: finalScore,
@@ -766,6 +805,7 @@ export function PracticeLive({
           apex: sApex,
           recovery: sRecovery,
         },
+        shadowEvaluation,
       },
       finalSnapshot,
       finalReplayVideo,
@@ -806,7 +846,7 @@ export function PracticeLive({
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return MartialTheme.colors.primary;
-    if (score >= 70) return MartialTheme.colors.bamboo;
+    if (score >= 75) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
 
@@ -1006,19 +1046,38 @@ export function PracticeLive({
             onPermissionRequest={(event: any) => {
               event.grant(event.resources);
             }}
+            onError={(syntheticEvent) => {
+              const desc = syntheticEvent?.nativeEvent?.description;
+              setWebLoadError(
+                desc
+                  ? `Unable to load AI pose model (${desc}). Check your internet connection and tap Reload Engine.`
+                  : 'Unable to load the AI pose model. Please check your internet connection and tap Reload Engine.'
+              );
+            }}
+            onHttpError={(syntheticEvent) => {
+              const code = syntheticEvent?.nativeEvent?.statusCode;
+              if (code && code >= 400) {
+                setWebLoadError(
+                  `AI pose model request failed (HTTP ${code}). Please check your connection and tap Reload Engine.`
+                );
+              }
+            }}
+            renderError={() => <View style={{ flex: 1, backgroundColor: '#000000' }} />}
             onMessage={handleMessage}
           />
 
           {!webReady && (
             <View style={styles.loadingBackdrop}>
-              {initWatchdogTimedOut || errorMsg ? (
+              {initWatchdogTimedOut || errorMsg || webLoadError ? (
                 <View style={styles.networkErrorCard}>
                   <CoachCharacter pose="thinking" size={85} />
-                  <Text style={styles.networkErrorTitle}>AI Camera Initializing Slowly</Text>
+                  <Text style={styles.networkErrorTitle}>
+                    {webLoadError || errorMsg ? 'AI Camera Connection Issue' : 'AI Camera Initializing Slowly'}
+                  </Text>
                   <Text style={styles.networkErrorDesc}>
-                    {errorMsg
-                      ? errorMsg
-                      : 'The MediaPipe pose detection model is taking longer than expected to download. This can happen on slower Wi-Fi or mobile data.'}
+                    {webLoadError ||
+                      errorMsg ||
+                      'The MediaPipe pose detection model is taking longer than expected to download. This can happen on slower Wi-Fi or mobile data.'}
                   </Text>
                   <View style={styles.networkErrorActions}>
                     <TactileButton
@@ -1222,6 +1281,16 @@ export function PracticeLive({
 
       {/* --- 3. BOTTOM CONTROL DRAWER --- */}
       <View style={styles.bottomDrawer}>
+        {/* Screen Record Pro-Tip for Coach Reviews */}
+        {countdownState === 'practice' && (
+          <View style={styles.screenRecordTipBanner}>
+            <Ionicons name="videocam-outline" size={13} color="#D97706" />
+            <Text style={styles.screenRecordTipText}>
+              💡 Tip: Turn on phone screen recording to send video for coach review
+            </Text>
+          </View>
+        )}
+
         <View style={styles.drawerRow}>
           {/* Collapsible Technical Analysis Toggle */}
           <TouchableOpacity
@@ -1999,5 +2068,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: MartialTheme.colors.textMuted,
+  },
+  screenRecordTipBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  screenRecordTipText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#92400E',
   },
 });

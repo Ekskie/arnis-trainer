@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { getStrikeRule, STRIKE_RULES, StrikeRule } from '@/constants/strikeRules';
 import { EvaluationConfig } from '@/engine/pose/poseEngineTypes';
 import { StrikeEvaluationResult } from '@/engine/evaluation/evaluationTypes';
+import { ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
 import { compileSessionResult } from '@/engine/evaluation/strikeEvaluator';
 import {
   ANYO_ROUTINES_CATALOG,
@@ -16,6 +17,7 @@ import {
 } from '@/constants/historyStore';
 import { addXpAndStreak, SashRankInfo } from '@/constants/gamificationStore';
 import { getCoachReference } from '@/constants/referenceStore';
+import { markLessonCompleted, PASSING_SCORE_THRESHOLD } from '@/constants/curriculumStore';
 import { persistUserStrikeMedia } from '@/services/mediaStorageService';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -168,6 +170,7 @@ export function usePracticeSession() {
         stanceScore: number;
         kneeScore?: number;
         durationMs?: number;
+        shadowEvaluation?: ShadowEvaluationReport;
       },
       snapshotBase64?: string,
       replayVideoBase64?: string,
@@ -293,7 +296,14 @@ export function usePracticeSession() {
         setPromotionResult(null);
       }
 
-      // 6. Navigate to result view
+      // 6. If passed (score >= 75%), mark lesson complete in curriculum to unlock next strike!
+      if (finalScore >= PASSING_SCORE_THRESHOLD) {
+        await markLessonCompleted(selectedStrikeId, user?.id).catch((err) => {
+          console.warn('Failed to mark lesson completed on pass', err);
+        });
+      }
+
+      // 7. Navigate to result view
       setScreen('result');
     },
     [selectedStrikeId, currentRule, user?.id]

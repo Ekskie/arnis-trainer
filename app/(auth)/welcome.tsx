@@ -45,9 +45,9 @@ export default function WelcomeScreen() {
 
           {!isConfigured && (
             <View style={styles.configNotice}>
-              <Ionicons name="information-circle-outline" size={18} color="#92400E" />
+              <Ionicons name="alert-circle-outline" size={18} color="#92400E" />
               <Text style={styles.configNoticeText}>
-                Supabase credentials pending in .env (offline dev mode active)
+                Cloud service configuration unavailable in this build.
               </Text>
             </View>
           )}

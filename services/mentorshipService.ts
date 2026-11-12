@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isSupabaseConfigured, supabase, UserProfile } from './supabase';
 import { isUUID } from './messageService';
 
@@ -14,157 +13,53 @@ export interface MentorshipRequest {
   coach?: UserProfile;
 }
 
-const STORAGE_KEY_MENTORSHIP = 'arnis_mentorship_requests_local';
-
-// In-memory / local fallback for dev mode or non-UUID sessions
-let localRequests: MentorshipRequest[] = [
-  {
-    id: 'req_demo_1',
-    student_id: 'mock_student_1',
-    coach_id: 'mock_coach_1',
-    status: 'accepted',
-    note: 'Magandang araw po Guro! I would like to request your guidance on Strike 1 and 2 angles.',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    student: {
-      id: 'mock_student_1',
-      role: 'student',
-      display_name: 'Juan Dela Cruz',
-      email: 'student.juan@arnis.ph',
-      rank_sash: 'Green Sash',
-      bio: 'Training in modern Arnis fundamentals.',
-    },
-    coach: {
-      id: 'mock_coach_1',
-      role: 'coach',
-      display_name: 'Guro Miguel Roxas',
-      email: 'guro.miguel@arnis.ph',
-      rank_sash: 'Lakan Tatlo (3rd Dan)',
-      bio: 'Philippine National Arnis Federation Certified Instructor',
-    },
-  },
-];
-
-let localRequestsLoaded = false;
-async function ensureLocalRequestsLoaded() {
-  if (localRequestsLoaded) return;
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY_MENTORSHIP);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        localRequests = parsed;
-      }
-    }
-  } catch (e) {
-    console.warn('[MentorshipService] Failed to load cached local requests:', e);
-  } finally {
-    localRequestsLoaded = true;
-  }
-}
-
-async function persistLocalRequests() {
-  try {
-    await AsyncStorage.setItem(STORAGE_KEY_MENTORSHIP, JSON.stringify(localRequests));
-  } catch (e) {
-    console.warn('[MentorshipService] Failed to persist local requests:', e);
-  }
-}
-
-const mockCoaches: UserProfile[] = [
-  {
-    id: 'mock_coach_1',
-    role: 'coach',
-    display_name: 'Guro Miguel Roxas',
-    email: 'guro.miguel@arnis.ph',
-    rank_sash: 'Lakan Tatlo (3rd Dan)',
-    bio: 'Philippine National Arnis Federation Certified Instructor. 15 years experience in Modern Arnis.',
-    experience_years: 15,
-  },
-  {
-    id: 'mock_coach_2',
-    role: 'coach',
-    display_name: 'Guro Maria Santos',
-    email: 'maria.arnis@martial.ph',
-    rank_sash: 'Lakan Dalawa (2nd Dan)',
-    bio: 'Specialist in Anyo Kata and Espada y Daga flow drills.',
-    experience_years: 11,
-  },
-  {
-    id: 'mock_coach_3',
-    role: 'coach',
-    display_name: 'Punong Guro Rafael Cruz',
-    email: 'rafael@arnisdecueto.org',
-    rank_sash: 'Lakan Lima (5th Dan)',
-    bio: 'Founder of Kalasag Combat Arnis. Master of 12 Canonical Strikes.',
-    experience_years: 24,
-  },
-];
-
 export const MentorshipService = {
   /**
    * Fetch all registered coaches in the academy
    */
   async getAvailableCoaches(): Promise<UserProfile[]> {
     if (!isSupabaseConfigured) {
-      return mockCoaches;
+      throw new Error('Cloud connection is not configured in this build.');
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'coach');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'coach')
+      .order('display_name', { ascending: true });
 
-      if (error || !data || data.length === 0) {
-        return mockCoaches;
-      }
-
-      return data as UserProfile[];
-    } catch (e) {
-      console.error('[MentorshipService] Exception getting coaches:', e);
-      return mockCoaches;
+    if (error) {
+      throw new Error(error.message || 'Unable to load certified coaches.');
     }
+
+    return (data || []) as UserProfile[];
   },
 
   /**
    * Get the current mentorship status for a student (pending or accepted)
    */
   async getStudentMentorship(studentId: string): Promise<MentorshipRequest | null> {
-    await ensureLocalRequestsLoaded();
-
     if (!isSupabaseConfigured || !isUUID(studentId)) {
-      const found = localRequests.find(
-        (r) => r.student_id === studentId && (r.status === 'pending' || r.status === 'accepted')
-      );
-      return found || null;
+      return null;
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('mentorship_requests')
-        .select('*, coach:coach_id(*)')
-        .eq('student_id', studentId)
-        .in('status', ['pending', 'accepted'])
-        .order('created_at', { ascending: false })
-        .limit(1);
+    const { data, error } = await supabase
+      .from('mentorship_requests')
+      .select('*, coach:coach_id(*)')
+      .eq('student_id', studentId)
+      .in('status', ['pending', 'accepted'])
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-      if (error || !data || data.length === 0) {
-        const found = localRequests.find(
-          (r) => r.student_id === studentId && (r.status === 'pending' || r.status === 'accepted')
-        );
-        return found || null;
-      }
-
-      return data[0] as MentorshipRequest;
-    } catch (e) {
-      console.error('[MentorshipService] Error fetching student mentorship:', e);
-      return (
-        localRequests.find(
-          (r) => r.student_id === studentId && (r.status === 'pending' || r.status === 'accepted')
-        ) || null
-      );
+    if (error) {
+      throw new Error(error.message || 'Unable to check mentorship status.');
     }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    return data[0] as MentorshipRequest;
   },
 
   /**
@@ -175,43 +70,34 @@ export const MentorshipService = {
     coachId: string,
     note: string
   ): Promise<{ error: Error | null; request?: MentorshipRequest }> {
-    await ensureLocalRequestsLoaded();
-
-    if (!isSupabaseConfigured || !isUUID(studentId) || !isUUID(coachId)) {
-      const coach = mockCoaches.find((c) => c.id === coachId) || mockCoaches[0];
-      const newReq: MentorshipRequest = {
-        id: `req_${Date.now()}`,
-        student_id: studentId,
-        coach_id: coachId,
-        status: 'pending',
-        note,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        coach,
-      };
-      localRequests = localRequests.filter((r) => r.student_id !== studentId);
-      localRequests.push(newReq);
-      await persistLocalRequests();
-      return { error: null, request: newReq };
+    if (!isSupabaseConfigured) {
+      return { error: new Error('Cloud connection is required to request a coach.') };
+    }
+    if (!isUUID(studentId) || !isUUID(coachId)) {
+      return { error: new Error('Invalid user or coach account identifier.') };
     }
 
     try {
       // First, cleanly disconnect / decline any prior active or pending mentorship for this student
-      // so previous coaches immediately release the student from their active roster
-      try {
-        await supabase
-          .from('mentorship_requests')
-          .update({ status: 'declined', updated_at: new Date().toISOString() })
-          .eq('student_id', studentId)
-          .neq('coach_id', coachId);
+      // so previous coaches immediately release the student from their active roster.
+      const { error: cleanupUpdateErr } = await supabase
+        .from('mentorship_requests')
+        .update({ status: 'declined', updated_at: new Date().toISOString() })
+        .eq('student_id', studentId)
+        .neq('coach_id', coachId);
 
-        await supabase
-          .from('mentorship_requests')
-          .delete()
-          .eq('student_id', studentId)
-          .neq('coach_id', coachId);
-      } catch (cleanupErr) {
-        console.warn('[MentorshipService] Notice clearing previous coach connections:', cleanupErr);
+      if (cleanupUpdateErr) {
+        console.warn('[MentorshipService] Cleanup update notice:', cleanupUpdateErr.message);
+      }
+
+      const { error: cleanupDeleteErr } = await supabase
+        .from('mentorship_requests')
+        .delete()
+        .eq('student_id', studentId)
+        .neq('coach_id', coachId);
+
+      if (cleanupDeleteErr) {
+        console.warn('[MentorshipService] Cleanup delete notice:', cleanupDeleteErr.message);
       }
 
       const { data, error } = await supabase
@@ -235,7 +121,7 @@ export const MentorshipService = {
 
       return { error: null, request: data as MentorshipRequest };
     } catch (e: any) {
-      return { error: e };
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 
@@ -243,28 +129,30 @@ export const MentorshipService = {
    * Cancel an existing mentorship request
    */
   async cancelMentorshipRequest(requestId: string): Promise<{ error: Error | null }> {
-    await ensureLocalRequestsLoaded();
-    localRequests = localRequests.filter((r) => r.id !== requestId);
-    await persistLocalRequests();
-
     if (!isSupabaseConfigured || !isUUID(requestId)) {
-      return { error: null };
+      return { error: new Error('Unable to cancel mentorship request.') };
     }
 
     try {
-      await supabase
+      const { error: updateError } = await supabase
         .from('mentorship_requests')
         .update({ status: 'declined', updated_at: new Date().toISOString() })
         .eq('id', requestId);
 
-      const { error } = await supabase
+      const { error: deleteError } = await supabase
         .from('mentorship_requests')
         .delete()
         .eq('id', requestId);
 
-      return { error: error ? new Error(error.message) : null };
+      if (deleteError) {
+        return { error: new Error(deleteError.message) };
+      }
+      if (updateError) {
+        return { error: new Error(updateError.message) };
+      }
+      return { error: null };
     } catch (e: any) {
-      return { error: e };
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 
@@ -272,31 +160,32 @@ export const MentorshipService = {
    * End an active mentorship union (releases student and coach to connect elsewhere)
    */
   async endMentorship(requestId: string): Promise<{ error: Error | null }> {
-    await ensureLocalRequestsLoaded();
-    localRequests = localRequests.filter((r) => r.id !== requestId);
-    await persistLocalRequests();
-
     if (!isSupabaseConfigured || !isUUID(requestId)) {
-      return { error: null };
+      return { error: new Error('Unable to end mentorship connection.') };
     }
 
     try {
-      // Step 1: Update status to 'declined' (allowed by RLS UPDATE policy)
-      await supabase
+      const { error: updateError } = await supabase
         .from('mentorship_requests')
         .update({ status: 'declined', updated_at: new Date().toISOString() })
         .eq('id', requestId);
 
-      // Step 2: Delete row (allowed by RLS DELETE policy)
-      await supabase
+      const { error: deleteError } = await supabase
         .from('mentorship_requests')
         .delete()
         .eq('id', requestId);
 
+      if (deleteError) {
+        return { error: new Error(deleteError.message) };
+      }
+      if (updateError) {
+        return { error: new Error(updateError.message) };
+      }
+
       return { error: null };
     } catch (e: any) {
       console.error('[MentorshipService] Exception ending mentorship:', e);
-      return { error: e };
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 
@@ -304,60 +193,44 @@ export const MentorshipService = {
    * Fetch incoming pending requests for a coach
    */
   async getCoachPendingRequests(coachId: string): Promise<MentorshipRequest[]> {
-    await ensureLocalRequestsLoaded();
-
     if (!isSupabaseConfigured || !isUUID(coachId)) {
-      return localRequests.filter((r) => r.coach_id === coachId && r.status === 'pending');
+      return [];
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('mentorship_requests')
-        .select('*, student:student_id(*)')
-        .eq('coach_id', coachId)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('mentorship_requests')
+      .select('*, student:student_id(*)')
+      .eq('coach_id', coachId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('[MentorshipService] Error getting coach pending requests:', error);
-        return localRequests.filter((r) => r.coach_id === coachId && r.status === 'pending');
-      }
-
-      return (data || []) as MentorshipRequest[];
-    } catch (e) {
-      console.error('[MentorshipService] Exception getting pending requests:', e);
-      return localRequests.filter((r) => r.coach_id === coachId && r.status === 'pending');
+    if (error) {
+      throw new Error(error.message || 'Unable to load pending student requests.');
     }
+
+    return (data || []) as MentorshipRequest[];
   },
 
   /**
    * Fetch accepted students connected to a coach
    */
   async getCoachStudents(coachId: string): Promise<MentorshipRequest[]> {
-    await ensureLocalRequestsLoaded();
-
     if (!isSupabaseConfigured || !isUUID(coachId)) {
-      return localRequests.filter((r) => r.coach_id === coachId && r.status === 'accepted');
+      return [];
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('mentorship_requests')
-        .select('*, student:student_id(*)')
-        .eq('coach_id', coachId)
-        .eq('status', 'accepted')
-        .order('updated_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('mentorship_requests')
+      .select('*, student:student_id(*)')
+      .eq('coach_id', coachId)
+      .eq('status', 'accepted')
+      .order('updated_at', { ascending: false });
 
-      if (error) {
-        console.error('[MentorshipService] Error getting coach students:', error);
-        return localRequests.filter((r) => r.coach_id === coachId && r.status === 'accepted');
-      }
-
-      return (data || []) as MentorshipRequest[];
-    } catch (e) {
-      console.error('[MentorshipService] Exception getting coach students:', e);
-      return localRequests.filter((r) => r.coach_id === coachId && r.status === 'accepted');
+    if (error) {
+      throw new Error(error.message || 'Unable to load connected students.');
     }
+
+    return (data || []) as MentorshipRequest[];
   },
 
   /**
@@ -367,16 +240,8 @@ export const MentorshipService = {
     requestId: string,
     status: 'accepted' | 'declined'
   ): Promise<{ error: Error | null }> {
-    await ensureLocalRequestsLoaded();
-
     if (!isSupabaseConfigured || !isUUID(requestId)) {
-      const found = localRequests.find((r) => r.id === requestId);
-      if (found) {
-        found.status = status;
-        found.updated_at = new Date().toISOString();
-        await persistLocalRequests();
-      }
-      return { error: null };
+      return { error: new Error('Unable to respond to mentorship request.') };
     }
 
     try {
@@ -390,7 +255,7 @@ export const MentorshipService = {
 
       return { error: error ? new Error(error.message) : null };
     } catch (e: any) {
-      return { error: e };
+      return { error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
 };

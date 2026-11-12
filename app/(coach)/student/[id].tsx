@@ -75,6 +75,25 @@ function ActiveSharedVideo({ videoUrl, onStop }: { videoUrl: string; onStop: () 
     p.play();
   });
 
+  useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [player]);
+
+  const handleStop = () => {
+    try {
+      player.pause();
+    } catch {
+      // ignore
+    }
+    onStop();
+  };
+
   return (
     <View style={styles.videoPlayerContainer}>
       <VideoView
@@ -83,7 +102,7 @@ function ActiveSharedVideo({ videoUrl, onStop }: { videoUrl: string; onStop: () 
         allowsFullscreen
         allowsPictureInPicture
       />
-      <TouchableOpacity style={styles.videoCloseBtn} onPress={onStop}>
+      <TouchableOpacity style={styles.videoCloseBtn} onPress={handleStop}>
         <Ionicons name="close-circle" size={24} color="#FFFFFF" />
       </TouchableOpacity>
       <View style={styles.videoControlsHint}>
@@ -106,6 +125,7 @@ export default function StudentDetailScreen() {
   const [curriculum, setCurriculum] = useState<CloudCurriculumItem[]>([]);
   const [isMentorshipActive, setIsMentorshipActive] = useState<boolean>(true);
   const [isReleased, setIsReleased] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const handleEndMentorship = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -119,25 +139,33 @@ export default function StudentDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             if (!user || !id) return;
-            const requests = await MentorshipService.getCoachStudents(user.id);
-            const req = requests.find((r) => r.student_id === id);
-            if (req) {
-              await MentorshipService.endMentorship(req.id);
+            try {
+              const requests = await MentorshipService.getCoachStudents(user.id);
+              const req = requests.find((r) => r.student_id === id);
+              if (req) {
+                const { error } = await MentorshipService.endMentorship(req.id);
+                if (error) {
+                  Alert.alert('Release Failed', error.message);
+                  return;
+                }
+              }
+              setIsMentorshipActive(false);
+              setIsReleased(true);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert(
+                'Student Released',
+                `${profile?.display_name || 'Student'} has been released from your active roster. You can still inspect past evaluations or return to the roster.`,
+                [
+                  { text: 'Stay Here', style: 'cancel' },
+                  {
+                    text: 'Back to Roster',
+                    onPress: () => router.replace('/(coach)/roster' as any),
+                  },
+                ]
+              );
+            } catch (e: any) {
+              Alert.alert('Release Failed', e?.message || 'Unable to release student.');
             }
-            setIsMentorshipActive(false);
-            setIsReleased(true);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert(
-              'Student Released',
-              `${profile?.display_name || 'Student'} has been released from your active roster. You can still inspect past evaluations or return to the roster.`,
-              [
-                { text: 'Stay Here', style: 'cancel' },
-                {
-                  text: 'Back to Roster',
-                  onPress: () => router.replace('/(coach)/roster' as any),
-                },
-              ]
-            );
           },
         },
       ]
@@ -145,14 +173,20 @@ export default function StudentDetailScreen() {
   };
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setLoadError(null);
 
     if (user) {
-      MentorshipService.getCoachStudents(user.id).then((reqs) => {
-        const found = reqs.some((r) => r.student_id === id);
-        setIsMentorshipActive(found);
-      });
+      MentorshipService.getCoachStudents(user.id)
+        .then((reqs) => {
+          const found = reqs.some((r) => r.student_id === id);
+          setIsMentorshipActive(found);
+        })
+        .catch(() => {});
     }
 
     CloudSyncService.fetchStudentDataForCoach(id)
@@ -160,13 +194,18 @@ export default function StudentDetailScreen() {
         setProfile(data.profile);
         setSessions(data.sessions);
         setCurriculum(data.curriculum);
+        if (data.error) {
+          setLoadError(data.error);
+        } else if (!data.profile) {
+          setLoadError('Student profile not found.');
+        }
       })
       .finally(() => setLoading(false));
   }, [id, user]);
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return MartialTheme.colors.primary;
-    if (score >= 70) return MartialTheme.colors.bamboo;
+    if (score >= 75) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
 
@@ -188,21 +227,33 @@ export default function StudentDetailScreen() {
           <Text style={styles.headerTitle}>{profile?.display_name || 'Student Profile'}</Text>
           <Text style={styles.headerSubtitle}>Trainee Progress & Journey Inspector</Text>
         </View>
-        <TouchableOpacity
-          style={styles.headerChatBtn}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push(`/direct-chat/${id}` as any);
-          }}
-          activeOpacity={0.8}>
-          <Ionicons name="chatbubbles" size={18} color="#FFFFFF" />
-        </TouchableOpacity>
+        {isMentorshipActive && !isReleased && profile && (
+          <TouchableOpacity
+            style={styles.headerChatBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push(`/direct-chat/${id}` as any);
+            }}
+            activeOpacity={0.8}>
+            <Ionicons name="chatbubbles" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
         <View style={styles.centerLoading}>
           <ActivityIndicator size="large" color="#D97706" />
           <Text style={styles.loadingText}>Fetching student journey and evaluation records...</Text>
+        </View>
+      ) : !profile ? (
+        <View style={styles.centerLoading}>
+          <Ionicons name="alert-circle-outline" size={40} color="#DC2626" />
+          <Text style={styles.loadingText}>{loadError || 'Unable to load student profile.'}</Text>
+          <TouchableOpacity
+            style={styles.returnRosterBtn}
+            onPress={() => router.replace('/(coach)/roster' as any)}>
+            <Text style={styles.returnRosterBtnText}>Back to Student Roster</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <ScrollView
@@ -534,19 +585,21 @@ export default function StudentDetailScreen() {
         </ScrollView>
       )}
 
-      {/* Floating Bottom Bar: Direct Chat CTA */}
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.chatCTA}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push(`/direct-chat/${id}` as any);
-          }}
-          activeOpacity={0.88}>
-          <Ionicons name="chatbubbles" size={18} color="#FFFFFF" />
-          <Text style={styles.chatCTAText}>Message {profile?.display_name || 'Student'}</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Floating Bottom Bar: Direct Chat CTA (active mentorships only) */}
+      {isMentorshipActive && !isReleased && profile && (
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={styles.chatCTA}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push(`/direct-chat/${id}` as any);
+            }}
+            activeOpacity={0.88}>
+            <Ionicons name="chatbubbles" size={18} color="#FFFFFF" />
+            <Text style={styles.chatCTAText}>Message {profile?.display_name || 'Student'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }

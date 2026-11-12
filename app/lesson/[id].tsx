@@ -84,21 +84,29 @@ export default function LessonScreen() {
   // Handle return from camera drill
   useEffect(() => {
     if (completedFromDrill === '1') {
-      const celebrationIndex = steps.length - 1;
-      setCurrentStepIndex(celebrationIndex);
-      getCurriculumProgress(user?.id).then(async (prog) => {
-        const isRepeat = prog.completedLessonIds.includes(lesson.id);
-        const baseBonus = earnedScore && parseInt(earnedScore, 10) >= 85 ? 15 : 10;
-        const bonusXp = isRepeat ? 3 : baseBonus;
-        setEarnedXp(bonusXp);
-        const stats = await getGamificationStats(user?.id);
-        setNewStreak(stats.streakDays);
-        if (stats.level) {
-          const sash = getSashRankByLevel(stats.level);
-          setUserSash(sash);
+      const scoreNum = earnedScore ? parseInt(earnedScore, 10) : 0;
+      if (scoreNum >= 75) {
+        const celebrationIndex = steps.length - 1;
+        setCurrentStepIndex(celebrationIndex);
+        getCurriculumProgress(user?.id).then(async (prog) => {
+          const isRepeat = prog.completedLessonIds.includes(lesson.id);
+          const baseBonus = scoreNum >= 85 ? 15 : 10;
+          const bonusXp = isRepeat ? 3 : baseBonus;
+          setEarnedXp(bonusXp);
+          const stats = await getGamificationStats(user?.id);
+          setNewStreak(stats.streakDays);
+          if (stats.level) {
+            const sash = getSashRankByLevel(stats.level);
+            setUserSash(sash);
+          }
+        });
+        markLessonCompleted(lesson.id, user?.id);
+      } else {
+        const rememberIdx = steps.indexOf('remember');
+        if (rememberIdx >= 0) {
+          setCurrentStepIndex(rememberIdx);
         }
-      });
-      markLessonCompleted(lesson.id, user?.id);
+      }
     } else if (completedFromDrill === '0') {
       const rememberIdx = steps.indexOf('remember');
       if (rememberIdx >= 0) {
@@ -154,6 +162,17 @@ export default function LessonScreen() {
     }
   }, [currentStep, player]);
 
+  // Unmount cleanup to prevent video player resource leaks
+  useEffect(() => {
+    return () => {
+      try {
+        player?.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [player]);
+
   const togglePlayback = () => {
     if (!player) return;
     try {
@@ -174,7 +193,13 @@ export default function LessonScreen() {
     if (currentStepIndex < steps.length - 2) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else if (currentStepIndex === steps.length - 2) {
-      // Reaching celebration step: check if first-time completion (10 XP) or repeat review (2 XP)
+      // For Stage 3 strike techniques, practical camera evaluation (>= 75%) is mandatory!
+      if (lesson.isStrike || lesson.strikeKey) {
+        handleStartCameraDrill('test');
+        return;
+      }
+
+      // Reaching celebration step for conceptual lessons: check if first-time completion (10 XP) or repeat review (2 XP)
       getCurriculumProgress(user?.id).then(async (prog) => {
         const isRepeat = prog.completedLessonIds.includes(lesson.id);
         const xpToAward = isRepeat ? 2 : 10;
@@ -284,6 +309,11 @@ export default function LessonScreen() {
         totalSteps={steps.length}
         sashInfo={userSash}
         onClose={() => {
+          try {
+            player?.pause();
+          } catch {
+            // ignore
+          }
           if (router.canGoBack()) {
             router.back();
           } else {
@@ -578,19 +608,21 @@ export default function LessonScreen() {
 
             <View style={{ flex: 1, minHeight: 20 }} />
 
-            {lesson.isStrike ? (
+            {lesson.isStrike || lesson.strikeKey ? (
               <View style={{ gap: 10, marginTop: 20, width: '100%' }}>
                 <TactileButton
-                  title="PRACTICE WITH CAMERA →"
+                  title="START CAMERA TEST (75%+ TO PASS) ⚔️"
                   variant="primary"
                   size="lg"
-                  onPress={() => handleStartCameraDrill('guided')}
+                  icon={<Ionicons name="flash" size={17} color="#FFFFFF" />}
+                  onPress={() => handleStartCameraDrill('test')}
                 />
                 <TactileButton
-                  title="I'M READY (MARK STEP COMPLETE)"
+                  title="PRACTICE WITH CAMERA (GUIDED) 🥋"
                   variant="secondary"
                   size="md"
-                  onPress={handleNextStep}
+                  icon={<Ionicons name="videocam-outline" size={16} color={MartialTheme.colors.text} />}
+                  onPress={() => handleStartCameraDrill('guided')}
                 />
               </View>
             ) : (

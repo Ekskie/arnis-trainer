@@ -1,3 +1,5 @@
+import { ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
+
 export interface PillarScores {
   strikingArm: number;
   guard: number;
@@ -36,4 +38,5 @@ export interface StrikeEvaluationResult {
   feedback: CoachFeedback;
   diagnosticFlags: string[];
   durationMs?: number;
+  shadowEvaluation?: ShadowEvaluationReport;
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import {
   SessionItem,
 } from '@/constants/historyStore';
 import { getGamificationStats } from '@/constants/gamificationStore';
+import { getCurriculumProgress, isStrikeUnlocked } from '@/constants/curriculumStore';
 import { useAuth } from '@/contexts/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafetyCheckModal } from '@/components/SafetyCheckModal';
@@ -52,6 +54,7 @@ export function PracticeHomeScreen({
   const { user } = useAuth();
   const [streakDays, setStreakDays] = useState(0);
   const [historyList, setHistoryList] = useState<SessionItem[]>([]);
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
   const [masteryStats, setMasteryStats] = useState<MasteryStats>(() => getStrikeMasteryStats([]));
   const [showAllStrikes, setShowAllStrikes] = useState(false);
   const [showAnyoPicker, setShowAnyoPicker] = useState(false);
@@ -103,12 +106,14 @@ export function PracticeHomeScreen({
     async function loadData() {
       const gStats = await getGamificationStats(user?.id);
       setStreakDays(typeof gStats.streakDays === 'number' ? gStats.streakDays : 0);
-      const [hist, masteryMap] = await Promise.all([
+      const [hist, masteryMap, prog] = await Promise.all([
         getHistory(user?.id),
         getStoredStrikeMasteryMap(user?.id),
+        getCurriculumProgress(user?.id),
       ]);
       setHistoryList(hist || []);
       setMasteryStats(getStrikeMasteryStats(hist || [], masteryMap));
+      setCompletedLessonIds(prog.completedLessonIds);
     }
     loadData();
   }, [user?.id]);
@@ -129,10 +134,14 @@ export function PracticeHomeScreen({
       };
     }
 
-    const attempted = strikes.filter((s) => s.attempts > 0);
-    const unattempted = strikes.filter((s) => s.attempts === 0);
+    // Only recommend among unlocked strikes
+    const unlockedStrikes = strikes.filter((s) => isStrikeUnlocked(s.id, completedLessonIds));
+    const activePool = unlockedStrikes.length > 0 ? unlockedStrikes : [strikes[0]];
 
-    let target = strikes[0];
+    const attempted = activePool.filter((s) => s.attempts > 0);
+    const unattempted = activePool.filter((s) => s.attempts === 0);
+
+    let target = activePool[0];
 
     // Priority 1: attempted but unmastered (< 85), pick lowest bestScore to polish
     const imperfect = attempted.filter((s) => s.bestScore < 85);
@@ -144,7 +153,7 @@ export function PracticeHomeScreen({
       target = unattempted[0];
     } else {
       // All mastered, pick lowest to maintain sharpness
-      const sorted = [...strikes].sort((a, b) => a.bestScore - b.bestScore);
+      const sorted = [...activePool].sort((a, b) => a.bestScore - b.bestScore);
       target = sorted[0];
     }
 
@@ -174,7 +183,7 @@ export function PracticeHomeScreen({
       stars,
       coachTip,
     };
-  }, [historyList, masteryStats]);
+  }, [historyList, masteryStats, completedLessonIds]);
 
   const renderStars = (count: number, size = 16) => {
     return (
@@ -312,6 +321,7 @@ export function PracticeHomeScreen({
 
         <View style={styles.strikesListCard}>
           {displayedStrikes.map((s) => {
+            const isUnlocked = isStrikeUnlocked(s.id, completedLessonIds);
             let starCount = 0;
             if (s.bestScore >= 95) starCount = 5;
             else if (s.bestScore >= 85) starCount = 4;
@@ -319,32 +329,55 @@ export function PracticeHomeScreen({
             else if (s.bestScore >= 60) starCount = 2;
             else if (s.bestScore > 0) starCount = 1;
 
-            const isCurrentFocus = s.id === recommendedStrike.id;
-            const isPracticed = s.attempts > 0;
+            const isCurrentFocus = isUnlocked && s.id === recommendedStrike.id;
+            const isPracticed = isUnlocked && s.attempts > 0;
+
+            const handlePressStrike = () => {
+              if (!isUnlocked) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                const prevNum = s.strikeNumber > 1 ? s.strikeNumber - 1 : 1;
+                Alert.alert(
+                  'Strike Locked 🔒',
+                  `Complete and pass Strike ${prevNum} with at least Grade C (75%+) in the Journey first to unlock Strike ${s.strikeNumber}.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Go to Journey 🗺️',
+                      onPress: () => router.push('/explore' as any),
+                    },
+                  ]
+                );
+                return;
+              }
+
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerStartStrike(s.id, 'guided');
+            };
 
             return (
               <TouchableOpacity
                 key={s.id}
                 style={[
                   styles.strikeRow,
+                  !isUnlocked && { opacity: 0.55 },
                   isCurrentFocus && styles.strikeRowFocus,
                 ]}
                 activeOpacity={0.75}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  triggerStartStrike(s.id, 'guided');
-                }}
+                onPress={handlePressStrike}
               >
                 {/* State Badge: Mastered (green check), Practiced (gold star), or Neutral */}
                 <View
                   style={[
                     styles.strikeStateBadge,
-                    s.isMastered && styles.strikeStateBadgeMastered,
-                    !s.isMastered && isPracticed && styles.strikeStateBadgePracticed,
+                    !isUnlocked && { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' },
+                    isUnlocked && s.isMastered && styles.strikeStateBadgeMastered,
+                    isUnlocked && !s.isMastered && isPracticed && styles.strikeStateBadgePracticed,
                     isCurrentFocus && styles.strikeStateBadgeFocus,
                   ]}
                 >
-                  {s.isMastered ? (
+                  {!isUnlocked ? (
+                    <Ionicons name="lock-closed" size={15} color="#9CA3AF" />
+                  ) : s.isMastered ? (
                     <Ionicons name="checkmark" size={17} color="#FFFFFF" />
                   ) : isPracticed ? (
                     <Text style={styles.strikeNumTextPracticed}>{s.strikeNumber}</Text>
@@ -356,7 +389,7 @@ export function PracticeHomeScreen({
                 {/* Strike Information */}
                 <View style={styles.strikeDetails}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.strikeTitleText}>
+                    <Text style={[styles.strikeTitleText, !isUnlocked && { color: '#6B7280' }]}>
                       Strike {s.strikeNumber} — {s.target.split('/')[0].trim()}
                     </Text>
                     {isCurrentFocus && (
@@ -367,7 +400,9 @@ export function PracticeHomeScreen({
                   </View>
 
                   <View style={styles.strikeMetaRow}>
-                    {isPracticed ? (
+                    {!isUnlocked ? (
+                      <Text style={styles.notPracticedText}>Locked 🔒 • Unlock in Journey</Text>
+                    ) : isPracticed ? (
                       <>
                         {renderStars(starCount, 13)}
                         <Text style={styles.strikeScoreText}>{s.bestScore}%</Text>

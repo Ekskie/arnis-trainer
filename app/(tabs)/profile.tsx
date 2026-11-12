@@ -31,6 +31,9 @@ import {
   CurriculumProgress,
   getCurriculumProgress,
 } from '@/constants/curriculumStore';
+import { getHistory } from '@/constants/historyStore';
+import CoachSharedDataModal from '@/components/CoachSharedDataModal';
+import AppPrivacyAboutModal from '@/components/AppPrivacyAboutModal';
 
 export default function StudentProfileScreen() {
   const router = useRouter();
@@ -53,11 +56,24 @@ export default function StudentProfileScreen() {
     progressPercentage: 0,
   });
 
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [sharedVideosCount, setSharedVideosCount] = useState<number>(0);
+
+  const loadSharingStats = useCallback(async () => {
+    try {
+      const items = await getHistory(user?.id);
+      setSharedVideosCount(items.filter((s) => s.isSharedWithCoach).length);
+    } catch (e) {
+      console.warn('[Profile] Failed to load sharing stats:', e);
+    }
+  }, [user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       getGamificationStats(user?.id).then(setGamification);
       getCurriculumProgress(user?.id).then(setCurriculumProgress);
-    }, [user?.id])
+      loadSharingStats();
+    }, [user?.id, loadSharingStats])
   );
 
   const sashInfo = getSashRankByLevel(gamification.level);
@@ -162,6 +178,17 @@ export default function StudentProfileScreen() {
 
   // Save Password Change
   const handleSavePassword = async () => {
+    if (!user) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in or create an account to configure password credentials.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In / Register', onPress: () => router.push('/(auth)/login' as any) },
+        ]
+      );
+      return;
+    }
     if (newPassword.length < 6) {
       Alert.alert('Invalid Password', 'New password must be at least 6 characters long.');
       return;
@@ -190,6 +217,17 @@ export default function StudentProfileScreen() {
 
   // Save Email Change
   const handleSaveEmail = async () => {
+    if (!user) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in or create an account to configure email credentials.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In / Register', onPress: () => router.push('/(auth)/login' as any) },
+        ]
+      );
+      return;
+    }
     if (!newEmail.trim() || !newEmail.includes('@')) {
       Alert.alert('Invalid Email', 'Please enter a valid email address.');
       return;
@@ -213,8 +251,12 @@ export default function StudentProfileScreen() {
     }
   };
 
-  // Sign Out
+  // Sign Out or Sign In
   const handleSignOut = () => {
+    if (!user) {
+      router.push('/(auth)/login' as any);
+      return;
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert('Log Out', 'Are you sure you want to log out of your student account?', [
       { text: 'Cancel', style: 'cancel' },
@@ -228,11 +270,31 @@ export default function StudentProfileScreen() {
     ]);
   };
 
-  // Delete Account State & 2-Step Confirmation
+  // Delete Account or Reset Local Guest Data
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [aboutModalVisible, setAboutModalVisible] = useState(false);
 
   const handleDeleteAccount = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    if (!user) {
+      Alert.alert(
+        'Reset Guest Data',
+        'Are you sure you want to clear your local strike evaluations, streak, and progress on this device?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Clear Data',
+            style: 'destructive',
+            onPress: async () => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setGamification({ streakDays: 0, lastTrainedDate: '', totalXp: 0, level: 1 });
+              Alert.alert('Data Cleared', 'Local guest training statistics have been reset.');
+            },
+          },
+        ]
+      );
+      return;
+    }
     Alert.alert(
       'Delete Account',
       'Are you sure you want to delete your account? This action is permanent and will remove all your practice history, sash progress, and coach messages.',
@@ -242,7 +304,6 @@ export default function StudentProfileScreen() {
           text: 'Continue',
           style: 'destructive',
           onPress: () => {
-            // Second confirmation dialog
             Alert.alert(
               'Final Confirmation',
               'This cannot be undone. All your strikes, videos, and badges will be permanently erased. Proceed with deleting your account?',
@@ -257,7 +318,11 @@ export default function StudentProfileScreen() {
                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                       const { error } = await deleteAccount();
                       if (error) {
-                        Alert.alert('Notice', 'Account removed from device.');
+                        Alert.alert(
+                          'Deletion Failed',
+                          error.message || 'Could not delete your account. Please verify your connection and try again.'
+                        );
+                        return;
                       }
                       router.replace('/(auth)/welcome' as any);
                     } catch (e: any) {
@@ -391,6 +456,30 @@ export default function StudentProfileScreen() {
           </View>
         </View>
 
+        {/* Guest Practitioner Banner (Invite to Sign In & Cloud Sync) */}
+        {!user && (
+          <View style={styles.guestBannerCard}>
+            <View style={styles.guestBannerHeader}>
+              <View style={styles.guestBannerIconCircle}>
+                <Ionicons name="cloud-offline-outline" size={20} color="#D97706" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.guestBannerTitle}>Guest Training Profile</Text>
+                <Text style={styles.guestBannerText}>
+                  Your practice sessions, streaks, and scores are stored on this device. Sign in or create an account to back up your progress to the cloud and connect with certified Guro coaches.
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.guestSignInBtn}
+              onPress={() => router.push('/(auth)/login' as any)}
+              activeOpacity={0.85}>
+              <Text style={styles.guestSignInBtnText}>Sign In / Create Account 🥋</Text>
+              <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Account & Security Section */}
         <Text style={styles.sectionHeader}>ACCOUNT & SECURITY</Text>
 
@@ -399,6 +488,17 @@ export default function StudentProfileScreen() {
           <TouchableOpacity
             style={styles.settingsRow}
             onPress={() => {
+              if (!user) {
+                Alert.alert(
+                  'Sign In Required',
+                  'Please sign in or create an account to configure security credentials.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Sign In / Register', onPress: () => router.push('/(auth)/login' as any) },
+                  ]
+                );
+                return;
+              }
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setNewPassword('');
               setConfirmPassword('');
@@ -410,7 +510,9 @@ export default function StudentProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsTitle}>Change Password</Text>
-              <Text style={styles.settingsSubtitle}>Update your account login security</Text>
+              <Text style={styles.settingsSubtitle}>
+                {user ? 'Update your account login security' : 'Sign in required to configure password'}
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -421,6 +523,17 @@ export default function StudentProfileScreen() {
           <TouchableOpacity
             style={styles.settingsRow}
             onPress={() => {
+              if (!user) {
+                Alert.alert(
+                  'Sign In Required',
+                  'Please sign in or create an account to configure email credentials.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Sign In / Register', onPress: () => router.push('/(auth)/login' as any) },
+                  ]
+                );
+                return;
+              }
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setNewEmail(profile?.email || '');
               setEmailModalVisible(true);
@@ -431,7 +544,9 @@ export default function StudentProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsTitle}>Update Email Address</Text>
-              <Text style={styles.settingsSubtitle}>{profile?.email || 'Configure email'}</Text>
+              <Text style={styles.settingsSubtitle}>
+                {user ? (profile?.email || 'Configure email') : 'Sign in required to link email'}
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -466,18 +581,75 @@ export default function StudentProfileScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
+
+          <View style={styles.settingsRowDivider} />
+
+          {/* Coach Shared Data & Privacy */}
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setPrivacyModalVisible(true);
+            }}
+            activeOpacity={0.7}>
+            <View style={[styles.settingsIconBox, { backgroundColor: '#DCFCE7' }]}>
+              <Ionicons name="shield-checkmark-outline" size={18} color="#15803D" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.settingsTitle}>Coach Shared Data & Privacy</Text>
+                {sharedVideosCount > 0 && (
+                  <View style={styles.sharedCounterBadge}>
+                    <Text style={styles.sharedCounterBadgeText}>{sharedVideosCount} SHARED</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.settingsSubtitle}>
+                {sharedVideosCount > 0
+                  ? `${sharedVideosCount} practice recording${sharedVideosCount > 1 ? 's' : ''} shared with coach`
+                  : 'Manage recordings & telemetry visibility'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <View style={styles.settingsRowDivider} />
+
+          {/* About & Privacy Notice */}
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setAboutModalVisible(true);
+            }}
+            activeOpacity={0.7}>
+            <View style={[styles.settingsIconBox, { backgroundColor: '#F3F4F6' }]}>
+              <Ionicons name="information-circle-outline" size={18} color="#374151" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsTitle}>About & Privacy Notice</Text>
+              <Text style={styles.settingsSubtitle}>App version, AI camera privacy & safety info</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
         </View>
 
-        {/* Log Out Button */}
+        {/* Sign In or Log Out Button */}
         <TouchableOpacity
-          style={styles.signOutBtn}
+          style={[styles.signOutBtn, !user && styles.signInPromptBtn]}
           onPress={handleSignOut}
           activeOpacity={0.8}>
-          <Ionicons name="log-out-outline" size={18} color="#DC2626" />
-          <Text style={styles.signOutBtnText}>Log Out from Account</Text>
+          <Ionicons
+            name={user ? 'log-out-outline' : 'log-in-outline'}
+            size={18}
+            color={user ? '#DC2626' : MartialTheme.colors.primary}
+          />
+          <Text style={[styles.signOutBtnText, !user && styles.signInPromptBtnText]}>
+            {user ? 'Log Out from Account' : 'Sign In to Account'}
+          </Text>
         </TouchableOpacity>
 
-        {/* Danger Zone: Delete Account */}
+        {/* Danger Zone: Delete Account or Reset Local Data */}
         <View style={styles.dangerZone}>
           <TouchableOpacity
             style={styles.deleteAccountBtn}
@@ -489,12 +661,16 @@ export default function StudentProfileScreen() {
             ) : (
               <>
                 <Ionicons name="trash-outline" size={16} color="#B91C1C" />
-                <Text style={styles.deleteAccountBtnText}>Delete Account Permanently</Text>
+                <Text style={styles.deleteAccountBtnText}>
+                  {user ? 'Delete Account Permanently' : 'Reset Local Training Data'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
           <Text style={styles.dangerZoneNote}>
-            Irreversible. Purges your profile, practice sessions, sash rank, and chat history.
+            {user
+              ? 'Irreversible. Purges your profile, practice sessions, sash rank, and chat history.'
+              : 'Clears cached streak and local practice evaluations from this device.'}
           </Text>
         </View>
       </ScrollView>
@@ -677,6 +853,19 @@ export default function StudentProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Coach Shared Data & Privacy Modal */}
+      <CoachSharedDataModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        onSessionsUpdated={loadSharingStats}
+      />
+
+      {/* About & Privacy Notice Modal */}
+      <AppPrivacyAboutModal
+        visible={aboutModalVisible}
+        onClose={() => setAboutModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -936,6 +1125,20 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '900',
   },
+  sharedCounterBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  sharedCounterBadgeText: {
+    color: '#15803D',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
   settingsRowDivider: {
     height: 1,
     backgroundColor: MartialTheme.colors.border,
@@ -957,6 +1160,59 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#DC2626',
+  },
+  signInPromptBtn: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+  signInPromptBtnText: {
+    color: MartialTheme.colors.primary,
+  },
+  guestBannerCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    gap: 12,
+  },
+  guestBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  guestBannerIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FDE68A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#92400E',
+    marginBottom: 2,
+  },
+  guestBannerText: {
+    fontSize: 12,
+    color: '#78350F',
+    lineHeight: 17,
+  },
+  guestSignInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: MartialTheme.colors.primary,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  guestSignInBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   dangerZone: {
     marginTop: 12,

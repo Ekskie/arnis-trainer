@@ -13,6 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { CloudSyncService } from '@/services/cloudSyncService';
@@ -28,7 +31,16 @@ import { ComparisonPlayer } from '@/components/comparison/ComparisonPlayer';
 import { SashPromotionModal } from '@/components/ui/SashPromotionModal';
 import { getCoachReference } from '@/constants/referenceStore';
 import { getGamificationStats, getSashRankByLevel, SashRankInfo } from '@/constants/gamificationStore';
-import { AnyoRoutine, AnyoStepResult } from '@/constants/historyStore';
+import { markLessonCompleted, PASSING_SCORE_THRESHOLD } from '@/constants/curriculumStore';
+import { calculateStarCount } from '@/engine/evaluation/scoreCalculator';
+import {
+  AnyoRoutine,
+  AnyoStepResult,
+  getHistory,
+  updateSessionSharing,
+  updateSessionVideo,
+  getAutoShareCoachPreference,
+} from '@/constants/historyStore';
 
 export interface PracticeResultProps {
   result: StrikeEvaluationResult;
@@ -63,6 +75,35 @@ export interface PracticeResultProps {
   onExitLesson?: () => void;
 }
 
+function PracticeResultVideoPlayer({ videoUri }: { videoUri: string }) {
+  const player = useVideoPlayer(videoUri, (p) => {
+    p.loop = true;
+    p.play();
+  });
+
+  React.useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+      } catch {
+        // ignore
+      }
+    };
+  }, [player]);
+
+  return (
+    <View style={styles.nativeVideoContainer}>
+      <VideoView
+        player={player}
+        style={styles.nativeVideoView}
+        allowsFullscreen
+        allowsPictureInPicture={false}
+        contentFit="contain"
+      />
+    </View>
+  );
+}
+
 export function PracticeResult({
   result,
   improvement,
@@ -92,6 +133,8 @@ export function PracticeResult({
   const [sashInfo, setSashInfo] = useState<SashRankInfo>(() => getSashRankByLevel(1));
 
   const { user } = useAuth();
+  const [attachedVideoUri, setAttachedVideoUri] = useState<string | null>(lastReplayVideo || null);
+  const [isPickingVideo, setIsPickingVideo] = useState(false);
   const [shareVideoWithCoach, setShareVideoWithCoach] = useState(false);
   const [isSyncingVideo, setIsSyncingVideo] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -106,6 +149,13 @@ export function PracticeResult({
 
   // Auto-sync metrics upon result view for authenticated students
   React.useEffect(() => {
+    let isMounted = true;
+    getAutoShareCoachPreference().then((autoShare) => {
+      if (isMounted && autoShare) {
+        setShareVideoWithCoach(true);
+      }
+    });
+
     if (user) {
       const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
       const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
@@ -122,17 +172,71 @@ export function PracticeResult({
         grade: result.grade,
         date: new Date().toLocaleDateString(),
         snapshotBase64: lastSnapshot || undefined,
-        replayVideoBase64: lastReplayVideo || undefined,
+        replayVideoBase64: attachedVideoUri || lastReplayVideo || undefined,
+        userVideoUri: attachedVideoUri || undefined,
         breakdown: {
           elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
           shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
-          wrist: { score: result.wristScore, actual: 0, ideal: coachRef.angles.wrist || 90 },
+          wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
         },
       };
 
-      CloudSyncService.syncPracticeSession(user.id, sessionItem as any, false);
+      getAutoShareCoachPreference().then(async (autoShare) => {
+        const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, autoShare);
+        if (isMounted && res?.error) {
+          setSyncStatus(`Cloud sync pending: ${res.error.message}`);
+        }
+      });
     }
-  }, [user?.id, strikeRule.id, activeRoutine?.id, result.score]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, strikeRule.id, activeRoutine?.id, result.score, attachedVideoUri]);
+
+  // Pick screen recording or practice video from gallery
+  const handlePickVideo = async () => {
+    try {
+      setIsPickingVideo(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (!res.canceled && res.assets && res.assets[0]?.uri) {
+        const videoUri = res.assets[0].uri;
+        setAttachedVideoUri(videoUri);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Update local session
+        const history = await getHistory(user?.id);
+        if (history.length > 0) {
+          const targetSessionId = history[0].id;
+          await updateSessionVideo(targetSessionId, videoUri, user?.id);
+
+          // If student already has sharing toggled ON, sync to cloud
+          if (shareVideoWithCoach && user?.id) {
+            setIsSyncingVideo(true);
+            setSyncStatus('Uploading attached video for coach review...');
+            await CloudSyncService.updateSessionSharing(user.id, targetSessionId, true, {
+              ...history[0],
+              userVideoUri: videoUri,
+            });
+            setIsSyncingVideo(false);
+            setSyncStatus('Video shared with Coach! 🥋');
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[PracticeResult] Error selecting video:', err);
+      Alert.alert('Selection Error', 'Failed to pick video from gallery.');
+    } finally {
+      setIsPickingVideo(false);
+    }
+  };
 
   const handleToggleShareVideo = async (value: boolean) => {
     setShareVideoWithCoach(value);
@@ -146,7 +250,7 @@ export function PracticeResult({
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Sign In / Register',
-              onPress: () => router.push('/(auth)/sign-in' as any),
+              onPress: () => router.push('/(auth)/login' as any),
             },
           ]
         );
@@ -154,47 +258,71 @@ export function PracticeResult({
       return;
     }
 
-    if (value && (lastReplayVideo || lastSnapshot)) {
-      setIsSyncingVideo(true);
-      setSyncStatus('Uploading video for coach review...');
-      const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
-      const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
-      const effectiveDesc = activeRoutine
-        ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
-        : strikeRule.desc;
+    if (value) {
+      const activeVideo = attachedVideoUri || lastReplayVideo;
+      if (activeVideo || lastSnapshot) {
+        setIsSyncingVideo(true);
+        setSyncStatus('Uploading for coach review...');
+        const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
+        const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
+        const effectiveDesc = activeRoutine
+          ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
+          : strikeRule.desc;
 
-      const sessionItem = {
-        id: 'session_' + Date.now(),
-        strikeId: effectiveId,
-        strikeName: effectiveName,
-        description: effectiveDesc,
-        score: result.score,
-        grade: result.grade,
-        date: new Date().toLocaleDateString(),
-        snapshotBase64: lastSnapshot || undefined,
-        replayVideoBase64: lastReplayVideo || undefined,
-        breakdown: {
-          elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
-          shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
-          wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
-          guard: { score: result.guardScore, actual: 0, ideal: 70 },
-          stance: { score: result.stanceScore, actual: lastImpactMeta?.actualAngles?.knee || 0, ideal: 145 },
-        },
-      };
+        const sessionItem = {
+          id: 'session_' + Date.now(),
+          strikeId: effectiveId,
+          strikeName: effectiveName,
+          description: effectiveDesc,
+          score: result.score,
+          grade: result.grade,
+          date: new Date().toLocaleDateString(),
+          snapshotBase64: lastSnapshot || undefined,
+          replayVideoBase64: undefined,
+          userVideoUri: activeVideo || undefined,
+          breakdown: {
+            elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
+            shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
+            wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
+            guard: { score: result.guardScore, actual: 0, ideal: 70 },
+            stance: { score: result.stanceScore, actual: lastImpactMeta?.actualAngles?.knee || 0, ideal: 145 },
+          },
+        };
 
-      const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, true);
-      setIsSyncingVideo(false);
-      if (res.error) {
-        setSyncStatus('Failed to upload video');
-      } else {
-        setSyncStatus('Video shared with Coach! 🥋');
+        const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, true);
+        setIsSyncingVideo(false);
+        if (res.error) {
+          setSyncStatus('Failed to upload video');
+        } else {
+          setSyncStatus('Shared with Coach! 🥋');
+        }
+
+        // Update local session in history store
+        const history = await getHistory(user.id);
+        if (history.length > 0) {
+          await updateSessionSharing(history[0].id, true, user.id);
+        }
       }
     } else {
-      setSyncStatus(null);
+      // Revoke sharing
+      const history = await getHistory(user.id);
+      if (history.length > 0) {
+        await updateSessionSharing(history[0].id, false, user.id);
+        await CloudSyncService.updateSessionSharing(user.id, history[0].id, false);
+      }
+      setSyncStatus('Recording kept private to device 🔒');
     }
   };
 
+  const isPassed = result.score >= PASSING_SCORE_THRESHOLD; // 75%
   const isMastered = improvement.isMastered || result.score >= 85;
+
+  // Ensure passed strike is marked completed in curriculum to unlock the next strike
+  React.useEffect(() => {
+    if (isPassed && strikeRule?.id) {
+      markLessonCompleted(strikeRule.id, user?.id).catch(() => {});
+    }
+  }, [isPassed, strikeRule?.id, user?.id]);
 
   const isAnyo = Boolean(activeRoutine && anyoStepScores && anyoStepScores.length > 0);
   const anyoAvgScore = React.useMemo(() => {
@@ -210,16 +338,12 @@ export function PracticeResult({
   }, [anyoStepScores]);
 
   const anyoStars = React.useMemo(() => {
-    if (anyoAvgScore >= 90) return 5;
-    if (anyoAvgScore >= 80) return 4;
-    if (anyoAvgScore >= 70) return 3;
-    if (anyoAvgScore >= 60) return 2;
-    return 1;
+    return calculateStarCount(anyoAvgScore);
   }, [anyoAvgScore]);
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return MartialTheme.colors.primary;
-    if (score >= 70) return MartialTheme.colors.bamboo;
+    if (score >= 75) return MartialTheme.colors.bamboo;
     return '#EF4444';
   };
 
@@ -349,20 +473,26 @@ export function PracticeResult({
           <View style={[styles.rewardCard, isMastered && styles.rewardCardMastered]}>
             {/* Coach Character Celebration or Encouragement */}
             <CoachCharacter
-              pose={isMastered ? 'celebrating' : 'stance'}
+              pose={isPassed ? (isMastered ? 'celebrating' : 'stance') : 'thinking'}
               size={110}
               style={{ marginBottom: 6 }}
             />
 
-            {/* Mastered / Nice Work Heading */}
+            {/* Mastered / Passed / Needs Correction Heading */}
             <Text style={[styles.rewardHeading, isMastered && styles.rewardHeadingMastered]}>
-              {isMastered ? '🎉 STRIKE MASTERED!' : '🎉 NICE WORK!'}
+              {isMastered ? '🎉 STRIKE MASTERED!' : isPassed ? '🎉 TECHNIQUE PASSED!' : '⚠️ NEEDS CORRECTION'}
             </Text>
 
-            {isMastered && (
+            {isPassed ? (
               <View style={styles.masteredBanner}>
                 <Text style={styles.masteredBannerText}>
                   {"You've unlocked the next technique!"}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.masteredBanner, { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }]}>
+                <Text style={[styles.masteredBannerText, { color: '#DC2626' }]}>
+                  {"Score 75%+ (Grade C) to pass and unlock the next strike."}
                 </Text>
               </View>
             )}
@@ -628,7 +758,7 @@ export function PracticeResult({
           coachImpactTime={coachRef.impactTime}
           confidence={lastImpactMeta?.confidence ?? 0.85}
           onOpenVideoComparison={() => setShowComparisonPlayer(true)}
-          hasUserVideo={!!lastReplayVideo}
+          hasUserVideo={Boolean(attachedVideoUri || lastReplayVideo)}
         />
 
         {/* --- 3. COLLAPSIBLE DETAILED BIOMECHANICAL ANALYSIS --- */}
@@ -748,37 +878,55 @@ export function PracticeResult({
               </View>
             </View>
 
-            {/* Video Motion Replay if available */}
-            {lastReplayVideo && (
+            {/* Video Motion Replay or Screen Recording Attachment Card */}
+            {attachedVideoUri ? (
               <View style={styles.mediaContainer}>
-                <Text style={styles.mediaHeading}>VIDEO MOTION REPLAY</Text>
-                <View style={styles.videoWrapper}>
-                  <WebView
-                    originWhitelist={['*']}
-                    source={{
-                      html: `
-                        <!DOCTYPE html>
-                        <html>
-                          <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                            <style>body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; } video { width: 100%; height: 100%; object-fit: contain; }</style>
-                          </head>
-                          <body><video src="${lastReplayVideo}" autoplay loop muted playsinline controls></video></body>
-                        </html>
-                      `,
-                    }}
-                    style={{ flex: 1 }}
-                  />
+                <View style={styles.mediaHeaderRow}>
+                  <Text style={styles.mediaHeading}>STRIKE MOTION REPLAY</Text>
+                  <TouchableOpacity
+                    style={styles.changeVideoBtn}
+                    onPress={handlePickVideo}
+                    disabled={isPickingVideo}
+                    activeOpacity={0.75}>
+                    <Ionicons name="swap-horizontal" size={13} color="#2563EB" />
+                    <Text style={styles.changeVideoBtnText}>Change Video</Text>
+                  </TouchableOpacity>
                 </View>
+                <PracticeResultVideoPlayer videoUri={attachedVideoUri} />
               </View>
-            )}
+            ) : (
+              <>
+                {/* Snapshot if available */}
+                {lastSnapshot && (
+                  <View style={styles.mediaContainer}>
+                    <Text style={styles.mediaHeading}>IMPACT ZONE SNAPSHOT</Text>
+                    <Image source={{ uri: lastSnapshot }} style={styles.snapshotImg} resizeMode="contain" />
+                  </View>
+                )}
 
-            {/* Snapshot if available */}
-            {lastSnapshot && !lastReplayVideo && (
-              <View style={styles.mediaContainer}>
-                <Text style={styles.mediaHeading}>IMPACT ZONE SNAPSHOT</Text>
-                <Image source={{ uri: lastSnapshot }} style={styles.snapshotImg} resizeMode="contain" />
-              </View>
+                {/* Attach Video Action Card */}
+                <View style={styles.attachVideoCard}>
+                  <View style={styles.attachVideoIconBox}>
+                    <MaterialCommunityIcons name="cellphone-play" size={26} color={MartialTheme.colors.primary} />
+                  </View>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.attachVideoTitle}>Attach Screen Recording</Text>
+                    <Text style={styles.attachVideoDesc}>
+                      Recorded your screen during this strike? Select the video to preview and share it with your Guro coach.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.attachVideoBtn}
+                    onPress={handlePickVideo}
+                    disabled={isPickingVideo}
+                    activeOpacity={0.85}>
+                    <Ionicons name="folder-open-outline" size={15} color="#FFFFFF" />
+                    <Text style={styles.attachVideoBtnText}>
+                      {isPickingVideo ? 'Selecting...' : 'Select Video'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
 
             {/* Diagnostic Button */}
@@ -790,11 +938,60 @@ export function PracticeResult({
               <Ionicons name="help-circle" size={16} color="#0284C7" style={{ marginRight: 6 }} />
               <Text style={styles.whyBtnText}>Why Did I Get {result.score}%? (Diagnosis)</Text>
             </TouchableOpacity>
+
+            {/* Research Shadow Telemetry (Non-Grading) */}
+            {result.shadowEvaluation && (
+              <View style={styles.shadowTelemetryBox}>
+                <Text style={styles.shadowTelemetryHeading}>
+                  SHADOW RESEARCH TELEMETRY (NON-GRADING)
+                </Text>
+                <Text style={styles.shadowTelemetryLine}>
+                  Status: {result.shadowEvaluation.referenceStatus} · Frames:{' '}
+                  {result.shadowEvaluation.measurementCoverage.validNormalizedFrames}/
+                  {result.shadowEvaluation.measurementCoverage.totalFrames} (V2 shoulder scale:{' '}
+                  {result.shadowEvaluation.normalizationMeta.fixedMedianShoulderWidthPx ?? 'N/A'}px)
+                </Text>
+                {result.shadowEvaluation.trajectoryMetrics && (
+                  <Text style={styles.shadowTelemetryLine}>
+                    DTW Mean/RMS Dist:{' '}
+                    {result.shadowEvaluation.trajectoryMetrics.dtwMeanDistance.toFixed(3)} /{' '}
+                    {result.shadowEvaluation.trajectoryMetrics.dtwRmsDistance.toFixed(3)} · Dir
+                    Cosine:{' '}
+                    {result.shadowEvaluation.trajectoryMetrics.directionCosineMean !== null
+                      ? result.shadowEvaluation.trajectoryMetrics.directionCosineMean.toFixed(3)
+                      : 'N/A'}{' '}
+                    · Dir Agree:{' '}
+                    {result.shadowEvaluation.trajectoryMetrics.directionAgreementFraction !== null
+                      ? `${Math.round(
+                          result.shadowEvaluation.trajectoryMetrics.directionAgreementFraction * 100
+                        )}%`
+                      : 'N/A'}
+                  </Text>
+                )}
+                {result.shadowEvaluation.kinematicLandmarks && (
+                  <Text style={styles.shadowTelemetryLine}>
+                    Kinematic Peak Speed (non-impact):{' '}
+                    {result.shadowEvaluation.kinematicLandmarks.userPeakWristSpeedNormPerSec?.toFixed(
+                      2
+                    ) ?? 'N/A'}{' '}
+                    shld/s @ tNorm{' '}
+                    {result.shadowEvaluation.kinematicLandmarks.userPeakSpeedTimeNorm ?? 'N/A'}
+                  </Text>
+                )}
+                {result.shadowEvaluation.jointComparisons2D.map((jc, idx) => (
+                  <Text key={`${jc.jointName}_${jc.phase}_${idx}`} style={styles.shadowTelemetryLine}>
+                    2D {jc.jointName} ({jc.phase}) [{jc.reliabilityStatus}]: actual{' '}
+                    {jc.actualAngle2D !== null ? `${jc.actualAngle2D}°` : 'N/A'} vs median{' '}
+                    {jc.referenceMedian2D !== null ? `${jc.referenceMedian2D}°` : 'N/A'}
+                  </Text>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
         {/* --- COACH VIDEO SHARING PERMISSION CARD --- */}
-        {(lastReplayVideo || lastSnapshot) && (
+        {(attachedVideoUri || lastReplayVideo || lastSnapshot) && (
           <View style={styles.shareCoachCard}>
             <View style={styles.shareCoachHeaderRow}>
               <View style={styles.shareCoachIconBadge}>
@@ -803,7 +1000,9 @@ export function PracticeResult({
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={styles.shareCoachTitle}>Share Video with Coach</Text>
                 <Text style={styles.shareCoachSubtitle}>
-                  Allow your connected Guro to inspect this practice attempt and give form corrections.
+                  {attachedVideoUri
+                    ? 'Allow your connected Guro to inspect this practice attempt and give form corrections.'
+                    : 'Attach a screen recording above, then toggle this ON to submit it for your Guro coach to review.'}
                 </Text>
               </View>
               <Switch
@@ -827,11 +1026,11 @@ export function PracticeResult({
             {syncStatus && (
               <View style={styles.syncStatusRow}>
                 <Ionicons
-                  name={syncStatus.includes('shared') ? 'checkmark-circle' : 'cloud-upload-outline'}
+                  name={syncStatus.includes('shared') || syncStatus.includes('Shared') ? 'checkmark-circle' : 'cloud-upload-outline'}
                   size={15}
-                  color={syncStatus.includes('shared') ? '#15803D' : '#D97706'}
+                  color={syncStatus.includes('shared') || syncStatus.includes('Shared') ? '#15803D' : '#D97706'}
                 />
-                <Text style={[styles.syncStatusText, syncStatus.includes('shared') && { color: '#15803D' }]}>
+                <Text style={[styles.syncStatusText, (syncStatus.includes('shared') || syncStatus.includes('Shared')) && { color: '#15803D' }]}>
                   {syncStatus}
                 </Text>
               </View>
@@ -885,7 +1084,7 @@ export function PracticeResult({
             </TouchableOpacity>
           </View>
         ) : isFromLesson ? (
-          (practiceMode === 'test' ? result.score >= 80 : result.score >= 70) ? (
+          isPassed ? (
             <View style={styles.stickyRow}>
               {onContinueLesson && (
                 <View style={{ flex: 1.3 }}>
@@ -921,7 +1120,7 @@ export function PracticeResult({
             <View style={styles.stickyRow}>
               <View style={{ flex: 1.4 }}>
                 <TactileButton
-                  title={practiceMode === 'test' ? "RE-TEST (80%+ TO PASS) ⚔️" : "RE-TEST FORM ⚔️"}
+                  title="RE-TEST (75%+ TO PASS) ⚔️"
                   variant="primary"
                   size="md"
                   icon={<Ionicons name="flash" size={16} color="#FFFFFF" />}
@@ -941,7 +1140,7 @@ export function PracticeResult({
           )
         ) : (
           <View style={styles.stickyRow}>
-            {isMastered ? (
+            {isPassed ? (
               <>
                 {onNextStrike ? (
                   <View style={{ flex: 1.4 }}>
@@ -979,7 +1178,7 @@ export function PracticeResult({
               <>
                 <View style={{ flex: 1.4 }}>
                   <TactileButton
-                    title="RE-TEST FORM ⚔️"
+                    title="RE-TEST (75%+ TO PASS) ⚔️"
                     variant="primary"
                     size="md"
                     icon={<Ionicons name="flash" size={15} color="#FFFFFF" />}
@@ -1038,7 +1237,8 @@ export function PracticeResult({
           onClose={() => setShowComparisonPlayer(false)}
           strikeRule={strikeRule}
           coachReference={coachRef}
-          userVideoUri={lastReplayVideo}
+          userVideoUri={attachedVideoUri || lastReplayVideo}
+          userSnapshotUri={lastSnapshot}
           userImpactTime={lastImpactMeta?.impactTime ?? 1.45}
           coachImpactTime={coachRef.impactTime}
         />
@@ -1787,5 +1987,102 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: MartialTheme.colors.textSecondary,
+  },
+  nativeVideoContainer: {
+    height: 220,
+    backgroundColor: '#000000',
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  nativeVideoView: {
+    width: '100%',
+    height: '100%',
+  },
+  mediaHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  changeVideoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+  },
+  changeVideoBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  attachVideoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#BBF7D0',
+    marginTop: 10,
+    gap: 12,
+  },
+  attachVideoIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachVideoTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#14532D',
+  },
+  attachVideoDesc: {
+    fontSize: 11,
+    color: '#166534',
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  attachVideoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: MartialTheme.colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignSelf: 'center',
+  },
+  attachVideoBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  shadowTelemetryBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    gap: 4,
+  },
+  shadowTelemetryHeading: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#334155',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  shadowTelemetryLine: {
+    fontSize: 11,
+    color: '#475569',
+    lineHeight: 15,
   },
 });

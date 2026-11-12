@@ -84,7 +84,7 @@ export default function EvaluateScreen() {
       return (
         <>
           <PracticeHomeScreen
-            onStartStrike={practice.startStrike}
+            onStartStrike={startStrikeWithSafety}
             onStartAnyo={practice.startAnyo}
             onOpenVideoGuide={(strikeId) => {
               setVideoModalStrikeId(strikeId || practice.selectedStrikeId);

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,13 +21,19 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, isConfigured } = useAuth();
+  const { signIn, resetPasswordForEmail, resendConfirmationEmail } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+
+  // Forgot password modal state
+  const [resetModalVisible, setResetModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSending, setResetSending] = useState(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -35,6 +43,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     setErrorMessage(null);
+    setNeedsConfirmation(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const { error } = await signIn(email, password);
@@ -42,21 +51,48 @@ export default function LoginScreen() {
 
     if (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setErrorMessage(error.message || 'Failed to sign in. Please check your credentials.');
+      const msg = error.message || 'Failed to sign in. Please check your credentials.';
+      if (msg.toLowerCase().includes('email not confirmed')) {
+        setNeedsConfirmation(true);
+        setErrorMessage('Please verify your email address from the confirmation link sent to your inbox before signing in.');
+      } else {
+        setErrorMessage(msg);
+      }
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // Navigation is automatically handled by RootLayout based on auth state and role!
     }
   };
 
-  const fillQuickDev = (role: 'student' | 'coach') => {
-    Haptics.selectionAsync();
-    if (role === 'coach') {
-      setEmail('guro.miguel@arnis.ph');
-      setPassword('coach123456');
+  const handleResendVerification = async () => {
+    if (!email.trim()) return;
+    setLoading(true);
+    const { error } = await resendConfirmationEmail(email);
+    setLoading(false);
+    if (error) {
+      Alert.alert('Resend Failed', error.message);
     } else {
-      setEmail('student.juan@arnis.ph');
-      setPassword('student123456');
+      Alert.alert('Email Sent', `A new verification link has been sent to ${email.trim()}.`);
+    }
+  };
+
+  const handleSendPasswordReset = async () => {
+    if (!resetEmail.trim()) {
+      Alert.alert('Email Required', 'Please enter the email address associated with your account.');
+      return;
+    }
+    setResetSending(true);
+    const { error } = await resetPasswordForEmail(resetEmail);
+    setResetSending(false);
+    if (error) {
+      Alert.alert('Reset Failed', error.message);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setResetModalVisible(false);
+      Alert.alert(
+        'Reset Link Sent',
+        `Check ${resetEmail.trim()} for instructions to reset your password.`
+      );
     }
   };
 
@@ -85,7 +121,14 @@ export default function LoginScreen() {
           {errorMessage && (
             <View style={styles.errorBox}>
               <Ionicons name="alert-circle" size={18} color="#DC2626" />
-              <Text style={styles.errorText}>{errorMessage}</Text>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.errorText}>{errorMessage}</Text>
+                {needsConfirmation && (
+                  <TouchableOpacity onPress={handleResendVerification} disabled={loading}>
+                    <Text style={styles.resendLinkText}>Resend Verification Email</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           )}
 
@@ -132,6 +175,15 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity
+              style={styles.forgotPasswordBtn}
+              onPress={() => {
+                setResetEmail(email.trim());
+                setResetModalVisible(true);
+              }}>
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.submitButton, loading && styles.submitButtonDisabled]}
               onPress={handleLogin}
               disabled={loading}
@@ -147,25 +199,6 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Quick Dev Preset Fillers */}
-          {!isConfigured && (
-            <View style={styles.devSection}>
-              <Text style={styles.devSectionTitle}>DEV TESTING PRESETS (OFFLINE MODE):</Text>
-              <View style={styles.devRow}>
-                <TouchableOpacity
-                  style={styles.devChip}
-                  onPress={() => fillQuickDev('student')}>
-                  <Text style={styles.devChipText}>Fill Student</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.devChip, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}
-                  onPress={() => fillQuickDev('coach')}>
-                  <Text style={[styles.devChipText, { color: '#92400E' }]}>Fill Coach</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
           {/* Register Prompt */}
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>{"Don't have an account yet? "}</Text>
@@ -175,6 +208,52 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={resetModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setResetModalVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Reset Password</Text>
+            <Text style={styles.modalDesc}>
+              Enter the email linked to your account and we will send a password reset link.
+            </Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color="#7D8C84" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="name@example.com"
+                placeholderTextColor="#9CA3AF"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+              />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setResetModalVisible(false)}
+                disabled={resetSending}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSendBtn, resetSending && styles.submitButtonDisabled]}
+                onPress={handleSendPasswordReset}
+                disabled={resetSending}>
+                {resetSending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSendText}>Send Reset Link</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -289,38 +368,72 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  devSection: {
-    marginTop: 24,
-    padding: 14,
+  resendLinkText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: MartialTheme.colors.primaryDark,
+    textDecorationLine: 'underline',
+  },
+  forgotPasswordBtn: {
+    alignSelf: 'flex-end',
+    paddingVertical: 2,
+  },
+  forgotPasswordText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: MartialTheme.colors.primary,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: MartialTheme.colors.border,
+    borderRadius: 18,
+    padding: 20,
+    gap: 14,
+  },
+  modalTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: MartialTheme.colors.text,
+  },
+  modalDesc: {
+    fontSize: 13,
+    color: MartialTheme.colors.textSecondary,
+    lineHeight: 19,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  modalCancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  modalCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: MartialTheme.colors.textSecondary,
+  },
+  modalSendBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: MartialTheme.colors.primary,
+    minWidth: 120,
     alignItems: 'center',
   },
-  devSectionTitle: {
-    fontSize: 11,
+  modalSendText: {
+    fontSize: 13,
     fontWeight: '800',
-    color: '#6B7280',
-    marginBottom: 10,
-    letterSpacing: 0.5,
-  },
-  devRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  devChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#DCFCE7',
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-  },
-  devChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#15803D',
+    color: '#FFFFFF',
   },
   footerRow: {
     flexDirection: 'row',

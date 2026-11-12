@@ -27,6 +27,7 @@ export default function CoachConnectScreen() {
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [mentorship, setMentorship] = useState<MentorshipRequest | null>(null);
   const [coaches, setCoaches] = useState<UserProfile[]>([]);
   const [selectedCoach, setSelectedCoach] = useState<UserProfile | null>(null);
@@ -35,6 +36,7 @@ export default function CoachConnectScreen() {
   const [showRequestModal, setShowRequestModal] = useState(false);
 
   const loadData = async () => {
+    setLoadError(null);
     try {
       if (user) {
         const [status, coachList] = await Promise.all([
@@ -48,8 +50,9 @@ export default function CoachConnectScreen() {
         setMentorship(null);
         setCoaches(coachList);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load mentorship data:', e);
+      setLoadError(e?.message || 'Unable to load certified coaches. Check your internet connection.');
     } finally {
       setLoading(false);
     }
@@ -74,7 +77,12 @@ export default function CoachConnectScreen() {
           style: 'destructive',
           onPress: async () => {
             setLoading(true);
-            await MentorshipService.endMentorship(mentorship.id);
+            const res = await MentorshipService.endMentorship(mentorship.id);
+            if (res.error) {
+              setLoading(false);
+              Alert.alert('Action Failed', res.error.message);
+              return;
+            }
             setMentorship(null);
             await loadData();
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -96,7 +104,7 @@ export default function CoachConnectScreen() {
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Sign In / Register',
-            onPress: () => router.push('/(auth)/sign-in' as any),
+            onPress: () => router.push('/(auth)/login' as any),
           },
         ]
       );
@@ -166,7 +174,11 @@ export default function CoachConnectScreen() {
           style: 'destructive',
           onPress: async () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            await MentorshipService.cancelMentorshipRequest(mentorship.id);
+            const res = await MentorshipService.cancelMentorshipRequest(mentorship.id);
+            if (res.error) {
+              Alert.alert('Cancel Failed', res.error.message);
+              return;
+            }
             loadData();
           },
         },
@@ -279,6 +291,37 @@ export default function CoachConnectScreen() {
               <Text style={styles.badgeCounterText}>{coaches.length} Available</Text>
             </View>
           </View>
+
+          {loadError ? (
+            <View style={styles.pendingCard}>
+              <View style={styles.pendingHeaderRow}>
+                <Ionicons name="cloud-offline-outline" size={20} color="#DC2626" />
+                <Text style={[styles.pendingTitle, { color: '#DC2626' }]}>Connection Issue</Text>
+              </View>
+              <Text style={styles.pendingDesc}>{loadError}</Text>
+              <TouchableOpacity
+                style={styles.cancelRequestBtn}
+                onPress={() => {
+                  setLoading(true);
+                  loadData();
+                }}
+                activeOpacity={0.7}>
+                <Text style={styles.cancelRequestBtnText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : coaches.length === 0 ? (
+            <View style={styles.pendingCard}>
+              <View style={styles.pendingHeaderRow}>
+                <Ionicons name="people-outline" size={20} color="#6B7280" />
+                <Text style={[styles.pendingTitle, { color: MartialTheme.colors.text }]}>
+                  No Coaches Registered Yet
+                </Text>
+              </View>
+              <Text style={styles.pendingDesc}>
+                No certified Guro accounts are available in the directory yet. Pull or tap Retry once a coach registers.
+              </Text>
+            </View>
+          ) : null}
 
           {coaches.map((coach) => {
             const isMyCoach = mentorship?.coach_id === coach.id && mentorship.status === 'accepted';

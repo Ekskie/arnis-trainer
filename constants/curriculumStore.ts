@@ -1517,8 +1517,8 @@ export async function setLessonPedagogicalStatus(
     current[lessonId] = updatedRecord;
     await AsyncStorage.setItem(key, JSON.stringify(current));
 
-    // If marked assessed with high score or marked mastered, mark completed in base progress
-    if (status === 'mastered' || (score && score >= 85)) {
+    // If marked assessed with passing score (>= 75%) or marked mastered, mark completed in base progress
+    if (status === 'mastered' || (score && score >= PASSING_SCORE_THRESHOLD)) {
       await markLessonCompleted(lessonId, userId);
     }
 
@@ -1704,6 +1704,9 @@ export async function markLessonCompleted(lessonId: string, userId?: string): Pr
   }
 }
 
+export const PASSING_SCORE_THRESHOLD = 75; // Grade C: 75 - 84%, < 75 is Fail
+export const MASTERY_SCORE_THRESHOLD = 85; // Grade B: 85 - 94%, Grade A: 95 - 100%
+
 /**
  * Open Reading Access:
  * Anyone can read, learn, and watch ANY lesson at ANY time!
@@ -1738,6 +1741,25 @@ export function canTestLesson(lessonId: string, completedLessonIds: string[]): b
  */
 export function isLessonUnlocked(lessonId: string, completedLessonIds: string[]): boolean {
   return canPracticeLesson(lessonId, completedLessonIds);
+}
+
+/**
+ * Check if a specific canonical strike (e.g. 'strike_1'..'strike_12') is unlocked.
+ * Strike 1 is unlocked once prerequisites leading to Stage 3 are met.
+ * Subsequent strikes require the immediate predecessor strike to be completed (with >= 75% passing grade).
+ */
+export function isStrikeUnlocked(strikeId: string, completedLessonIds: string[]): boolean {
+  if (completedLessonIds.includes(strikeId)) return true;
+  const match = strikeId.match(/^strike_(\d+)$/);
+  if (!match) {
+    return isLessonUnlocked(strikeId, completedLessonIds);
+  }
+  const strikeNum = parseInt(match[1], 10);
+  if (strikeNum === 1) {
+    return isLessonUnlocked('strike_1', completedLessonIds);
+  }
+  const prevStrikeId = `strike_${strikeNum - 1}`;
+  return isStrikeUnlocked(prevStrikeId, completedLessonIds) && completedLessonIds.includes(prevStrikeId);
 }
 
 /**

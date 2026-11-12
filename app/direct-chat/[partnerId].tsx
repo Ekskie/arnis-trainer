@@ -116,7 +116,10 @@ export default function DirectChatScreen() {
 
   // Load partner profile and message history
   useEffect(() => {
-    if (!partnerId || !user) return;
+    if (!partnerId || !user) {
+      setLoading(false);
+      return;
+    }
 
     // Fetch partner profile safely
     if (isSupabaseConfigured && isUUID(partnerId)) {
@@ -135,31 +138,36 @@ export default function DirectChatScreen() {
                 role: profile?.role === 'coach' ? 'student' : 'coach',
                 display_name: profile?.role === 'coach' ? 'Trainee' : 'Guro Instructor',
                 email: null,
-                rank_sash: profile?.role === 'coach' ? 'White Sash' : 'Lakan Tatlo (3rd Dan)',
+                rank_sash: profile?.role === 'coach' ? 'White Sash' : 'Certified Guro',
               });
             }
           },
           () => {}
         );
     } else {
-      // Dev / offline fallback
       setPartnerProfile({
         id: partnerId,
-        role: partnerId.includes('coach') ? 'coach' : 'student',
-        display_name: partnerId.includes('coach') ? 'Guro Miguel Roxas' : 'Juan Dela Cruz',
-        email: partnerId.includes('coach') ? 'guro.miguel@arnis.ph' : 'student.juan@arnis.ph',
-        rank_sash: partnerId.includes('coach') ? 'Lakan Tatlo (3rd Dan)' : 'Green Sash',
+        role: profile?.role === 'coach' ? 'student' : 'coach',
+        display_name: 'Academy Member',
+        email: null,
       });
     }
 
     // Initial message history load
-    MessageService.fetchMessages(user.id, partnerId).then((history) => {
-      setMessages(history);
-      setLoading(false);
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: false });
-      }, 100);
-    });
+    MessageService.fetchMessages(user.id, partnerId)
+      .then((history) => {
+        setSendError(null);
+        setMessages(history);
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: false });
+        }, 100);
+      })
+      .catch((err) => {
+        setSendError(err?.message || 'Unable to load message history.');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     // Realtime incoming message subscription via Supabase
     const unsubscribe = MessageService.subscribeToMessages(
@@ -180,29 +188,31 @@ export default function DirectChatScreen() {
 
     // Reliable 4s polling fallback in case mobile websocket drops
     const pollTimer = setInterval(() => {
-      MessageService.fetchMessages(user.id, partnerId).then((latest) => {
-        setMessages((prev) => {
-          const pendingOptimistic = prev.filter((m) => m.id.startsWith('temp_'));
-          if (pendingOptimistic.length > 0) {
-            // Keep pending optimistic messages that haven't appeared in latest yet
-            const unconfirmed = pendingOptimistic.filter(
-              (temp) =>
-                !latest.some(
-                  (srv) => srv.sender_id === temp.sender_id && srv.content === temp.content
-                )
-            );
-            return [...latest, ...unconfirmed];
-          }
+      MessageService.fetchMessages(user.id, partnerId)
+        .then((latest) => {
+          setMessages((prev) => {
+            const pendingOptimistic = prev.filter((m) => m.id.startsWith('temp_'));
+            if (pendingOptimistic.length > 0) {
+              // Keep pending optimistic messages that haven't appeared in latest yet
+              const unconfirmed = pendingOptimistic.filter(
+                (temp) =>
+                  !latest.some(
+                    (srv) => srv.sender_id === temp.sender_id && srv.content === temp.content
+                  )
+              );
+              return [...latest, ...unconfirmed];
+            }
 
-          if (
-            latest.length !== prev.length ||
-            (latest.length > 0 && prev.length > 0 && latest[latest.length - 1].id !== prev[prev.length - 1].id)
-          ) {
-            return latest;
-          }
-          return prev;
-        });
-      });
+            if (
+              latest.length !== prev.length ||
+              (latest.length > 0 && prev.length > 0 && latest[latest.length - 1].id !== prev[prev.length - 1].id)
+            ) {
+              return latest;
+            }
+            return prev;
+          });
+        })
+        .catch(() => {});
     }, 4000);
 
     return () => {
