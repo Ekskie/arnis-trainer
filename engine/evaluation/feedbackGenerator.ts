@@ -22,57 +22,58 @@ export function generateCoachFeedback(
   // 2. Checklist of what was good
   const positives: string[] = [];
   if (pillars.stance >= 75) {
-    positives.push('Solid Tindig stance & knee bend stability');
+    positives.push('Balanced, steady stance with bent knees');
   }
   if (pillars.guard >= 75) {
-    positives.push('Kalasag check hand pinned firmly to chest');
+    positives.push('Great job keeping your free hand on your chest');
   }
   if (pillars.strikingArm >= 75) {
-    positives.push('Clean slicing angle along target plane');
+    positives.push('Smooth, controlled arm swing on target');
   }
   if (pillars.wrist >= 75) {
-    positives.push('Sharp wrist alignment at impact apex');
+    positives.push('Nice, crisp wrist control at the end of the strike');
   }
   if (positives.length === 0) {
-    positives.push('Good attempt! Ready stance recognized');
+    positives.push('Good effort! Keep practicing the motion smoothly');
   }
 
   // 3. Priority single thing to improve
   const improvements: string[] = [];
+  const targetLabel = rule.target.split('/')[0].trim().toLowerCase();
   if (pillars.strikingArm < 75) {
     improvements.push(
-      `Forearm trajectory: Keep your elbow along the canonical plane for ${rule.name} (${rule.target}).`
+      `Arm Path: Guide your arm smoothly toward the ${targetLabel} (${rule.name}).`
     );
   } else if (pillars.guard < 75) {
-    improvements.push('Check hand: Pin your non-striking fist to your solar plexus/chest.');
+    improvements.push('Guard Hand: Keep your free hand flat against your chest for protection.');
   } else if (pillars.stance < 75) {
-    improvements.push('Stance base: Maintain an athletic bend in your lead knee (135°-165°).');
+    improvements.push('Stance: Bend both knees slightly and stay low for better balance.');
   } else if (pillars.wrist < 75) {
-    improvements.push('Wrist alignment: Snap and lock your wrist with the stick at impact.');
+    improvements.push('Wrist Control: Keep your wrist firm and give a quick snap at the target.');
   } else {
-    improvements.push('Maintain consistent speed and explosive recovery back to guard.');
+    improvements.push('Keep the same smooth speed, then bring your stick right back to guard.');
   }
 
   // 4. Coach Speech Advice
   let advice = rule.coachTip;
   if (score >= 85) {
-    advice = `Masterful execution of ${rule.name}! Your trajectory and guard defense were locked in. Solid martial discipline!`;
+    advice = `Awesome ${rule.name}! Your swing was smooth, your knees were balanced, and your free hand stayed safely on your chest.`;
   } else if (pillars.strikingArm < 70) {
-    advice = `Your striking elbow was opening slightly off the angle. Focus on guiding your forearm through the ${rule.target}.`;
+    advice = `Aim your arm smoothly toward the ${targetLabel} from start to finish without rushing the swing.`;
   } else if (pillars.guard < 70) {
-    advice = 'Keep your check hand pinned firmly to your chest throughout the strike to protect against counter-strikes.';
+    advice = 'Remember to keep your free hand resting on your chest while you strike to protect yourself.';
   } else if (pillars.stance < 70) {
-    advice = 'Sink slightly lower into your fighting stance (Tindig) to stabilize your striking power.';
+    advice = 'Bend both knees a little more into a comfortable, low stance so your strike feels steady.';
   } else if (pillars.wrist < 70) {
-    advice = 'Snap your wrist crisply (Pitik) at the instant of impact to deliver maximum cutting force.';
+    advice = 'Keep your wrist firm and give a quick, light snap right as you reach the target.';
   }
 
   const summary =
     score >= 85
-      ? 'Excellent martial technique and kinetic chain alignment.'
+      ? 'Great job! Smooth strike and strong overall body control.'
       : score >= 70
-      ? 'Solid foundation with a few minor angles to sharpen.'
-      : 'Focus on chambering and check hand position before striking.';
+      ? 'Good form! Just one or two small adjustments will make this shine.'
+      : 'Nice try! Focus on starting ready, keeping your free hand up, and aiming smoothly.';
 
   return {
     greeting,

@@ -41,21 +41,19 @@ export function CoachVsYou({
   userSnapshotUri,
   userScore,
   userPillars,
-  userActualAngles,
   userImpactTime = 1.45,
   coachImpactTime = 1.47,
-  confidence = 0.85,
   onOpenVideoComparison,
   hasUserVideo = false,
 }: CoachVsYouProps) {
   const getStatus = (score: number) => {
     if (score >= 80) {
-      return { text: 'Optimal Alignment', color: '#15803D', icon: 'checkmark-circle' as const };
+      return { level: 'good' as const, color: '#15803D', icon: 'checkmark-circle' as const };
     }
     if (score >= 65) {
-      return { text: 'Needs Minor Adjustment', color: '#B45309', icon: 'alert-circle' as const };
+      return { level: 'warn' as const, color: '#B45309', icon: 'alert-circle' as const };
     }
-    return { text: 'Focus Area', color: '#DC2626', icon: 'close-circle' as const };
+    return { level: 'fix' as const, color: '#DC2626', icon: 'close-circle' as const };
   };
 
   const armStatus = getStatus(userPillars.strikingArm);
@@ -63,10 +61,33 @@ export function CoachVsYou({
   const stanceStatus = getStatus(userPillars.stance);
   const wristStatus = getStatus(userPillars.wrist);
 
-  const coachElbowAngle = coachReference.angles.elbow;
-  const userElbowAngle = typeof userActualAngles?.elbow === 'number' && userActualAngles.elbow > 0
-    ? userActualAngles.elbow
-    : Math.round(strikeRule.chamber_elb + (userPillars.strikingArm / 100) * 40);
+  const armCue =
+    armStatus.level === 'good'
+      ? 'Smooth reach toward target'
+      : armStatus.level === 'warn'
+      ? 'Extend your arm a bit more'
+      : 'Reach your arm out toward the target';
+
+  const guardCue =
+    guardStatus.level === 'good'
+      ? 'Free hand held safely on chest'
+      : guardStatus.level === 'warn'
+      ? 'Free hand drifted slightly'
+      : 'Keep your free hand flat on your chest';
+
+  const stanceCue =
+    stanceStatus.level === 'good'
+      ? 'Good knee bend and steady base'
+      : stanceStatus.level === 'warn'
+      ? 'Stand a little lower on your knees'
+      : 'Bend both knees slightly for balance';
+
+  const wristCue =
+    wristStatus.level === 'good'
+      ? 'Firm wrist with a clean snap'
+      : wristStatus.level === 'warn'
+      ? 'Keep your wrist firmer on impact'
+      : 'Avoid bending your wrist too loosely';
 
   return (
     <View style={styles.card}>
@@ -78,12 +99,12 @@ export function CoachVsYou({
             <Text style={styles.versusBadgeText}>COACH VS YOU</Text>
           </View>
           <View style={styles.apexBadge}>
-            <Text style={styles.apexBadgeText}>STRIKE APEX MOMENT</Text>
+            <Text style={styles.apexBadgeText}>STRIKE POINT</Text>
           </View>
         </View>
-        <Text style={styles.cardTitle}>Impact Posture Comparison</Text>
+        <Text style={styles.cardTitle}>Your Form vs. Coach</Text>
         <Text style={styles.cardSubtitle}>
-          Comparing your pose against the AlphaPose expert reference at contact apex.
+          Compare your {strikeRule.name} form at the strike point with the coach.
         </Text>
       </View>
 
@@ -93,7 +114,7 @@ export function CoachVsYou({
         <View style={styles.snapshotColumn}>
           <View style={styles.columnHeader}>
             <View style={[styles.avatarDot, { backgroundColor: MartialTheme.colors.primaryDark }]} />
-            <Text style={styles.columnHeaderCoach}>COACH (EXPERT)</Text>
+            <Text style={styles.columnHeaderCoach}>COACH (TARGET)</Text>
             <Text style={styles.timestampPill}>@{coachImpactTime.toFixed(2)}s</Text>
           </View>
 
@@ -108,10 +129,10 @@ export function CoachVsYou({
               resizeMode="cover"
             />
             <View style={styles.angleTag}>
-              <Text style={styles.angleTagText}>Ideal: ~{coachElbowAngle.toFixed(0)}°</Text>
+              <Text style={styles.angleTagText}>✓ Target Form</Text>
             </View>
           </View>
-          <Text style={styles.captionText}>Canonical AlphaPose Apex</Text>
+          <Text style={styles.captionText}>Target Strike Position</Text>
         </View>
 
         {/* Divider icon */}
@@ -125,7 +146,7 @@ export function CoachVsYou({
         <View style={styles.snapshotColumn}>
           <View style={styles.columnHeader}>
             <View style={[styles.avatarDot, { backgroundColor: '#2563EB' }]} />
-            <Text style={styles.columnHeaderUser}>YOU (ACTUAL)</Text>
+            <Text style={styles.columnHeaderUser}>YOU</Text>
             <Text style={styles.timestampPill}>@{userImpactTime.toFixed(2)}s</Text>
           </View>
 
@@ -143,16 +164,18 @@ export function CoachVsYou({
               </View>
             )}
             <View style={[styles.angleTag, { backgroundColor: armStatus.color }]}>
-              <Text style={styles.angleTagText}>You: ~{userElbowAngle}°</Text>
+              <Text style={styles.angleTagText}>
+                {userPillars.strikingArm >= 80 ? '✓ On Target' : 'Keep Practicing'}
+              </Text>
             </View>
           </View>
-          <Text style={styles.captionText}>Confidence: {Math.round(confidence * 100)}%</Text>
+          <Text style={styles.captionText}>Form Match: {userScore}%</Text>
         </View>
       </View>
 
-      {/* --- Biomechanical Form Alignment Rows --- */}
+      {/* --- Form Checklist Rows --- */}
       <View style={styles.breakdownSection}>
-        <Text style={styles.breakdownHeading}>BIOMECHANICAL POSTURE AUDIT</Text>
+        <Text style={styles.breakdownHeading}>FORM CHECKLIST (COACH VS. YOU)</Text>
 
         {/* 1. Striking Arm */}
         <View style={styles.metricRow}>
@@ -161,7 +184,7 @@ export function CoachVsYou({
           </View>
           <View style={{ flex: 1 }}>
             <View style={styles.metricLabelRow}>
-              <Text style={styles.metricLabel}>Striking Arm & Elbow Angle</Text>
+              <Text style={styles.metricLabel}>Arm Reach &amp; Path</Text>
               <Text style={[styles.metricScore, { color: armStatus.color }]}>
                 {userPillars.strikingArm}%
               </Text>
@@ -169,7 +192,7 @@ export function CoachVsYou({
             <View style={styles.metricVerdictRow}>
               <Ionicons name={armStatus.icon} size={14} color={armStatus.color} style={{ marginRight: 4 }} />
               <Text style={[styles.metricVerdict, { color: armStatus.color }]}>
-                {armStatus.text} (Ideal: {strikeRule.right_min}°-{strikeRule.right_max}°)
+                {armCue}
               </Text>
             </View>
           </View>
@@ -182,7 +205,7 @@ export function CoachVsYou({
           </View>
           <View style={{ flex: 1 }}>
             <View style={styles.metricLabelRow}>
-              <Text style={styles.metricLabel}>Check Hand Guard (Kalasag)</Text>
+              <Text style={styles.metricLabel}>Free Hand on Chest (Guard)</Text>
               <Text style={[styles.metricScore, { color: guardStatus.color }]}>
                 {userPillars.guard}%
               </Text>
@@ -190,7 +213,7 @@ export function CoachVsYou({
             <View style={styles.metricVerdictRow}>
               <Ionicons name={guardStatus.icon} size={14} color={guardStatus.color} style={{ marginRight: 4 }} />
               <Text style={[styles.metricVerdict, { color: guardStatus.color }]}>
-                {guardStatus.text} (Pinned to Chest)
+                {guardCue}
               </Text>
             </View>
           </View>
@@ -203,7 +226,7 @@ export function CoachVsYou({
           </View>
           <View style={{ flex: 1 }}>
             <View style={styles.metricLabelRow}>
-              <Text style={styles.metricLabel}>Base Stability (Tindig Stance)</Text>
+              <Text style={styles.metricLabel}>Balanced Stance (Knees Bent)</Text>
               <Text style={[styles.metricScore, { color: stanceStatus.color }]}>
                 {userPillars.stance}%
               </Text>
@@ -211,7 +234,7 @@ export function CoachVsYou({
             <View style={styles.metricVerdictRow}>
               <Ionicons name={stanceStatus.icon} size={14} color={stanceStatus.color} style={{ marginRight: 4 }} />
               <Text style={[styles.metricVerdict, { color: stanceStatus.color }]}>
-                {stanceStatus.text} (135°-165° Lead Knee)
+                {stanceCue}
               </Text>
             </View>
           </View>
@@ -224,7 +247,7 @@ export function CoachVsYou({
           </View>
           <View style={{ flex: 1 }}>
             <View style={styles.metricLabelRow}>
-              <Text style={styles.metricLabel}>Impact Wrist Snap (Pitik)</Text>
+              <Text style={styles.metricLabel}>Wrist Control &amp; Snap</Text>
               <Text style={[styles.metricScore, { color: wristStatus.color }]}>
                 {userPillars.wrist}%
               </Text>
@@ -232,10 +255,7 @@ export function CoachVsYou({
             <View style={styles.metricVerdictRow}>
               <Ionicons name={wristStatus.icon} size={14} color={wristStatus.color} style={{ marginRight: 4 }} />
               <Text style={[styles.metricVerdict, { color: wristStatus.color }]}>
-                {wristStatus.text}
-                {typeof userActualAngles?.wrist === 'number'
-                  ? ` (~${userActualAngles.wrist}° deviation)`
-                  : ' (Apex Snap)'}
+                {wristCue}
               </Text>
             </View>
           </View>

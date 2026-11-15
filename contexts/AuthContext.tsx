@@ -12,6 +12,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   isLoading: boolean;
   isConfigured: boolean;
+  isRecoveringPassword: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (
     email: string,
@@ -20,14 +21,36 @@ interface AuthContextType {
     role: UserRole,
     bio?: string
   ) => Promise<{ error: Error | null; needsEmailConfirmation?: boolean }>;
+  verifySignupOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
+  beginPasswordRecovery: () => void;
+  cancelPasswordRecovery: () => Promise<void>;
+  verifyRecoveryAndUpdatePassword: (
+    email: string,
+    token: string,
+    newPassword: string,
+    otpAlreadyVerified?: boolean
+  ) => Promise<{ error: Error | null; otpVerified?: boolean }>;
   resendConfirmationEmail: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ error: Error | null }>;
   refreshProfile: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: Error | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
-  updateEmail: (newEmail: string) => Promise<{ error: Error | null }>;
+  updateEmail: (newEmail: string) => Promise<{
+    error: Error | null;
+    currentEmail?: string | null;
+    pendingNewEmail?: string | null;
+  }>;
+  verifyEmailChangeOtp: (
+    targetEmail: string,
+    token: string
+  ) => Promise<{
+    error: Error | null;
+    completed: boolean;
+    currentEmail?: string | null;
+    pendingNewEmail?: string | null;
+  }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -40,6 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRecoveringPassword, setIsRecoveringPassword] = useState<boolean>(false);
 
   // Synchronize active user ID to curriculum, history, and gamification stores
   useEffect(() => {
@@ -277,6 +301,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const verifySignupOtp = async (
+    email: string,
+    token: string
+  ): Promise<{ error: Error | null }> => {
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
+    }
+    const cleanEmail = email.trim();
+    const cleanToken = token.trim();
+    if (!cleanEmail || !cleanToken) {
+      return { error: new Error('Please enter your 6-digit verification code.') };
+    }
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'signup',
+      });
+      if (error) {
+        return { error: new Error(error.message) };
+      }
+      if (data.session) {
+        setSession(data.session);
+      }
+      if (data.user) {
+        setUser(data.user);
+        await fetchProfile(data.user.id, data.user.email, data.user.user_metadata);
+      }
+      return { error: null };
+    } catch (err: any) {
+      return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
   const resetPasswordForEmail = async (email: string): Promise<{ error: Error | null }> => {
     if (!isSupabaseConfigured) {
       return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
@@ -290,6 +348,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: error ? new Error(error.message) : null };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
+  const beginPasswordRecovery = () => {
+    setIsRecoveringPassword(true);
+  };
+
+  const cancelPasswordRecovery = async () => {
+    setIsRecoveringPassword(false);
+    if (!isSupabaseConfigured) return;
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        await supabase.auth.signOut().catch(() => {});
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+      }
+    } catch {
+      // Ignore cleanup errors when cancelling recovery
+    }
+  };
+
+  const verifyRecoveryAndUpdatePassword = async (
+    email: string,
+    token: string,
+    newPassword: string,
+    otpAlreadyVerified = false
+  ): Promise<{ error: Error | null; otpVerified?: boolean }> => {
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG), otpVerified: otpAlreadyVerified };
+    }
+    const cleanEmail = email.trim();
+    const cleanToken = token.trim();
+    if (!otpAlreadyVerified && (!cleanEmail || !cleanToken)) {
+      return { error: new Error('Please enter the 6-digit reset code from your email.'), otpVerified: false };
+    }
+
+    // Hold recovery lock so RootNavigator does not redirect before password update completes
+    setIsRecoveringPassword(true);
+    let verified = otpAlreadyVerified;
+
+    try {
+      if (!verified) {
+        const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanToken,
+          type: 'recovery',
+        });
+        if (verifyError) {
+          return { error: new Error(verifyError.message), otpVerified: false };
+        }
+        verified = true;
+        if (verifyData.session) setSession(verifyData.session);
+        if (verifyData.user) setUser(verifyData.user);
+      }
+
+      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updateError) {
+        return { error: new Error(updateError.message), otpVerified: true };
+      }
+
+      if (updateData.user) {
+        setUser(updateData.user);
+        await fetchProfile(updateData.user.id, updateData.user.email, updateData.user.user_metadata);
+      }
+      setIsRecoveringPassword(false);
+      return { error: null, otpVerified: true };
+    } catch (err: any) {
+      return {
+        error: err instanceof Error ? err : new Error(String(err)),
+        otpVerified: verified,
+      };
     }
   };
 
@@ -433,19 +566,107 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateEmail = async (newEmail: string): Promise<{ error: Error | null }> => {
+  const updateEmail = async (
+    newEmail: string
+  ): Promise<{
+    error: Error | null;
+    currentEmail?: string | null;
+    pendingNewEmail?: string | null;
+  }> => {
     if (!isSupabaseConfigured) {
       return { error: new Error(CLOUD_UNAVAILABLE_MSG) };
     }
+    const cleanNewEmail = newEmail.trim();
+    if (!cleanNewEmail) {
+      return { error: new Error('Please enter a valid email address.') };
+    }
     try {
-      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      const { data, error } = await supabase.auth.updateUser({ email: cleanNewEmail });
       if (error) return { error: new Error(error.message) };
-      if (profile) {
-        await updateProfile({ email: newEmail });
+
+      const updatedUser = data.user;
+      if (updatedUser) {
+        setUser(updatedUser);
       }
-      return { error: null };
+
+      const confirmedImmediately =
+        updatedUser &&
+        updatedUser.email?.toLowerCase() === cleanNewEmail.toLowerCase() &&
+        !updatedUser.new_email;
+
+      if (confirmedImmediately && profile) {
+        await updateProfile({ email: updatedUser.email || cleanNewEmail });
+        return {
+          error: null,
+          currentEmail: updatedUser.email || cleanNewEmail,
+          pendingNewEmail: null,
+        };
+      }
+
+      return {
+        error: null,
+        currentEmail: updatedUser?.email ?? user?.email ?? null,
+        pendingNewEmail: updatedUser?.new_email ?? cleanNewEmail,
+      };
     } catch (err: any) {
       return { error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  };
+
+  const verifyEmailChangeOtp = async (
+    targetEmail: string,
+    token: string
+  ): Promise<{
+    error: Error | null;
+    completed: boolean;
+    currentEmail?: string | null;
+    pendingNewEmail?: string | null;
+  }> => {
+    if (!isSupabaseConfigured) {
+      return { error: new Error(CLOUD_UNAVAILABLE_MSG), completed: false };
+    }
+    const cleanTarget = targetEmail.trim();
+    const cleanToken = token.trim();
+    if (!cleanTarget || !cleanToken) {
+      return { error: new Error('Please enter the 6-digit verification code.'), completed: false };
+    }
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: cleanTarget,
+        token: cleanToken,
+        type: 'email_change',
+      });
+      if (error) {
+        return { error: new Error(error.message), completed: false };
+      }
+
+      if (data.session) {
+        setSession(data.session);
+      }
+      const resolvedUser = data.user ?? (await supabase.auth.getUser()).data.user;
+      if (resolvedUser) {
+        setUser(resolvedUser);
+      }
+
+      const pendingNewEmail = resolvedUser?.new_email ?? null;
+      const currentEmail = resolvedUser?.email ?? null;
+      const completed = !pendingNewEmail;
+
+      if (completed && currentEmail) {
+        await updateProfile({ email: currentEmail });
+      }
+
+      return {
+        error: null,
+        completed,
+        currentEmail,
+        pendingNewEmail,
+      };
+    } catch (err: any) {
+      return {
+        error: err instanceof Error ? err : new Error(String(err)),
+        completed: false,
+      };
     }
   };
 
@@ -457,9 +678,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         isLoading,
         isConfigured: isSupabaseConfigured,
+        isRecoveringPassword,
         signIn,
         signUp,
+        verifySignupOtp,
         resetPasswordForEmail,
+        beginPasswordRecovery,
+        cancelPasswordRecovery,
+        verifyRecoveryAndUpdatePassword,
         resendConfirmationEmail,
         signOut,
         deleteAccount,
@@ -467,6 +693,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateProfile,
         updatePassword,
         updateEmail,
+        verifyEmailChangeOtp,
       }}>
       {children}
     </AuthContext.Provider>

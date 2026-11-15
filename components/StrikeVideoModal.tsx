@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Dimensions,
   Modal,
   ScrollView,
@@ -11,6 +12,9 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
+import { getCurriculumProgress, isStrikeUnlocked } from '@/constants/curriculumStore';
+import { useAuth } from '@/contexts/AuthContext';
 import { LOCAL_STRIKE_VIDEOS, STRIKE_VIDEOS_CATALOG, StrikeVideoItem } from '@/constants/strikeVideos';
 import { MartialTheme } from '@/constants/theme';
 
@@ -29,17 +33,33 @@ export function StrikeVideoModal({
   onClose,
   onPracticeStrike,
 }: StrikeVideoModalProps) {
+  const router = useRouter();
+  const { user } = useAuth();
   const [currentStrikeId, setCurrentStrikeId] = useState<string>(initialStrikeId);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
 
-  // Sync initialStrikeId whenever modal becomes visible
+  // Sync initialStrikeId and curriculum unlock progress whenever modal becomes visible
   useEffect(() => {
     if (visible && initialStrikeId) {
       setCurrentStrikeId(initialStrikeId);
       setIsPlaying(true);
     }
-  }, [visible, initialStrikeId]);
+    if (visible) {
+      let active = true;
+      getCurriculumProgress(user?.id)
+        .then((prog) => {
+          if (active) setCompletedLessonIds(prog.completedLessonIds);
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }
+  }, [visible, initialStrikeId, user?.id]);
+
+  const isCurrentStrikeUnlocked = isStrikeUnlocked(currentStrikeId, completedLessonIds);
 
   const strikeData: StrikeVideoItem = STRIKE_VIDEOS_CATALOG[currentStrikeId] || STRIKE_VIDEOS_CATALOG['strike_1'];
   const videoSource = LOCAL_STRIKE_VIDEOS[currentStrikeId] || strikeData.videoSource || null;
@@ -153,6 +173,26 @@ export function StrikeVideoModal({
   };
 
   const handleStartPractice = () => {
+    if (!isCurrentStrikeUnlocked) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      const prevNum = strikeData.strikeNumber > 1 ? strikeData.strikeNumber - 1 : 1;
+      Alert.alert(
+        'Strike Locked 🔒',
+        `Complete and pass Strike ${prevNum} with at least Grade C (75%+) in the Journey first to unlock Strike ${strikeData.strikeNumber}.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Go to Journey 🗺️',
+            onPress: () => {
+              onClose();
+              router.push('/explore' as any);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (player) {
       try {
@@ -199,6 +239,7 @@ export function StrikeVideoModal({
             >
               {Object.values(STRIKE_VIDEOS_CATALOG).map((item) => {
                 const isActive = item.id === currentStrikeId;
+                const isItemUnlocked = isStrikeUnlocked(item.id, completedLessonIds);
                 return (
                   <TouchableOpacity
                     key={item.id}
@@ -206,9 +247,18 @@ export function StrikeVideoModal({
                     onPress={() => handleSelectStrike(item.id)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[styles.switcherChipText, isActive && styles.switcherChipTextActive]}>
-                      S{item.strikeNumber}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      {!isItemUnlocked && (
+                        <Ionicons
+                          name="lock-closed"
+                          size={10}
+                          color={isActive ? '#FFFFFF' : '#9CA3AF'}
+                        />
+                      )}
+                      <Text style={[styles.switcherChipText, isActive && styles.switcherChipTextActive]}>
+                        S{item.strikeNumber}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -322,9 +372,21 @@ export function StrikeVideoModal({
               <Text style={styles.secondaryBtnText}>Close</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.practiceBtn} onPress={handleStartPractice} activeOpacity={0.85}>
-              <MaterialCommunityIcons name="sword" size={17} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.practiceBtnText}>Practice Strike {strikeData.strikeNumber} with AI</Text>
+            <TouchableOpacity
+              style={[styles.practiceBtn, !isCurrentStrikeUnlocked && styles.practiceBtnLocked]}
+              onPress={handleStartPractice}
+              activeOpacity={0.85}
+            >
+              {isCurrentStrikeUnlocked ? (
+                <MaterialCommunityIcons name="sword" size={17} color="#FFFFFF" style={{ marginRight: 8 }} />
+              ) : (
+                <Ionicons name="lock-closed" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+              )}
+              <Text style={styles.practiceBtnText}>
+                {isCurrentStrikeUnlocked
+                  ? `Practice Strike ${strikeData.strikeNumber} with AI`
+                  : `Locked • Unlock Strike ${strikeData.strikeNumber} in Journey`}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -649,6 +711,11 @@ const styles = StyleSheet.create({
     borderColor: MartialTheme.colors.primary,
     borderBottomWidth: 4,
     borderBottomColor: MartialTheme.colors.primaryDark,
+  },
+  practiceBtnLocked: {
+    backgroundColor: '#64748B',
+    borderColor: '#64748B',
+    borderBottomColor: '#475569',
   },
   practiceBtnText: {
     color: '#FFFFFF',

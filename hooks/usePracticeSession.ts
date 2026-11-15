@@ -4,7 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { getStrikeRule, STRIKE_RULES, StrikeRule } from '@/constants/strikeRules';
 import { EvaluationConfig } from '@/engine/pose/poseEngineTypes';
 import { StrikeEvaluationResult } from '@/engine/evaluation/evaluationTypes';
-import { ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
+import { ResearchCaptureSession, ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
 import { compileSessionResult } from '@/engine/evaluation/strikeEvaluator';
 import {
   ANYO_ROUTINES_CATALOG,
@@ -19,6 +19,7 @@ import { addXpAndStreak, SashRankInfo } from '@/constants/gamificationStore';
 import { getCoachReference } from '@/constants/referenceStore';
 import { markLessonCompleted, PASSING_SCORE_THRESHOLD } from '@/constants/curriculumStore';
 import { persistUserStrikeMedia } from '@/services/mediaStorageService';
+import { registerSessionVideo } from '@/services/videoCacheManager';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type PracticeScreenState = 'setup' | 'briefing' | 'live' | 'result';
@@ -72,6 +73,8 @@ export function usePracticeSession() {
   });
   const [lastSnapshot, setLastSnapshot] = useState<string | null>(null);
   const [lastReplayVideo, setLastReplayVideo] = useState<string | null>(null);
+  const [lastSessionId, setLastSessionId] = useState<string | null>(null);
+  const [lastResearchCapture, setLastResearchCapture] = useState<ResearchCaptureSession | null>(null);
   const [lastImpactMeta, setLastImpactMeta] = useState<{
     impactFrame?: number;
     impactTime?: number;
@@ -140,6 +143,7 @@ export function usePracticeSession() {
       setMode(practiceMode);
       setActiveRoutine(null);
       setRoutineStepScores([]);
+      setLastSessionId(null);
       setSource(undefined);
       setScreen('live');
     },
@@ -151,6 +155,7 @@ export function usePracticeSession() {
     setActiveRoutine(routine);
     setRoutineStepIndex(0);
     setRoutineStepScores([]);
+    setLastSessionId(null);
     if (routine.strikes.length > 0) {
       setSelectedStrikeId(routine.strikes[0]);
     }
@@ -169,8 +174,10 @@ export function usePracticeSession() {
         guardScore: number;
         stanceScore: number;
         kneeScore?: number;
+        trajectoryAccuracy?: number;
         durationMs?: number;
         shadowEvaluation?: ShadowEvaluationReport;
+        researchCapture?: ResearchCaptureSession | null;
       },
       snapshotBase64?: string,
       replayVideoBase64?: string,
@@ -214,6 +221,9 @@ export function usePracticeSession() {
         }
       );
       setEvaluationResult(result);
+      setLastResearchCapture(
+        rawStats.researchCapture?.consentGranted ? rawStats.researchCapture : null
+      );
       if (snapshotBase64) setLastSnapshot(snapshotBase64);
       if (replayVideoBase64) setLastReplayVideo(replayVideoBase64);
 
@@ -231,6 +241,10 @@ export function usePracticeSession() {
         score: finalScore,
       });
 
+      if (storedMedia.userVideoUri) {
+        await registerSessionVideo(storedMedia.userVideoUri).catch(() => {});
+      }
+
       const meta = {
         impactFrame: impactMeta?.impactFrame ?? storedMedia.impactFrame,
         impactTime: impactMeta?.impactTime ?? storedMedia.impactTime,
@@ -241,14 +255,14 @@ export function usePracticeSession() {
       setLastImpactMeta(meta);
 
       // 4. Save to historyStore with rich media payload
-      await saveSession(
+      const savedItem = await saveSession(
         selectedStrikeId,
         currentRule.name,
         currentRule.desc,
         result.score,
         {
           elbow: {
-            score: rawStats.elbowScore,
+            score: result.pillarScores.strikingArm,
             actual: impactMeta?.actualAngles?.elbow ?? 0,
             ideal: coachRef.angles.elbow || currentRule.chamber_elb,
           },
@@ -287,6 +301,7 @@ export function usePracticeSession() {
         },
         user?.id
       );
+      setLastSessionId(savedItem.id);
 
       // 5. Award XP and streak & check promotion
       const xpRes = await addXpAndStreak(10, user?.id);
@@ -320,9 +335,22 @@ export function usePracticeSession() {
       const sum = steps.reduce((acc, curr) => acc + curr.score, 0);
       const avgScore = steps.length > 0 ? Math.round(sum / steps.length) : 80;
 
+      const avgPillar = (
+        key: 'elbow' | 'shoulder' | 'wrist' | 'guard' | 'stance',
+        fallback: number
+      ) => {
+        const vals = steps
+          .map((s) => s.breakdown?.[key]?.score)
+          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+        return vals.length > 0
+          ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+          : fallback;
+      };
+
       setActiveRoutine(routine);
       setRoutineStepScores(steps);
-      await saveAnyoSession(routine, steps, totalDurationMs, user?.id);
+      const savedAnyoItem = await saveAnyoSession(routine, steps, totalDurationMs, user?.id);
+      setLastSessionId(savedAnyoItem.id);
       const xpRes = await addXpAndStreak(25, user?.id);
       if (xpRes.isPromoted && xpRes.newRank) {
         setPromotionResult({ newRank: xpRes.newRank, level: xpRes.level });
@@ -333,17 +361,18 @@ export function usePracticeSession() {
       const result = compileSessionResult(
         {
           score: avgScore,
-          elbowScore: avgScore,
-          shoulderScore: avgScore,
-          wristScore: avgScore,
-          guardScore: avgScore,
-          stanceScore: avgScore,
+          elbowScore: avgPillar('elbow', avgScore),
+          shoulderScore: avgPillar('shoulder', avgScore),
+          wristScore: avgPillar('wrist', avgScore),
+          guardScore: avgPillar('guard', avgScore),
+          stanceScore: avgPillar('stance', avgScore),
           durationMs: totalDurationMs,
         },
         currentRule,
         { isMastered: avgScore >= 85 }
       );
       setEvaluationResult(result);
+      setLastResearchCapture(null);
       if (snapshotBase64) setLastSnapshot(snapshotBase64);
       setScreen('result');
     },
@@ -358,6 +387,8 @@ export function usePracticeSession() {
     setAutoStartEval(false);
     setEvaluationResult(null);
     setPromotionResult(null);
+    setLastSessionId(null);
+    setLastResearchCapture(null);
     setScreen('live');
   }, []);
 
@@ -367,6 +398,8 @@ export function usePracticeSession() {
     setAutoStartEval(true);
     setEvaluationResult(null);
     setPromotionResult(null);
+    setLastSessionId(null);
+    setLastResearchCapture(null);
     setScreen('live');
   }, []);
 
@@ -379,6 +412,8 @@ export function usePracticeSession() {
     setAutoStartEval(false);
     setEvaluationResult(null);
     setPromotionResult(null);
+    setLastSessionId(null);
+    setLastResearchCapture(null);
     setScreen('live');
   }, [currentRule]);
 
@@ -391,6 +426,8 @@ export function usePracticeSession() {
     setAutoStartEval(false);
     setEvaluationResult(null);
     setPromotionResult(null);
+    setLastSessionId(null);
+    setLastResearchCapture(null);
     setScreen('setup');
     try {
       router.setParams({ source: undefined, lessonId: undefined, mode: undefined, strikeId: undefined });
@@ -481,7 +518,9 @@ export function usePracticeSession() {
     sessionImprovement,
     lastSnapshot,
     lastReplayVideo,
+    lastSessionId,
     lastImpactMeta,
+    lastResearchCapture,
     autoStartEval,
     startStrike,
     startAnyo,

@@ -587,10 +587,31 @@ export async function saveAnyoSession(
   const mins = now.getMinutes().toString().padStart(2, '0');
   const dateStr = `${month} ${day} · ${hours}:${mins}`;
 
-  const firstStepBreakdown = stepResults[0]?.breakdown || {
-    elbow: { score: avgScore, actual: 0, ideal: 0 },
-    shoulder: { score: avgScore, actual: 0, ideal: 0 },
-    wrist: { score: avgScore, actual: 0, ideal: 0 }
+  const avgMetric = (
+    key: 'elbow' | 'shoulder' | 'wrist' | 'guard' | 'stance',
+    fallbackScore: number,
+    fallbackIdeal: number
+  ) => {
+    const entries = stepResults
+      .map((s) => s.breakdown?.[key])
+      .filter((m): m is { score: number; actual: number; ideal: number } => Boolean(m));
+    if (entries.length === 0) {
+      return { score: fallbackScore, actual: 0, ideal: fallbackIdeal };
+    }
+    const count = entries.length;
+    return {
+      score: Math.round(entries.reduce((acc, m) => acc + m.score, 0) / count),
+      actual: Math.round(entries.reduce((acc, m) => acc + m.actual, 0) / count),
+      ideal: Math.round(entries.reduce((acc, m) => acc + m.ideal, 0) / count),
+    };
+  };
+
+  const aggregatedBreakdown: SessionItem['breakdown'] = {
+    elbow: avgMetric('elbow', avgScore, 0),
+    shoulder: avgMetric('shoulder', avgScore, 0),
+    wrist: avgMetric('wrist', avgScore, 0),
+    guard: avgMetric('guard', avgScore, 70),
+    stance: avgMetric('stance', avgScore, 150),
   };
 
   const bestSnapshot = stepResults.find(s => !!s.snapshotBase64)?.snapshotBase64;
@@ -614,7 +635,7 @@ export async function saveAnyoSession(
     date: dateStr,
     isSharedWithCoach: autoShare,
     snapshotBase64: safeBestSnapshot,
-    breakdown: firstStepBreakdown,
+    breakdown: aggregatedBreakdown,
     routineId: routine.id,
     routineName: routine.name,
     anyoSteps: sanitizedSteps,

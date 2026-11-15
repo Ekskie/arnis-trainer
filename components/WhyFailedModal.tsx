@@ -53,61 +53,53 @@ export function WhyFailedModal({
   };
 
   const direction = breakdown?.directionScore ?? Math.min(100, Math.round(overallScore * 1.05));
-  const elbow = breakdown?.elbowScore ?? Math.max(40, Math.round(overallScore * 0.9));
+  const arm = breakdown?.elbowScore ?? direction;
   const body = breakdown?.bodyScore ?? Math.max(50, Math.round(overallScore * 0.95));
   const guard = breakdown?.guardScore ?? Math.max(45, Math.round(overallScore * 0.88));
   const wrist = breakdown?.wristScore ?? Math.max(40, Math.round(overallScore * 0.9));
 
   // Determine ONE thing to fix first (the single lowest scoring component)
-  const minScore = Math.min(direction, elbow, body, guard, wrist);
+  const minScore = Math.min(arm, body, guard, wrist);
 
   let oneThingToFix = {
-    title: 'Keep your check hand higher near your chest',
-    explanation: 'Your left hand dropped below your solar plexus. In Arnis, keeping your shield up protects your heart and earns 25% of your score.',
+    title: 'Keep your free hand higher on your chest',
+    explanation: 'Your free hand dropped below your chest during the strike. Keep it flat against your chest to stay protected and earn a higher score.',
     actionLessonId: 'les_1_3',
-    actionTitle: 'Practice Check Hand Guard',
+    actionTitle: 'Practice Guard Hand',
   };
 
   if (minScore === wrist) {
     oneThingToFix = {
-      title: 'Snap and align your wrist at apex (Pitik)',
-      explanation: 'Your wrist was loose or misaligned at impact. In Arnis, snapping and locking your wrist with the stick at apex delivers kinetic shock and proper cutting angle.',
+      title: 'Keep your wrist firm with a light snap',
+      explanation: 'Your wrist bent too loosely when hitting the target. Keep it steady and give a quick, light snap right at the end of the swing.',
       actionLessonId: 'les_1_2',
-      actionTitle: 'Practice Wrist Snap & Grip',
+      actionTitle: 'Practice Grip & Wrist Snap',
     };
   } else if (minScore === body) {
     oneThingToFix = {
-      title: 'Bend your knees into a solid athletic stance',
-      explanation: 'Standing too upright reduces your power and balance. Sink your hips slightly and bend both knees (135°-165°).',
+      title: 'Bend both knees slightly for balance',
+      explanation: 'Standing with straight legs makes you less steady. Bend both knees a little so your stance feels solid and comfortable.',
       actionLessonId: 'les_1_1',
-      actionTitle: 'Practice Proper Stance (Tindig)',
+      actionTitle: 'Practice Balanced Stance',
     };
-  } else if (minScore === elbow) {
+  } else if (minScore === arm) {
     oneThingToFix = {
-      title: 'Control your striking arm extension',
-      explanation: 'Avoid overextending into a wide baseball swing. Keep your elbow slightly flexed at the apex to absorb recoil.',
+      title: 'Guide your arm smoothly toward the target',
+      explanation: `Aim your ${strikeName} along the coach's path from your ready position out to the target, then bring it smoothly back to guard.`,
       actionLessonId: strikeId || 'strike_1',
-      actionTitle: `Review ${strikeName} Motion`,
-    };
-  } else if (minScore === direction) {
-    oneThingToFix = {
-      title: 'Follow the canonical cutting line',
-      explanation: 'Your weapon trajectory deviated from the intended line. Focus on tracing the path from chamber through target to recovery.',
-      actionLessonId: strikeId || 'strike_1',
-      actionTitle: `Practice ${strikeName} Direction`,
+      actionTitle: `Practice ${strikeName}`,
     };
   }
 
   // Compile "What you did well" (components with scores >= 70%)
   const whatYouDidWell: string[] = [];
-  if (direction >= 70) whatYouDidWell.push('Correct strike trajectory and direction');
-  if (body >= 70) whatYouDidWell.push('Good athletic stance with bent knees');
-  if (guard >= 70) whatYouDidWell.push('Kalasag check hand stayed locked on chest');
-  if (elbow >= 70) whatYouDidWell.push('Controlled striking arm extension');
-  if (wrist >= 70) whatYouDidWell.push('Sharp wrist alignment and snap at apex');
+  if (arm >= 70) whatYouDidWell.push('Smooth, controlled arm path toward the target');
+  if (body >= 70) whatYouDidWell.push('Balanced stance with comfortable bent knees');
+  if (guard >= 70) whatYouDidWell.push('Free hand stayed safely on your chest');
+  if (wrist >= 70) whatYouDidWell.push('Firm wrist control with a clean snap');
 
   if (whatYouDidWell.length === 0) {
-    whatYouDidWell.push('Good effort! Motor learning takes consistent repetition.');
+    whatYouDidWell.push('Good effort! Every practice rep builds smoother control.');
   }
 
   const handlePracticePress = () => {
@@ -156,10 +148,10 @@ export function WhyFailedModal({
                 <Text style={styles.scoreGradeText}>{grade}</Text>
                 <Text style={styles.scoreEncouragement}>
                   {overallScore >= 85
-                    ? 'Excellent martial control! Minor refinements will achieve perfection.'
+                    ? 'Awesome control! Just a tiny polish away from perfection.'
                     : overallScore >= 70
-                    ? 'Solid start! Let’s focus on one adjustment to boost your score.'
-                    : 'Good attempt! Don’t worry about the score—focus on fixing one thing.'}
+                    ? 'Good job! Focus on one small adjustment below to level up.'
+                    : 'Nice effort! Do not worry about the score — focus on one simple fix below.'}
                 </Text>
               </View>
             </View>
@@ -213,25 +205,25 @@ export function WhyFailedModal({
               </TouchableOpacity>
             </View>
 
-            {/* Collapsible Technical Breakdown for Advanced Telemetry */}
+            {/* Collapsible Breakdown for Form Scores */}
             <TouchableOpacity
               style={styles.techToggleBtn}
               onPress={() => setShowTechnicalDetails(!showTechnicalDetails)}
               activeOpacity={0.8}
             >
               <Text style={styles.techToggleText}>
-                {showTechnicalDetails ? 'Hide Technical Telemetry ▲' : 'Show 4-Pillar Telemetry Breakdown ▼'}
+                {showTechnicalDetails ? 'Hide Form Score Breakdown ▲' : 'Show Form Score Breakdown ▼'}
               </Text>
             </TouchableOpacity>
 
             {showTechnicalDetails && (
               <View style={styles.techDetailsCard}>
-                <Text style={styles.techCardHeading}>4-PILLAR BIOMECHANICAL SCORES</Text>
+                <Text style={styles.techCardHeading}>YOUR 4 FORM SCORES</Text>
 
                 {/* Stance */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>1. Base Stability (Tindig Stance)</Text>
+                    <Text style={styles.techLabel}>1. Balanced Knee Stance (20%)</Text>
                     <Text style={[styles.techScore, { color: body >= 70 ? '#10B981' : '#F59E0B' }]}>{body}%</Text>
                   </View>
                   <View style={styles.techTrack}>
@@ -239,10 +231,10 @@ export function WhyFailedModal({
                   </View>
                 </View>
 
-                {/* Kalasag Shield Guard */}
+                {/* Guard */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>2. Kalasag Shield Guard (Check Hand)</Text>
+                    <Text style={styles.techLabel}>2. Free Hand on Chest (25%)</Text>
                     <Text style={[styles.techScore, { color: guard >= 70 ? '#10B981' : '#EF4444' }]}>{guard}%</Text>
                   </View>
                   <View style={styles.techTrack}>
@@ -250,21 +242,21 @@ export function WhyFailedModal({
                   </View>
                 </View>
 
-                {/* Arm Extension & Arc */}
+                {/* Arm Reach & Path */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>3. Striking Arm Extension & Arc</Text>
-                    <Text style={[styles.techScore, { color: elbow >= 70 ? '#10B981' : '#F59E0B' }]}>{elbow}%</Text>
+                    <Text style={styles.techLabel}>3. Arm Reach &amp; Path (40%)</Text>
+                    <Text style={[styles.techScore, { color: arm >= 70 ? '#10B981' : '#F59E0B' }]}>{arm}%</Text>
                   </View>
                   <View style={styles.techTrack}>
-                    <View style={[styles.techFill, { width: `${elbow}%`, backgroundColor: elbow >= 70 ? '#10B981' : '#F59E0B' }]} />
+                    <View style={[styles.techFill, { width: `${arm}%`, backgroundColor: arm >= 70 ? '#10B981' : '#F59E0B' }]} />
                   </View>
                 </View>
 
-                {/* Wrist Pitik Snap */}
+                {/* Wrist Snap */}
                 <View style={styles.techItem}>
                   <View style={styles.techTextRow}>
-                    <Text style={styles.techLabel}>4. Impact Wrist Snap (Pitik)</Text>
+                    <Text style={styles.techLabel}>4. Wrist Control &amp; Snap (15%)</Text>
                     <Text style={[styles.techScore, { color: wrist >= 70 ? '#10B981' : '#8B5CF6' }]}>{wrist}%</Text>
                   </View>
                   <View style={styles.techTrack}>

@@ -16,6 +16,8 @@ interface PoseFrameRecord {
   wristDist: number;
   velocity: number;
   isApex: boolean;
+  impactCandidateScore: number;
+  snapshotBase64?: string;
 }
 
 /**
@@ -56,19 +58,45 @@ export class ImpactDetector {
       this.latestSnapshotBase64 = currentSnapshot;
     }
 
-    // Estimate wrist-to-shoulder extension using strike scores and angles
-    // Right arm is dominant striking arm in standard 12-strike Arnis curriculum
+    // Compute normalized arm extension alongside biomechanical proximity to target strike angles
     const elbowAngle = pose.rightAngle ?? 120;
     const velocity = pose.swingVelocity ?? 0.15;
-    
-    // Normalized extension approximation: higher elbow extension = greater reach
     const wristDist = elbowAngle * (1 + velocity * 0.5);
+
+    const optMin = strikeRule.optimal_min ?? strikeRule.right_min;
+    const optMax = strikeRule.optimal_max ?? strikeRule.right_max;
+    const elbowProx =
+      elbowAngle >= optMin && elbowAngle <= optMax
+        ? 100
+        : Math.max(
+            0,
+            100 - (elbowAngle < optMin ? optMin - elbowAngle : elbowAngle - optMax) * 2.5
+          );
+
+    const shldAngle = pose.rightShoulderAngle ?? strikeRule.ideal_shoulder;
+    const shldDev = Math.abs(shldAngle - strikeRule.ideal_shoulder);
+    const shldProx = shldDev <= 20 ? 100 : Math.max(0, 100 - (shldDev - 20) * 2.0);
 
     const isApex = Boolean(
       pose.isApex ||
       pose.motionPhase === 'apex_hit' ||
       (elbowAngle >= strikeRule.right_min - 5 && elbowAngle <= strikeRule.right_max + 5 && velocity > 0.18)
     );
+
+    const velocityFactor = Math.min(1.4, 1 + velocity * 0.8);
+    const apexBonus = isApex ? 60 : 0;
+    const impactCandidateScore =
+      (elbowProx * 0.45 + shldProx * 0.25 + (pose.accuracy || 0) * 0.30) * velocityFactor +
+      apexBonus;
+
+    if (
+      currentSnapshot &&
+      this.peakExtensionFrame &&
+      !this.peakExtensionFrame.snapshotBase64 &&
+      frameIndex - this.peakExtensionFrame.frameIndex <= 3
+    ) {
+      this.peakExtensionFrame.snapshotBase64 = currentSnapshot;
+    }
 
     const record: PoseFrameRecord = {
       frameIndex,
@@ -77,12 +105,18 @@ export class ImpactDetector {
       wristDist,
       velocity,
       isApex,
+      impactCandidateScore,
+      snapshotBase64: currentSnapshot || this.latestSnapshotBase64 || undefined,
     };
 
     this.frameHistory.push(record);
 
-    // Track peak extension moment
-    if (!this.peakExtensionFrame || wristDist > this.peakExtensionFrame.wristDist || (isApex && !this.peakExtensionFrame.isApex)) {
+    // Track best biomechanical impact moment
+    if (
+      !this.peakExtensionFrame ||
+      record.impactCandidateScore > this.peakExtensionFrame.impactCandidateScore ||
+      (isApex && !this.peakExtensionFrame.isApex)
+    ) {
       this.peakExtensionFrame = record;
       return true; // New apex candidate
     }
@@ -127,14 +161,14 @@ export class ImpactDetector {
       };
     }
 
-    // 1. Prioritize explicit apex-flagged frames
+    // 1. Prioritize explicit apex-flagged frames ordered by biomechanical impact score
     const apexFrames = this.frameHistory.filter(f => f.isApex);
     let chosenRecord: PoseFrameRecord;
 
     if (apexFrames.length > 0) {
-      // Pick the apex frame with maximum extension/accuracy
-      chosenRecord = apexFrames.reduce((best, curr) => 
-        (curr.pose.accuracy > best.pose.accuracy ? curr : best), apexFrames[0]);
+      chosenRecord = [...apexFrames].sort(
+        (a, b) => b.impactCandidateScore - a.impactCandidateScore
+      )[0];
     } else if (this.peakExtensionFrame) {
       chosenRecord = this.peakExtensionFrame;
     } else {
@@ -158,7 +192,7 @@ export class ImpactDetector {
       impactTime: impactTimeSec,
       confidence,
       detectedPose: chosenRecord.pose,
-      snapshotBase64: this.latestSnapshotBase64 || undefined,
+      snapshotBase64: chosenRecord.snapshotBase64 || this.latestSnapshotBase64 || undefined,
     };
   }
 }

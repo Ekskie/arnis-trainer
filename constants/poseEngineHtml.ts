@@ -1482,19 +1482,76 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       }
     };
 
-    // Canvas Stream & MediaRecorder Video Replay Engine
+    // Camera Stream & MediaRecorder Video Replay Engine
     let mediaRecorder = null;
     let recordedChunks = [];
 
     window.startVideoRecording = () => {
-      // NOTE: canvas.captureStream() in Android WebView deadlocks Chromium's GPU compositor
-      // and freezes live camera rendering during the evaluation countdown. Evaluation uses
-      // real-time biomechanical analysis and impact zone snapshots.
-      recordedChunks = [];
+      try {
+        recordedChunks = [];
+        const stream = video && video.srcObject;
+        if (!stream || typeof MediaRecorder === 'undefined') return;
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          try { mediaRecorder.stop(); } catch (e) {}
+        }
+        const mimeTypes = [
+          'video/mp4',
+          'video/webm;codecs=vp8',
+          'video/webm'
+        ];
+        let selectedMime = '';
+        for (let i = 0; i < mimeTypes.length; i++) {
+          if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mimeTypes[i])) {
+            selectedMime = mimeTypes[i];
+            break;
+          }
+        }
+        const options = selectedMime
+          ? { mimeType: selectedMime, videoBitsPerSecond: 1200000 }
+          : { videoBitsPerSecond: 1200000 };
+        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+        mediaRecorder.onstop = () => {
+          try {
+            if (!recordedChunks || recordedChunks.length === 0) return;
+            const blobMime = (mediaRecorder && mediaRecorder.mimeType) || selectedMime || 'video/webm';
+            const blob = new Blob(recordedChunks, { type: blobMime });
+            recordedChunks = [];
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result === 'string' && reader.result.length > 0) {
+                sendToReactNative({
+                  type: 'VIDEO_REPLAY_CAPTURED',
+                  base64: reader.result
+                });
+              }
+            };
+            reader.readAsDataURL(blob);
+          } catch (err) {
+            console.warn('MediaRecorder onstop error:', err);
+          }
+        };
+        mediaRecorder.start(250);
+      } catch (err) {
+        console.warn('startVideoRecording error:', err);
+      }
     };
 
     window.stopVideoRecording = () => {
-      // Safe no-op
+      try {
+        if (window.captureSnapshot) {
+          window.captureSnapshot();
+        }
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+      } catch (err) {
+        console.warn('stopVideoRecording error:', err);
+      }
     };
 
     const PERSON_COLORS = [
@@ -2026,6 +2083,52 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
 
     let stickFrameCounter = 0;
     let lastStickResults = {};
+    const landmarkFilters = {};
+
+    function oneEuroAlpha(cutoff, dt) {
+      const tau = 1.0 / (2.0 * Math.PI * cutoff);
+      return 1.0 / (1.0 + tau / dt);
+    }
+
+    function oneEuroFilter1D(state, value, timestampMs, minCutoff, beta, dCutoff) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return { value: value, state: null };
+      }
+      if (!state || timestampMs <= state.t || (timestampMs - state.t) > 500) {
+        return { value: value, state: { x: value, dx: 0, t: timestampMs } };
+      }
+      const dt = Math.max(0.001, (timestampMs - state.t) / 1000.0);
+      const aD = oneEuroAlpha(dCutoff || 1.0, dt);
+      const edx = (value - state.x) / dt;
+      const dx = aD * edx + (1.0 - aD) * state.dx;
+      const cutoff = minCutoff + beta * Math.abs(dx);
+      const a = oneEuroAlpha(cutoff, dt);
+      const x = a * value + (1.0 - a) * state.x;
+      return { value: x, state: { x: x, dx: dx, t: timestampMs } };
+    }
+
+    function smoothPoseLandmarks(personIdx, rawLandmarks, timestampMs) {
+      if (!rawLandmarks || !Array.isArray(rawLandmarks)) return rawLandmarks;
+      if (!landmarkFilters[personIdx]) {
+        landmarkFilters[personIdx] = {};
+      }
+      const pFilters = landmarkFilters[personIdx];
+      return rawLandmarks.map((lm, idx) => {
+        if (!lm) return lm;
+        const f = pFilters[idx] || { x: null, y: null, z: null };
+        const fx = oneEuroFilter1D(f.x, lm.x, timestampMs, 1.4, 0.04, 1.0);
+        const fy = oneEuroFilter1D(f.y, lm.y, timestampMs, 1.4, 0.04, 1.0);
+        const zVal = lm.z !== undefined ? lm.z : 0;
+        const fz = oneEuroFilter1D(f.z, zVal, timestampMs, 1.0, 0.025, 1.0);
+        pFilters[idx] = { x: fx.state, y: fy.state, z: fz.state };
+        return {
+          x: fx.value,
+          y: fy.value,
+          z: lm.z !== undefined ? fz.value : undefined,
+          visibility: lm.visibility
+        };
+      });
+    }
 
     function drawOutput(results) {
       const currentRule = STRIKE_RULES[activeStrike] || null;
@@ -2042,10 +2145,14 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       const allLandmarks = (results && results.landmarks) ? results.landmarks : [];
       // Strictly filter for authentic upright human practitioners (rejects hands, partial objects, etc.)
       const validLandmarksList = allLandmarks.filter(lm => isValidHumanPose(lm));
+      const smoothedLandmarksList = [];
 
 
       if (validLandmarksList.length > 0) {
-        validLandmarksList.forEach((landmarks, personIdx) => {
+        const frameTimestampMs = performance.now();
+        validLandmarksList.forEach((rawLandmarks, personIdx) => {
+          const landmarks = smoothPoseLandmarks(personIdx, rawLandmarks, frameTimestampMs);
+          smoothedLandmarksList.push(landmarks);
           const leftShoulder = landmarks[11];
           const leftElbow = landmarks[13];
           const leftWrist = landmarks[15];
@@ -2353,6 +2460,18 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             }
           }
 
+          const chamberElbIdeal = (rules && typeof rules.chamber_elb === 'number') ? rules.chamber_elb : 135;
+          let chamberElbowScore = 80;
+          if (rightAngle !== null) {
+            const chDev = Math.abs(rightAngle - chamberElbIdeal);
+            chamberElbowScore = chDev <= 25 ? 100 : Math.max(0, Math.round(100 - (chDev - 25) * 2.0));
+          }
+          const chamberReadinessScore = Math.round(
+            guardScore * 0.40 +
+            stanceScore * 0.40 +
+            chamberElbowScore * 0.20
+          );
+
           function pickRaw2DPoint(lm) {
             if (!lm) return undefined;
             return {
@@ -2369,21 +2488,29 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             source: 'mediapipe_2d',
             coordinateSpace: 'raw_unmirrored_normalized',
             landmarks: {
-              nose: pickRaw2DPoint(landmarks[0]),
-              leftShoulder: pickRaw2DPoint(leftShoulder),
-              rightShoulder: pickRaw2DPoint(rightShoulder),
-              leftElbow: pickRaw2DPoint(leftElbow),
-              rightElbow: pickRaw2DPoint(rightElbow),
-              leftWrist: pickRaw2DPoint(leftWrist),
-              rightWrist: pickRaw2DPoint(rightWrist),
-              leftHip: pickRaw2DPoint(leftHip),
-              rightHip: pickRaw2DPoint(rightHip),
-              leftKnee: pickRaw2DPoint(leftKnee),
-              rightKnee: pickRaw2DPoint(rightKnee),
-              leftAnkle: pickRaw2DPoint(leftAnkle),
-              rightAnkle: pickRaw2DPoint(rightAnkle)
+              nose: pickRaw2DPoint(rawLandmarks[0]),
+              leftShoulder: pickRaw2DPoint(rawLandmarks[11]),
+              rightShoulder: pickRaw2DPoint(rawLandmarks[12]),
+              leftElbow: pickRaw2DPoint(rawLandmarks[13]),
+              rightElbow: pickRaw2DPoint(rawLandmarks[14]),
+              leftWrist: pickRaw2DPoint(rawLandmarks[15]),
+              rightWrist: pickRaw2DPoint(rawLandmarks[16]),
+              leftHip: pickRaw2DPoint(rawLandmarks[23]),
+              rightHip: pickRaw2DPoint(rawLandmarks[24]),
+              leftKnee: pickRaw2DPoint(rawLandmarks[25]),
+              rightKnee: pickRaw2DPoint(rawLandmarks[26]),
+              leftAnkle: pickRaw2DPoint(rawLandmarks[27]),
+              rightAnkle: pickRaw2DPoint(rawLandmarks[28])
             }
           };
+
+          const autoDetectedStrike = autoDetectMode
+            ? classifyStrikeMotion(
+                landmarks,
+                { rightAngle: rightAngle, rightShoulderAngle: rightShoulderAngle },
+                trajMetrics
+              )
+            : null;
 
           const personEntry = {
             id: personIdx,
@@ -2407,6 +2534,8 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             isApex: motionState.isApex,
             isStaticHold: motionState.isStaticHold,
             kineticScore: motionState.kineticScore,
+            trajectoryAccuracy: trajectoryAccuracy,
+            chamberReadinessScore: chamberReadinessScore,
             trajectory: trajMetrics,
             detectedStrike: autoDetectedStrike,
             isPersonVisible: true,
@@ -2433,7 +2562,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         });
       }
 
-      lastRenderedLandmarks = validLandmarksList;
+      lastRenderedLandmarks = smoothedLandmarksList;
       lastRenderedPersons = personsData;
 
       // Send state back to React Native (throttled to ~18 FPS to protect JNI bridge, with bypass only on transient apex impact)
@@ -2465,7 +2594,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
         if (hasGoodPosture && (!window.__lastAutoSnap || wallNow - window.__lastAutoSnap > 3500)) {
           window.__lastAutoSnap = wallNow;
           try {
-            const snap = captureUnmirroredSnapshot(validLandmarksList, personsData);
+            const snap = captureUnmirroredSnapshot(smoothedLandmarksList, personsData);
             if (snap) {
               sendToReactNative({
                 type: "SNAPSHOT_CAPTURED",
@@ -2482,8 +2611,8 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
       
       canvasCtx.font = "bold 16px sans-serif";
 
-      if (validLandmarksList.length > 0) {
-        validLandmarksList.forEach((landmarks, personIdx) => {
+      if (smoothedLandmarksList.length > 0) {
+        smoothedLandmarksList.forEach((landmarks, personIdx) => {
           const colors = PERSON_COLORS[personIdx % PERSON_COLORS.length] || PERSON_COLORS[0];
           const data = personsData[personIdx];
           if (!data) return;
@@ -2547,14 +2676,14 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
               headTopY = shoulderY - Math.max(120, shoulderSpan * 0.95);
             }
 
-            // Metric text for all 4 martial pillars (Striking Arm, Kalasag Guard, Tindig Stance, Pitik Wrist Snap)
+            // Beginner-friendly live status badge above head (no cryptic numbers)
             canvasCtx.font = "bold 11px sans-serif";
-            const armCol = data.isRightGood ? "⚔️" : "⚔️";
-            const guardCol = data.guardScore >= 80 ? "🛡️" : "⚠️";
-            const stanceCol = data.stanceScore >= 80 ? "🦵" : "⚠️";
+            const armMark = data.isRightGood ? "✓" : "•";
+            const guardMark = data.guardScore >= 80 ? "✓" : "•";
+            const stanceMark = data.stanceScore >= 80 ? "✓" : "•";
             const wristScoreVal = typeof data.wristScore === 'number' ? data.wristScore : 85;
-            const wristCol = wristScoreVal >= 80 ? "⚡" : "⚠️";
-            const hudStr = "ARM " + data.elbowScore + "% · " + guardCol + " GUARD " + data.guardScore + "% · " + stanceCol + " STANCE " + data.stanceScore + "% · " + wristCol + " SNAP " + wristScoreVal + "%";
+            const wristMark = wristScoreVal >= 80 ? "✓" : "•";
+            const hudStr = "⚔️ Arm " + armMark + "  ·  🛡️ Guard " + guardMark + "  ·  🦵 Stance " + stanceMark + "  ·  ⚡ Snap " + wristMark;
 
             // Dynamically sized pill based on measured text width
             const measuredW = canvasCtx.measureText ? canvasCtx.measureText(hudStr).width : 270;
@@ -2591,28 +2720,19 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
             canvasCtx.restore();
           }
 
-          // 3. Draw Elbow Angles
-          canvasCtx.font = "bold 16px sans-serif";
-          if (data.leftAngle !== null && leftElbow && leftElbow.visibility > 0.4) {
-            const x = (1 - leftElbow.x) * canvasElement.width;
-            const y = leftElbow.y * canvasElement.height - 15;
-            const color = data.guardScore >= 80 ? "#10b981" : "#f59e0b";
-            canvasCtx.fillStyle = color;
-            canvasCtx.strokeStyle = "#0b0f19";
-            canvasCtx.lineWidth = 3;
-            canvasCtx.strokeText(Math.round(data.leftAngle) + "°", x, y);
-            canvasCtx.fillText(Math.round(data.leftAngle) + "°", x, y);
-          }
-
+          // 3. Draw Plain-English Arm Form Cue on Striking Elbow (no raw degree clutter)
+          canvasCtx.font = "bold 12px sans-serif";
+          canvasCtx.textAlign = "center";
           if (data.rightAngle !== null && rightElbow && rightElbow.visibility > 0.4) {
             const x = (1 - rightElbow.x) * canvasElement.width;
             const y = rightElbow.y * canvasElement.height - 15;
-            const color = data.isRightGood ? "#10b981" : "#ef4444";
+            const color = data.isRightGood ? "#10b981" : "#f59e0b";
+            const armCue = data.isRightGood ? "✓ Good Arm" : "Reach Arm";
             canvasCtx.fillStyle = color;
             canvasCtx.strokeStyle = "#0b0f19";
             canvasCtx.lineWidth = 3;
-            canvasCtx.strokeText(Math.round(data.rightAngle) + "°", x, y);
-            canvasCtx.fillText(Math.round(data.rightAngle) + "°", x, y);
+            canvasCtx.strokeText(armCue, x, y);
+            canvasCtx.fillText(armCue, x, y);
           }
 
           // 4. Draw Stick highlights
@@ -2652,7 +2772,7 @@ export const getPoseEngineHtml = (modelUrl: string, strikeRules: Record<string, 
 
         // 7. Calculate Body Anchor for Visual Guides
         const primaryPersonObj = personsData[0] || null;
-        const primaryLandmarks = validLandmarksList[0] || null;
+        const primaryLandmarks = smoothedLandmarksList[0] || null;
 
         let guideAnchorX = canvasElement.width * 0.5;
         let guideAnchorY = canvasElement.height * 0.35;

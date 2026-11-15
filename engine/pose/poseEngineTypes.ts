@@ -50,6 +50,8 @@ export interface RawPersonPose {
   isApex?: boolean;
   isStaticHold?: boolean;
   kineticScore?: number;
+  trajectoryAccuracy?: number;
+  chamberReadinessScore?: number;
   trajectory?: {
     arcAngle: number | null;
     arcLength: number;

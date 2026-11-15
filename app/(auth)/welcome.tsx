@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Image,
   StyleSheet,
   Text,
   View,
@@ -8,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { MartialTheme } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,7 +34,11 @@ export default function WelcomeScreen() {
         {/* Top Filipino Martial Arts Crest */}
         <View style={styles.heroSection}>
           <View style={styles.crestCircle}>
-            <MaterialCommunityIcons name="sword-cross" size={48} color={MartialTheme.colors.primary} />
+            <Image
+              source={require('@/assets/images/Logo.jpg')}
+              style={styles.crestLogo}
+              resizeMode="contain"
+            />
           </View>
           <View style={styles.badgeRow}>
             <Text style={styles.badgeText}>ESKRIMA • KALI • ARNIS</Text>
@@ -124,20 +129,25 @@ const styles = StyleSheet.create({
     marginTop: Platform.OS === 'ios' ? 20 : 10,
   },
   crestCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: MartialTheme.colors.border,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 4,
     marginBottom: 16,
+  },
+  crestLogo: {
+    width: 84,
+    height: 84,
   },
   badgeRow: {
     backgroundColor: '#FEF3C7',

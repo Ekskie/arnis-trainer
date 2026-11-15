@@ -2,20 +2,34 @@ import { normalizePoseSequenceV2 } from './poseNormalizer';
 import { getExpertReference, normalizeStrikeId } from './referenceLoader';
 import {
   AlphaPoseCompatibleAngles2D,
+  CoordinateConvention,
   ExpertStrikeReference,
   JointComparison2D,
   MeasurementCoverageReport,
+  MovementSegmentationConfig,
   NormalizedPoseFrame2D,
   Raw2DPoseFrame,
   ShadowEvaluationReport,
 } from './referenceTypes';
-import { DtwAlignmentPair, matchWristTrajectory, WristTrajectoryPoint } from './trajectoryMatcher';
+import {
+  DtwAlignmentPair,
+  extractWristTrajectoryPoints,
+  matchWristTrajectory,
+  selectMovementWindow,
+  WristTrajectoryPoint,
+} from './trajectoryMatcher';
 
 export interface ShadowEvaluateOptions {
   /** Optional explicit reference (e.g., for unit tests or offline dataset cross-validation). */
   referenceOverride?: ExpertStrikeReference;
   /** Optional neutral pre-strike frames for fallback fixed shoulder-width estimation. */
   calibrationFrames?: Raw2DPoseFrame[];
+  /** Fallback coordinate convention when no reference is loaded (defaults to 'unmirrored_image_2d' matching AlphaPose exports). */
+  coordinateConvention?: CoordinateConvention;
+  /** Explicit, inspectable movement window selection (defaults to 'full_captured' during early testing). */
+  segmentation?: MovementSegmentationConfig;
+  /** Experimental constrained-DTW maximum warping band offset (default calibrated to 4 pts at 50-pt ref). */
+  dtwMaxOffset?: number;
 }
 
 function roundTo(val: number, decimals = 3): number {
@@ -165,18 +179,28 @@ export function evaluateShadowReference(
 ): ShadowEvaluationReport {
   const normId = normalizeStrikeId(strikeId) ?? strikeId;
   const reference = options.referenceOverride ?? getExpertReference(normId);
+  const segmentationConfig = options.segmentation ?? { mode: 'full_captured' };
 
   if (!reference) {
+    const fallbackConvention = options.coordinateConvention ?? 'unmirrored_image_2d';
     const fallbackNormalized = normalizePoseSequenceV2(rawFrames, {
-      coordinateConvention: 'anatomical_mirrored_2d',
+      coordinateConvention: fallbackConvention,
       calibrationFrames: options.calibrationFrames,
     });
+    const fallbackPoints = extractWristTrajectoryPoints(fallbackNormalized.frames, 'right_wrist');
+    const fallbackWindow = selectMovementWindow(
+      fallbackPoints,
+      fallbackNormalized.frames.length,
+      segmentationConfig
+    ).selection;
+
     return {
       strikeId: normId,
       referenceStatus: 'no_reference_loaded',
       isNonGradingShadow: true,
       normalizationMeta: fallbackNormalized.metadata,
       measurementCoverage: computeMeasurementCoverage(fallbackNormalized.frames),
+      movementWindow: fallbackWindow,
       trajectoryMetrics: null,
       kinematicLandmarks: null,
       jointComparisons2D: [],
@@ -193,9 +217,22 @@ export function evaluateShadowReference(
   });
 
   const coverage = computeMeasurementCoverage(normalized.frames);
-  const match = matchWristTrajectory(normalized.frames, reference);
+  const match = matchWristTrajectory(normalized.frames, reference, {
+    segmentation: segmentationConfig,
+    dtwMaxOffset: options.dtwMaxOffset,
+  });
 
   if (!match || normalized.metadata.fixedMedianShoulderWidthPx === null) {
+    const rawWristPoints = extractWristTrajectoryPoints(
+      normalized.frames,
+      reference.wristTrajectory.joint
+    );
+    const fallbackWindow = selectMovementWindow(
+      rawWristPoints,
+      normalized.frames.length,
+      segmentationConfig
+    ).selection;
+
     return {
       strikeId: reference.strikeId,
       referenceStatus: 'insufficient_coverage',
@@ -203,6 +240,7 @@ export function evaluateShadowReference(
       referenceProvenance: reference.provenance,
       normalizationMeta: normalized.metadata,
       measurementCoverage: coverage,
+      movementWindow: fallbackWindow,
       trajectoryMetrics: null,
       kinematicLandmarks: null,
       jointComparisons2D: [],
@@ -295,6 +333,7 @@ export function evaluateShadowReference(
     referenceProvenance: reference.provenance,
     normalizationMeta: normalized.metadata,
     measurementCoverage: coverage,
+    movementWindow: match.segmentation,
     trajectoryMetrics: match.metrics,
     kinematicLandmarks: match.kinematicLandmarks,
     jointComparisons2D,

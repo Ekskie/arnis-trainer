@@ -71,8 +71,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_1,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_1,
-        impactFrame: 44,
-        impactTime: 1.47,
+        impactFrame: 83,
+        impactTime: 2.77,
         angles: {
           elbow: 124.0,
           shoulder: 106.0,
@@ -101,8 +101,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_2,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_2,
-        impactFrame: 38,
-        impactTime: 1.27,
+        impactFrame: 76,
+        impactTime: 2.53,
         angles: {
           elbow: 157.6,
           shoulder: 131.2,
@@ -131,8 +131,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_3,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_3,
-        impactFrame: 41,
-        impactTime: 1.37,
+        impactFrame: 72,
+        impactTime: 2.40,
         angles: {
           elbow: 114.0,
           shoulder: 98.8,
@@ -160,8 +160,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_4,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_4,
-        impactFrame: 104,
-        impactTime: 3.47,
+        impactFrame: 60,
+        impactTime: 2.00,
         angles: {
           elbow: 124.7,
           shoulder: 49.4,
@@ -189,8 +189,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_5,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_5,
-        impactFrame: 116,
-        impactTime: 3.87,
+        impactFrame: 70,
+        impactTime: 2.33,
         angles: {
           elbow: 167.2,
           shoulder: 16.0,
@@ -218,8 +218,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_6,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_6,
-        impactFrame: 13,
-        impactTime: 0.43,
+        impactFrame: 55,
+        impactTime: 1.83,
         angles: {
           elbow: 173.8,
           shoulder: 28.6,
@@ -247,8 +247,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_7,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_7,
-        impactFrame: 49,
-        impactTime: 1.63,
+        impactFrame: 60,
+        impactTime: 2.00,
         angles: {
           elbow: 156.3,
           shoulder: 25.2,
@@ -276,8 +276,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_8,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_8,
-        impactFrame: 79,
-        impactTime: 2.63,
+        impactFrame: 75,
+        impactTime: 2.50,
         angles: {
           elbow: 178.1,
           shoulder: 16.2,
@@ -305,8 +305,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_9,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_9,
-        impactFrame: 98,
-        impactTime: 3.27,
+        impactFrame: 60,
+        impactTime: 2.00,
         angles: {
           elbow: 174.1,
           shoulder: 1.6,
@@ -334,8 +334,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_10,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_10,
-        impactFrame: 3,
-        impactTime: 0.10,
+        impactFrame: 40,
+        impactTime: 1.33,
         angles: {
           elbow: 176.6,
           shoulder: 28.9,
@@ -363,8 +363,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_11,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_11,
-        impactFrame: 29,
-        impactTime: 0.97,
+        impactFrame: 49,
+        impactTime: 1.63,
         angles: {
           elbow: 176.0,
           shoulder: 34.0,
@@ -392,8 +392,8 @@ export const ARNIS_REFERENCE_DATA: Record<string, CoachStrikeReference> = {
       front: {
         videoSource: LOCAL_STRIKE_VIDEOS.strike_12,
         impactSnapshot: LOCAL_COACH_SNAPSHOTS.strike_12,
-        impactFrame: 43,
-        impactTime: 1.43,
+        impactFrame: 60,
+        impactTime: 2.00,
         angles: {
           elbow: 123.1,
           shoulder: 164.7,

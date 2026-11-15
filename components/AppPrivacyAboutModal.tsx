@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -9,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { MartialTheme } from '@/constants/theme';
 
 interface AppPrivacyAboutModalProps {
@@ -42,7 +43,11 @@ export default function AppPrivacyAboutModal({
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCard}>
             <View style={styles.heroIcon}>
-              <MaterialCommunityIcons name="sword-cross" size={32} color={MartialTheme.colors.primary} />
+              <Image
+                source={require('@/assets/images/Logo.jpg')}
+                style={styles.heroLogo}
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.heroTitle}>{appName}</Text>
             <Text style={styles.heroDesc}>
@@ -148,9 +153,16 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: MartialTheme.colors.primaryMuted,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: MartialTheme.colors.border,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heroLogo: {
+    width: 52,
+    height: 52,
   },
   heroTitle: {
     fontSize: 20,

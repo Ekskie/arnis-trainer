@@ -501,28 +501,7 @@ export function PracticeHomeScreen({
             <Ionicons name="chevron-forward" size={18} color={MartialTheme.colors.border3D} />
           </TouchableOpacity>
 
-          {/* Mode 3: Test Yourself */}
-          <TouchableOpacity
-            style={styles.modeCard}
-            activeOpacity={0.8}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              triggerStartStrike(recommendedStrike.id, 'test');
-            }}
-          >
-            <View style={[styles.modeIconCircle, { backgroundColor: '#FFEDD5' }]}>
-              <MaterialCommunityIcons name="target" size={20} color={MartialTheme.colors.flame} />
-            </View>
-            <View style={styles.modeCardContent}>
-              <Text style={styles.modeCardTitle}>Test Yourself</Text>
-              <Text style={styles.modeCardDesc}>
-                Timed 3-2-1 challenge to test your muscle memory
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={MartialTheme.colors.border3D} />
-          </TouchableOpacity>
-
-          {/* Mode 4: Anyo & Combos */}
+          {/* Mode 3: Anyo & Combos */}
           <TouchableOpacity
             style={styles.modeCard}
             activeOpacity={0.8}
@@ -550,27 +529,67 @@ export function PracticeHomeScreen({
           {/* Collapsible Anyo Routines List */}
           {showAnyoPicker && (
             <View style={styles.anyoDrawer}>
-              {ANYO_ROUTINES_CATALOG.map((routine) => (
-                <TouchableOpacity
-                  key={routine.id}
-                  style={styles.anyoRoutineRow}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    triggerStartAnyo(routine);
-                  }}
-                >
-                  <View style={styles.anyoRoutineLeft}>
-                    <Text style={styles.anyoRoutineName}>{routine.name}</Text>
-                    <Text style={styles.anyoRoutineSub}>
-                      {routine.subtitle} · {routine.strikes.length} strikes
-                    </Text>
-                  </View>
-                  <View style={styles.anyoRoutineBadge}>
-                    <Text style={styles.anyoRoutineBadgeText}>{routine.difficulty}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {ANYO_ROUTINES_CATALOG.map((routine) => {
+                const lockedStrikeNumbers = routine.strikes
+                  .filter((sid) => !isStrikeUnlocked(sid, completedLessonIds))
+                  .map((sid) => sid.replace('strike_', ''));
+                const isRoutineUnlocked = lockedStrikeNumbers.length === 0;
+
+                return (
+                  <TouchableOpacity
+                    key={routine.id}
+                    style={[styles.anyoRoutineRow, !isRoutineUnlocked && { opacity: 0.6 }]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (!isRoutineUnlocked) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                        Alert.alert(
+                          'Combo Locked 🔒',
+                          `Unlock Strike${lockedStrikeNumbers.length > 1 ? 's' : ''} ${lockedStrikeNumbers.join(', ')} in the Journey first to practice "${routine.name}".`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Go to Journey 🗺️',
+                              onPress: () => router.push('/explore' as any),
+                            },
+                          ]
+                        );
+                        return;
+                      }
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      triggerStartAnyo(routine);
+                    }}
+                  >
+                    <View style={[styles.anyoRoutineLeft, { paddingRight: 8 }]}>
+                      <Text style={styles.anyoRoutineName}>{routine.name}</Text>
+                      <Text style={styles.anyoRoutineSub}>
+                        {routine.subtitle} · {routine.strikes.length} strikes
+                      </Text>
+                      {!isRoutineUnlocked && (
+                        <Text style={[styles.anyoRoutineSub, { color: '#6B7280', marginTop: 3 }]}>
+                          🔒 Requires Strike{lockedStrikeNumbers.length > 1 ? 's' : ''}{' '}
+                          {lockedStrikeNumbers.join(', ')}
+                        </Text>
+                      )}
+                    </View>
+                    <View
+                      style={[
+                        styles.anyoRoutineBadge,
+                        !isRoutineUnlocked && { backgroundColor: '#F3F4F6' },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.anyoRoutineBadgeText,
+                          !isRoutineUnlocked && { color: '#6B7280' },
+                        ]}
+                      >
+                        {isRoutineUnlocked ? routine.difficulty : '🔒 Locked'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>

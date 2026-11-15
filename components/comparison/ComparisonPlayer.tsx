@@ -361,7 +361,7 @@ export function ComparisonPlayer({
             <View style={styles.badgeRow}>
               <Text style={styles.headerSuper}>COACH VS YOU</Text>
               <View style={styles.syncBadge}>
-                <Text style={styles.syncBadgeText}>SYNCHRONIZED REVIEW</Text>
+                <Text style={styles.syncBadgeText}>SIDE-BY-SIDE REPLAY</Text>
               </View>
             </View>
             <Text style={styles.headerTitle}>{strikeRule.name}</Text>
@@ -375,7 +375,7 @@ export function ComparisonPlayer({
         {/* --- Synchronized Scrub Timeline Slider --- */}
         <View style={styles.scrubberContainer}>
           <View style={styles.scrubHeaderRow}>
-            <Text style={styles.scrubLabel}>SYNCHRONIZED TIMELINE</Text>
+            <Text style={styles.scrubLabel}>VIDEO TIMELINE (TAP TO JUMP)</Text>
             <Text style={styles.scrubTimeText}>
               {(currentTimeProgress * totalVideoDuration).toFixed(2)}s / {totalVideoDuration.toFixed(1)}s
             </Text>
@@ -412,9 +412,9 @@ export function ComparisonPlayer({
           <View style={styles.playerContainer}>
             <View style={styles.playerHeader}>
               <View style={styles.playerTagCoach}>
-                <Text style={styles.playerTagCoachText}>COACH (EXPERT FORM)</Text>
+                <Text style={styles.playerTagCoachText}>COACH DEMO</Text>
               </View>
-              <Text style={styles.playerImpactPill}>Impact @ {coachImpactTime.toFixed(2)}s</Text>
+              <Text style={styles.playerImpactPill}>Strike Point @ {coachImpactTime.toFixed(2)}s</Text>
             </View>
             <View style={styles.videoWrapper}>
               <VideoView
@@ -426,11 +426,11 @@ export function ComparisonPlayer({
             </View>
           </View>
 
-          {/* 2. Lower: User Recorded Strike Video (or Apex Snapshot Fallback) */}
+          {/* 2. Lower: User Recorded Strike Video (or Strike Point Snapshot Fallback) */}
           <View style={styles.playerContainer}>
             <View style={styles.playerHeader}>
               <View style={styles.playerTagUser}>
-                <Text style={styles.playerTagUserText}>YOUR TECHNIQUE</Text>
+                <Text style={styles.playerTagUserText}>YOUR STRIKE</Text>
               </View>
               <View style={styles.playerHeaderRight}>
                 {(effectiveUserVideo || userSnapshotUri) && (
@@ -459,7 +459,7 @@ export function ComparisonPlayer({
                   </TouchableOpacity>
                 )}
                 <Text style={styles.playerImpactPill}>
-                  {effectiveUserVideo ? `Impact @ ${userImpactTime.toFixed(2)}s` : 'Apex Snapshot'}
+                  {effectiveUserVideo ? `Strike @ ${userImpactTime.toFixed(2)}s` : 'Strike Photo'}
                 </Text>
               </View>
             </View>
@@ -491,14 +491,14 @@ export function ComparisonPlayer({
                   />
                   <View style={styles.snapshotFallbackTag}>
                     <Ionicons name="camera" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                    <Text style={styles.snapshotFallbackTagText}>Apex Impact Snapshot</Text>
+                    <Text style={styles.snapshotFallbackTagText}>Strike Point Photo</Text>
                   </View>
                 </View>
               ) : (
                 <View style={styles.noVideoPlaceholder}>
                   <Ionicons name="videocam-off-outline" size={36} color={MartialTheme.colors.textMuted} />
-                  <Text style={styles.noVideoText}>No recorded user video for this session</Text>
-                  <Text style={styles.noVideoSub}>Complete a camera evaluation drill to review your replay</Text>
+                  <Text style={styles.noVideoText}>No video saved for this practice yet</Text>
+                  <Text style={styles.noVideoSub}>Finish a camera evaluation to watch your replay here</Text>
                 </View>
               )}
             </View>
@@ -543,7 +543,7 @@ export function ComparisonPlayer({
             activeOpacity={0.8}
           >
             <Ionicons name="locate" size={16} color="#FFFFFF" style={{ marginRight: 5 }} />
-            <Text style={styles.jumpImpactBtnText}>Apex Impact</Text>
+            <Text style={styles.jumpImpactBtnText}>Strike Point</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

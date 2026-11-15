@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   BackHandler,
-  Image,
   Linking,
   Platform,
   StyleSheet,
@@ -19,19 +18,29 @@ import { WebView } from 'react-native-webview';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { useRouter } from 'expo-router';
-import { registerSessionVideo } from '@/services/videoCacheManager';
+import { useAuth } from '@/contexts/AuthContext';
 
 import { MartialTheme } from '@/constants/theme';
 import { getStrikeRule, StrikeRule } from '@/constants/strikeRules';
 import { EvaluationConfig, RawPersonPose } from '@/engine/pose/poseEngineTypes';
 import { usePoseEngine } from '@/hooks/usePoseEngine';
-import { evaluatePoseFrame } from '@/engine/evaluation/strikeEvaluator';
-import { Raw2DPoseFrame, ShadowEvaluationReport } from '@/engine/reference/referenceTypes';
+import {
+  computeDtwTrajectoryScore,
+  evaluatePoseFrame,
+} from '@/engine/evaluation/strikeEvaluator';
+import {
+  Raw2DPoseFrame,
+  ShadowEvaluationReport,
+} from '@/engine/reference/referenceTypes';
 import { evaluateShadowReference } from '@/engine/reference/shadowEvaluator';
-import { computeGrade } from '@/engine/evaluation/scoreCalculator';
+import { calculateStarCount, computeGrade } from '@/engine/evaluation/scoreCalculator';
 import { getPoseEngineHtml } from '@/constants/poseEngineHtml';
 import { LOCAL_STRIKE_VIDEOS } from '@/constants/strikeVideos';
-import { AnyoRoutine, AnyoStepResult } from '@/constants/historyStore';
+import {
+  AnyoRoutine,
+  AnyoStepResult,
+  getStoredStrikeMasteryMap,
+} from '@/constants/historyStore';
 import { ImpactDetector } from '@/services/impactDetector';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { TactileButton } from '@/components/ui/TactileButton';
@@ -57,6 +66,7 @@ export interface PracticeLiveProps {
       guardScore: number;
       stanceScore: number;
       kneeScore?: number;
+      trajectoryAccuracy?: number;
       durationMs?: number;
       kineticPhases?: {
         chamber: number;
@@ -104,8 +114,12 @@ export function PracticeLive({
   autoStartEval = false,
 }: PracticeLiveProps) {
   const router = useRouter();
+  const { user } = useAuth();
+  const [strikeStars, setStrikeStars] = useState(0);
   // Collapsible Technical Analysis drawer (collapsed by default)
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  // Mirror instructor video by default in Follow the Coach mode
+  const [isCoachVideoMirrored, setIsCoachVideoMirrored] = useState(true);
   // Watchdog timer for pose engine initialization / offline fallback
   const [initWatchdogTimedOut, setInitWatchdogTimedOut] = useState(false);
   const [webLoadError, setWebLoadError] = useState<string | null>(null);
@@ -141,8 +155,9 @@ export function PracticeLive({
   const recordingIntervalRef = useRef<any>(null);
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Recorded replay video ref
+  // Recorded replay video and snapshot refs
   const recordedVideoUriRef = useRef<string | null>(null);
+  const latestSnapshotRef = useRef<string | null>(null);
 
   // User in camera framing tracking
   const [isUserInFrame, setIsUserInFrame] = useState(false);
@@ -174,9 +189,12 @@ export function PracticeLive({
   const chamberScoreRef = useRef(0);
   const apexScoreRef = useRef(0);
   const recoveryScoreRef = useRef(0);
+  const bestTrajectoryAccuracyRef = useRef<number | undefined>(undefined);
   const apexHitDetectedRef = useRef(false);
   const recoveryPromptTimeoutRef = useRef<any>(null);
+  const earlyFinishTimeoutRef = useRef<any>(null);
   const evalSafetyTimeoutRef = useRef<any>(null);
+  const isFinishingEvalRef = useRef(false);
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
   const [isFeetOutOfView, setIsFeetOutOfView] = useState(false);
 
@@ -184,32 +202,40 @@ export function PracticeLive({
   const [coachPhase, setCoachPhase] = useState<'chamber' | 'impact' | 'recovery' | 'completed'>('chamber');
   const [coachRepsCompleted, setCoachRepsCompleted] = useState(0);
 
-  // Quick cycle strike (Strike 1 -> 12) directly from camera in Free Practice
-  const handleCycleStrike = (dir: -1 | 1) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    let nextNum = strikeRule.strikeNumber + dir;
-    if (nextNum < 1) nextNum = 12;
-    if (nextNum > 12) nextNum = 1;
-    const nextStrikeId = `strike_${nextNum}`;
-    setTargetStrike(nextStrikeId);
-    onSelectStrike?.(nextStrikeId);
-  };
+  // Load persisted mastery stars for current strike in top HUD
+  useEffect(() => {
+    let mounted = true;
+    getStoredStrikeMasteryMap(user?.id)
+      .then((masteryMap) => {
+        if (!mounted) return;
+        const bestScore = masteryMap?.[strikeRule.id]?.bestScore ?? 0;
+        setStrikeStars(calculateStarCount(bestScore));
+      })
+      .catch(() => {
+        if (mounted) setStrikeStars(0);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [strikeRule.id, user?.id]);
 
   // Anyo state tracking
-  const [currentAnyoStepIndex, setCurrentAnyoStepIndex] = useState(0);
-  const [anyoStepScores, setAnyoStepScores] = useState<AnyoStepResult[]>([]);
+  const currentAnyoStepIndexRef = useRef(0);
+  const anyoStepScoresRef = useRef<AnyoStepResult[]>([]);
   const anyoStartTimeRef = useRef(Date.now());
   const anyoStepStartTimeRef = useRef(Date.now());
+  const activeRoutineId = activeRoutine?.id ?? null;
+  const finishEvaluationRef = useRef<(durationMs: number) => void>(() => {});
 
   // Resynchronize Anyo step state whenever an active routine is loaded or restarted
   useEffect(() => {
-    if (activeRoutine) {
-      setCurrentAnyoStepIndex(0);
-      setAnyoStepScores([]);
+    if (activeRoutineId) {
+      currentAnyoStepIndexRef.current = 0;
+      anyoStepScoresRef.current = [];
       anyoStartTimeRef.current = Date.now();
       anyoStepStartTimeRef.current = Date.now();
     }
-  }, [activeRoutine?.id]);
+  }, [activeRoutineId]);
 
   // Auto-detected strike toast
   const [detectedStrike, setDetectedStrike] = useState<{ name: string; confidence: number } | null>(null);
@@ -250,7 +276,7 @@ export function PracticeLive({
     // 1.5s recovery grace window before auto-finishing evaluation
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
     recoveryPromptTimeoutRef.current = setTimeout(() => {
-      finishEvaluation(3500);
+      finishEvaluationRef.current(3500);
     }, 1500);
   };
 
@@ -280,6 +306,12 @@ export function PracticeLive({
         trajectoryGuideEnabled: ghostGuideVisible,
         voiceEnabled: voiceActive,
       });
+    },
+    onSnapshotCaptured: (base64) => {
+      latestSnapshotRef.current = base64;
+    },
+    onVideoReplayCaptured: (base64) => {
+      recordedVideoUriRef.current = base64;
     },
     onApexHit: (_velocity, accuracy) => {
       handleApexTriggered(accuracy);
@@ -354,7 +386,12 @@ export function PracticeLive({
       }
 
       // Collect neutral ready-stance calibration frames before strike window (for V2 shoulder-width fallback)
-      if ((countdownState === 'waiting_for_frame' || countdownState === 'counting') && primaryPerson.rawPose2d) {
+      if (
+        (countdownState === 'waiting_for_frame' ||
+          countdownState === 'counting' ||
+          countdownState === 'practice') &&
+        primaryPerson.rawPose2d
+      ) {
         shadowCalFramesRef.current.push(primaryPerson.rawPose2d);
         if (shadowCalFramesRef.current.length > 30) {
           shadowCalFramesRef.current.shift();
@@ -364,13 +401,24 @@ export function PracticeLive({
       // Track multi-phase progress & apex moments during evaluating window
       if (countdownState === 'evaluating') {
         impactDetectorRef.current.addFrame(primaryPerson, strikeRule, lastSnapshot || undefined);
-        if (primaryPerson.rawPose2d && shadowFramesRef.current.length < 180) {
+        const maxShadowFrames = 180;
+        if (primaryPerson.rawPose2d && shadowFramesRef.current.length < maxShadowFrames) {
           shadowFramesRef.current.push(primaryPerson.rawPose2d);
         }
 
+        if (
+          typeof primaryPerson.trajectoryAccuracy === 'number' &&
+          Number.isFinite(primaryPerson.trajectoryAccuracy)
+        ) {
+          bestTrajectoryAccuracyRef.current = Math.max(
+            bestTrajectoryAccuracyRef.current ?? 0,
+            primaryPerson.trajectoryAccuracy
+          );
+        }
+
         if (!apexHitDetectedRef.current) {
-          // Phase 1: Chamber preparation
-          chamberScoreRef.current = Math.max(chamberScoreRef.current, frameResult.accuracy);
+          // Phase 1: Uncapped chamber preparation readiness
+          chamberScoreRef.current = Math.max(chamberScoreRef.current, frameResult.chamberScore);
           if (primaryPerson.isApex || primaryPerson.motionPhase === 'apex_hit') {
             handleApexTriggered(frameResult.accuracy);
           }
@@ -379,10 +427,15 @@ export function PracticeLive({
           const returnScore = Math.round(frameResult.guardScore * 0.5 + frameResult.stanceScore * 0.5);
           recoveryScoreRef.current = Math.max(recoveryScoreRef.current, returnScore);
 
-          // If user locks guard and stance cleanly back, complete early
+          // If user locks guard and stance cleanly back, complete early (schedule once per rep)
           if (frameResult.guardScore >= 80 && frameResult.stanceScore >= 75) {
-            if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
-            setTimeout(() => finishEvaluation(2500), 200);
+            if (!earlyFinishTimeoutRef.current && !isFinishingEvalRef.current) {
+              if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+              earlyFinishTimeoutRef.current = setTimeout(() => {
+                earlyFinishTimeoutRef.current = null;
+                finishEvaluationRef.current(2500);
+              }, 200);
+            }
           }
         }
 
@@ -484,21 +537,18 @@ export function PracticeLive({
   // Video player for Mode: Follow the Coach (only instantiate when mode is 'follow' to save resources and prevent decoder contention)
   const followVideoSource = useMemo(() => {
     if (mode !== 'follow') return null;
-    const raw = LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
-    try {
-      const resolved = Image.resolveAssetSource(raw);
-      return resolved?.uri ? { uri: resolved.uri } : raw;
-    } catch {
-      return raw;
-    }
+    return LOCAL_STRIKE_VIDEOS[strikeRule.id] || LOCAL_STRIKE_VIDEOS.strike_1;
   }, [mode, strikeRule.id]);
+
+  const loadedFollowSourceRef = useRef<any>(followVideoSource);
 
   const followPlayer = useVideoPlayer(followVideoSource, (p) => {
     if (!p) return;
     try {
       p.loop = true;
+      p.muted = true;
       p.playbackRate = 0.75;
-      if (mode === 'follow' && countdownState !== 'evaluating') {
+      if (mode === 'follow') {
         p.play();
       } else {
         p.pause();
@@ -508,11 +558,42 @@ export function PracticeLive({
     }
   });
 
-  // Sync playback state when mode or evaluation state changes (pause during active live evaluation to free hardware media decoders)
+  // Replace source when switching strikes in Follow the Coach mode
+  useEffect(() => {
+    if (!followPlayer || mode !== 'follow' || !followVideoSource) return;
+    if (loadedFollowSourceRef.current === followVideoSource) return;
+    loadedFollowSourceRef.current = followVideoSource;
+    let active = true;
+    const syncSource = async () => {
+      try {
+        if (typeof followPlayer.replaceAsync === 'function') {
+          await followPlayer.replaceAsync(followVideoSource);
+        } else {
+          followPlayer.replace(followVideoSource);
+        }
+        if (!active) return;
+        followPlayer.loop = true;
+        followPlayer.muted = true;
+        followPlayer.playbackRate = 0.75;
+        followPlayer.play();
+      } catch {
+        // ignore
+      }
+    };
+    syncSource();
+    return () => {
+      active = false;
+    };
+  }, [mode, followVideoSource, followPlayer]);
+
+  // Keep instructor demonstration video playing while Follow the Coach mode is active
   useEffect(() => {
     if (!followPlayer) return;
     try {
-      if (mode === 'follow' && countdownState !== 'evaluating') {
+      if (mode === 'follow') {
+        followPlayer.loop = true;
+        followPlayer.muted = true;
+        followPlayer.playbackRate = 0.75;
         followPlayer.play();
       } else {
         followPlayer.pause();
@@ -527,11 +608,16 @@ export function PracticeLive({
         // ignore
       }
     };
-  }, [mode, countdownState, followPlayer]);
+  }, [mode, followPlayer]);
 
   // Initiate evaluation: step into camera view first, then auto-countdown once detected
   const handleStartEvaluationFlow = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    isFinishingEvalRef.current = false;
+    if (earlyFinishTimeoutRef.current) {
+      clearTimeout(earlyFinishTimeoutRef.current);
+      earlyFinishTimeoutRef.current = null;
+    }
     shadowCalFramesRef.current = [];
     shadowFramesRef.current = [];
     setCountdownState('waiting_for_frame');
@@ -551,6 +637,10 @@ export function PracticeLive({
     if (recoveryPromptTimeoutRef.current) {
       clearTimeout(recoveryPromptTimeoutRef.current);
       recoveryPromptTimeoutRef.current = null;
+    }
+    if (earlyFinishTimeoutRef.current) {
+      clearTimeout(earlyFinishTimeoutRef.current);
+      earlyFinishTimeoutRef.current = null;
     }
     if (evalSafetyTimeoutRef.current) {
       clearTimeout(evalSafetyTimeoutRef.current);
@@ -655,8 +745,17 @@ export function PracticeLive({
   // Timed evaluation window
   const startEvaluationWindow = () => {
     Speech.stop().catch(() => {});
+    isFinishingEvalRef.current = false;
     setCountdownState('evaluating');
     bestScoreRef.current = 0;
+    bestAnglesRef.current = {
+      elbowScore: 0,
+      shoulderScore: 0,
+      wristScore: 0,
+      guardScore: 0,
+      stanceScore: 0,
+    };
+    bestTrajectoryAccuracyRef.current = undefined;
     chamberScoreRef.current = 0;
     apexScoreRef.current = 0;
     recoveryScoreRef.current = 0;
@@ -672,15 +771,20 @@ export function PracticeLive({
     shadowFramesRef.current = [];
     startVideoRecording();
 
-    // Video replay recording is handled seamlessly by WebView canvas stream
+    // Video replay recording is handled seamlessly by WebView camera MediaRecorder stream
     recordedVideoUriRef.current = null;
+    latestSnapshotRef.current = null;
 
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+    if (earlyFinishTimeoutRef.current) {
+      clearTimeout(earlyFinishTimeoutRef.current);
+      earlyFinishTimeoutRef.current = null;
+    }
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
 
     // 5.0-second maximum safety timeout (hybrid auto-finish)
     evalSafetyTimeoutRef.current = setTimeout(() => {
-      finishEvaluation(5000);
+      finishEvaluationRef.current(5000);
     }, 5000);
 
     let timeLeft = 5;
@@ -709,67 +813,105 @@ export function PracticeLive({
 
   // Complete evaluation
   const finishEvaluation = async (durationMs: number) => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || isFinishingEvalRef.current) return;
+    isFinishingEvalRef.current = true;
     isCountingRef.current = false;
     clearAllCountdownTimers();
     stopVideoRecording();
 
-    let recordedUri: string | null = recordedVideoUriRef.current || lastReplayVideo;
-
     if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+    if (earlyFinishTimeoutRef.current) {
+      clearTimeout(earlyFinishTimeoutRef.current);
+      earlyFinishTimeoutRef.current = null;
+    }
     if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
     if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
     setShowRecoveryPrompt(false);
 
+    // Wait briefly so WebView MediaRecorder + captureSnapshot finish posting back to React Native
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    if (!isMountedRef.current) return;
+
+    const recordedUri: string | null = recordedVideoUriRef.current || lastReplayVideo;
+    const latestSnap = latestSnapshotRef.current || lastSnapshot || undefined;
+
     // Calculate Multi-Phase Kinetic Score: 25% Chamber + 50% Apex + 25% Recovery
     const hadValidApex = apexHitDetectedRef.current;
     const sChamber = chamberScoreRef.current > 0 ? chamberScoreRef.current : (bestScoreRef.current > 0 ? Math.min(bestScoreRef.current, 60) : 40);
-    const sApex = hadValidApex && apexScoreRef.current > 0
+    let sApex = hadValidApex && apexScoreRef.current > 0
       ? apexScoreRef.current
       : (hadValidApex && bestScoreRef.current > 0 ? bestScoreRef.current : 40);
     // If recovery was never detected/completed within grace window, apply penalty (35)
     const sRecovery = recoveryScoreRef.current > 0 ? recoveryScoreRef.current : 35;
 
-    let multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
-
-    // Trajectory & Dynamic Apex Gating:
-    // If no valid dynamic apex was reached (e.g. static hold, erratic motion, or wrong direction), strike fails (< 75%)
-    if (!hadValidApex) {
-      multiPhaseScore = Math.min(60, multiPhaseScore);
-    }
-    const finalScore = Math.max(10, Math.min(100, multiPhaseScore));
-
     // Check if Anyo mode is active
     if (activeRoutine) {
-      const currentStepStrikeId = activeRoutine.strikes[currentAnyoStepIndex] || strikeRule.id;
+      let multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
+      if (!hadValidApex) {
+        multiPhaseScore = Math.min(60, multiPhaseScore);
+      }
+      const finalScore = Math.max(10, Math.min(100, multiPhaseScore));
+
+      const stepIdx = currentAnyoStepIndexRef.current;
+      const currentStepStrikeId = activeRoutine.strikes[stepIdx] || strikeRule.id;
       const currentStepStrikeRule = getStrikeRule(currentStepStrikeId);
+      const stepDurationMs = Date.now() - anyoStepStartTimeRef.current;
+      const stepImpact = impactDetectorRef.current.finalize(stepDurationMs);
 
       const stepScore: AnyoStepResult = {
-        stepIndex: currentAnyoStepIndex,
+        stepIndex: stepIdx,
         strikeId: currentStepStrikeRule.id,
         strikeName: currentStepStrikeRule.name,
         score: finalScore,
         grade: computeGrade(finalScore),
-        durationMs: Date.now() - anyoStepStartTimeRef.current,
-        snapshotBase64: lastSnapshot || undefined,
+        durationMs: stepDurationMs,
+        snapshotBase64: latestSnap,
+        breakdown: {
+          elbow: {
+            score: bestAnglesRef.current.elbowScore || livePillars.strikingArm || finalScore,
+            actual: Math.round(stepImpact.detectedPose.rightAngle ?? 0),
+            ideal: currentStepStrikeRule.chamber_elb,
+          },
+          shoulder: {
+            score: bestAnglesRef.current.shoulderScore || finalScore,
+            actual: Math.round(stepImpact.detectedPose.rightShoulderAngle ?? 0),
+            ideal: currentStepStrikeRule.ideal_shoulder,
+          },
+          wrist: {
+            score: bestAnglesRef.current.wristScore || livePillars.wrist || finalScore,
+            actual: Math.round(stepImpact.detectedPose.rightWristAngle ?? 0),
+            ideal: 0,
+          },
+          guard: {
+            score: bestAnglesRef.current.guardScore || livePillars.guard || finalScore,
+            actual: 0,
+            ideal: 70,
+          },
+          stance: {
+            score: bestAnglesRef.current.stanceScore || livePillars.stance || finalScore,
+            actual: Math.round(stepImpact.detectedPose.leadKneeAngle ?? stepImpact.detectedPose.rightKneeAngle ?? 0),
+            ideal: currentStepStrikeRule.ideal_knee,
+          },
+        },
       };
 
-      const updatedScores = [...anyoStepScores, stepScore];
-      setAnyoStepScores(updatedScores);
+      const updatedScores = [...anyoStepScoresRef.current, stepScore];
+      anyoStepScoresRef.current = updatedScores;
 
-      if (currentAnyoStepIndex + 1 < activeRoutine.strikes.length) {
+      if (stepIdx + 1 < activeRoutine.strikes.length) {
         // Next Anyo step
-        const nextIdx = currentAnyoStepIndex + 1;
+        const nextIdx = stepIdx + 1;
         const nextStrikeId = activeRoutine.strikes[nextIdx];
-        setCurrentAnyoStepIndex(nextIdx);
+        currentAnyoStepIndexRef.current = nextIdx;
         anyoStepStartTimeRef.current = Date.now();
         setTargetStrike(nextStrikeId);
         onSelectStrike?.(nextStrikeId);
+        isFinishingEvalRef.current = false;
         startCountdown();
       } else {
         // Anyo complete!
         const totalDuration = Date.now() - anyoStartTimeRef.current;
-        onCompleteAnyo?.(activeRoutine, updatedScores, totalDuration, lastSnapshot || undefined);
+        onCompleteAnyo?.(activeRoutine, updatedScores, totalDuration, latestSnap);
       }
       return;
     }
@@ -783,13 +925,32 @@ export function PracticeLive({
       wrist: Math.round(impactResult.detectedPose.rightWristAngle ?? 0),
     };
 
-    const finalSnapshot = impactResult.snapshotBase64 || lastSnapshot || undefined;
+    const finalSnapshot = impactResult.snapshotBase64 || latestSnap;
     const finalReplayVideo = recordedUri || recordedVideoUriRef.current || lastReplayVideo || undefined;
 
-    // Non-grading shadow reference evaluation (runs alongside baseline rules evaluator)
+    // Shadow reference trajectory evaluation (runs alongside baseline rules evaluator)
     const shadowEvaluation = evaluateShadowReference(strikeRule.id, shadowFramesRef.current, {
       calibrationFrames: shadowCalFramesRef.current,
     });
+
+    const dtwScore = computeDtwTrajectoryScore(shadowEvaluation);
+    if (dtwScore !== null && hadValidApex) {
+      sApex = Math.round(sApex * 0.80 + dtwScore * 0.20);
+    }
+
+    let multiPhaseScore = Math.round(sChamber * 0.25 + sApex * 0.50 + sRecovery * 0.25);
+
+    // Trajectory & Dynamic Apex Gating:
+    // If no valid dynamic apex was reached (e.g. static hold, erratic motion, or wrong direction), strike fails (< 75%)
+    if (!hadValidApex) {
+      multiPhaseScore = Math.min(60, multiPhaseScore);
+    }
+    const finalScore = Math.max(10, Math.min(100, multiPhaseScore));
+
+    const effectiveTrajectoryAccuracy =
+      dtwScore !== null && typeof bestTrajectoryAccuracyRef.current === 'number'
+        ? Math.round(bestTrajectoryAccuracyRef.current * 0.5 + dtwScore * 0.5)
+        : dtwScore ?? bestTrajectoryAccuracyRef.current;
 
     onComplete(
       {
@@ -799,6 +960,7 @@ export function PracticeLive({
         wristScore: bestAnglesRef.current.wristScore || livePillars.wrist || 85,
         guardScore: bestAnglesRef.current.guardScore || livePillars.guard || 80,
         stanceScore: bestAnglesRef.current.stanceScore || livePillars.stance || 80,
+        trajectoryAccuracy: effectiveTrajectoryAccuracy,
         durationMs,
         kineticPhases: {
           chamber: sChamber,
@@ -818,15 +980,19 @@ export function PracticeLive({
     );
   };
 
+  finishEvaluationRef.current = finishEvaluation;
+
   // Android hardware back handler to cleanly abort recording, stop speech, and exit
   useEffect(() => {
     const handleHardwareBack = () => {
       isCountingRef.current = false;
+      isFinishingEvalRef.current = false;
       clearAllCountdownTimers();
       stopVideoRecording();
       Speech.stop().catch(() => {});
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
       if (recoveryPromptTimeoutRef.current) clearTimeout(recoveryPromptTimeoutRef.current);
+      if (earlyFinishTimeoutRef.current) clearTimeout(earlyFinishTimeoutRef.current);
       if (evalSafetyTimeoutRef.current) clearTimeout(evalSafetyTimeoutRef.current);
       onExit();
       return true;
@@ -834,7 +1000,7 @@ export function PracticeLive({
 
     const backSubscription = BackHandler.addEventListener('hardwareBackPress', handleHardwareBack);
     return () => backSubscription.remove();
-  }, [onExit]);
+  }, [onExit, stopVideoRecording]);
 
   // Cleanup timers and audio on unmount
   useEffect(() => {
@@ -913,42 +1079,18 @@ export function PracticeLive({
 
         <View style={styles.techniqueHeaderBox}>
           <View style={styles.strikeTitleRow}>
-            {(countdownState === 'practice' || countdownState === 'waiting_for_frame') && !activeRoutine && (
-              <TouchableOpacity
-                onPress={() => handleCycleStrike(-1)}
-                style={styles.cycleChevronBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                activeOpacity={0.7}
-                accessibilityLabel="Previous Strike"
-              >
-                <Ionicons name="chevron-back" size={16} color="#94A3B8" />
-              </TouchableOpacity>
-            )}
-
             <Text style={styles.techniqueTitleText} numberOfLines={1}>
               Strike {strikeRule.strikeNumber} — {strikeRule.target.split('/')[0].trim()}
             </Text>
-
-            {(countdownState === 'practice' || countdownState === 'waiting_for_frame') && !activeRoutine && (
-              <TouchableOpacity
-                onPress={() => handleCycleStrike(1)}
-                style={styles.cycleChevronBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                activeOpacity={0.7}
-                accessibilityLabel="Next Strike"
-              >
-                <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-              </TouchableOpacity>
-            )}
           </View>
 
           <View style={styles.techniqueStarRow}>
             {[1, 2, 3, 4, 5].map((s) => (
               <Ionicons
                 key={s}
-                name={s <= 3 ? 'star' : 'star-outline'}
+                name={s <= strikeStars ? 'star' : 'star-outline'}
                 size={11}
-                color={s <= 3 ? MartialTheme.colors.bamboo : '#475569'}
+                color={s <= strikeStars ? MartialTheme.colors.bamboo : '#475569'}
               />
             ))}
             <Text style={styles.techniqueModeTag}>
@@ -959,6 +1101,7 @@ export function PracticeLive({
 
         {/* Actions on right: Ghost Toggle + Quick Coach Tips + Audio Toggle Button */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+
           <TouchableOpacity
             style={[styles.ghostToggleBtn, ghostGuideVisible && styles.ghostToggleBtnActive]}
             onPress={() => {
@@ -1008,21 +1151,55 @@ export function PracticeLive({
 
       {/* --- 2. IMMERSIVE CAMERA VIEWPORT --- */}
       <View style={styles.cameraViewport}>
-        {/* If in Follow the Coach mode: Split upper instructor video view (unmounted during active live evaluation) */}
-        {mode === 'follow' && countdownState !== 'evaluating' && (
+        {/* If in Follow the Coach mode: Split upper instructor video view */}
+        {mode === 'follow' && (
           <View style={styles.followVideoHeader}>
-            <View style={styles.followBadge}>
-              <Ionicons name="eye" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-              <Text style={styles.followBadgeText}>COACH DEMO</Text>
+            <View style={styles.followControlsRow}>
+              <View style={styles.followBadge}>
+                <Ionicons name="eye" size={12} color="#F59E0B" style={{ marginRight: 4 }} />
+                <Text style={styles.followBadgeText}>COACH DEMO</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.followMirrorBtn, isCoachVideoMirrored && styles.followMirrorBtnActive]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setIsCoachVideoMirrored((prev) => !prev);
+                }}
+                activeOpacity={0.75}
+                accessibilityLabel={isCoachVideoMirrored ? 'Disable mirror view' : 'Enable mirror view'}
+              >
+                <MaterialCommunityIcons
+                  name="flip-horizontal"
+                  size={13}
+                  color={isCoachVideoMirrored ? '#10B981' : '#E2E8F0'}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  style={[
+                    styles.followMirrorText,
+                    isCoachVideoMirrored && styles.followMirrorTextActive,
+                  ]}
+                >
+                  {isCoachVideoMirrored ? 'MIRROR ON' : 'NORMAL'}
+                </Text>
+              </TouchableOpacity>
             </View>
-            <VideoView
-              style={styles.followVideo}
-              player={followPlayer}
-              allowsFullscreen={false}
-              allowsPictureInPicture={false}
-              contentFit="cover"
-              surfaceType="textureView"
-            />
+            <View
+              style={[
+                styles.followVideoWrap,
+                isCoachVideoMirrored && styles.followVideoMirrored,
+              ]}
+            >
+              <VideoView
+                style={styles.followVideo}
+                player={followPlayer}
+                fullscreenOptions={{ enable: false }}
+                allowsPictureInPicture={false}
+                nativeControls={false}
+                contentFit="contain"
+                surfaceType="textureView"
+              />
+            </View>
           </View>
         )}
 
@@ -1308,7 +1485,7 @@ export function PracticeLive({
               style={{ marginRight: 6 }}
             />
             <Text style={styles.technicalToggleText}>
-              {showTechnicalDetails ? 'Hide Details' : 'Technical Analysis'}
+              {showTechnicalDetails ? 'Hide Details' : 'Form Breakdown'}
             </Text>
           </TouchableOpacity>
 
@@ -1340,7 +1517,7 @@ export function PracticeLive({
               style={styles.finishRepBtn}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                finishEvaluation(3500);
+                finishEvaluationRef.current(3500);
               }}
               activeOpacity={0.85}
             >
@@ -1350,15 +1527,15 @@ export function PracticeLive({
           )}
         </View>
 
-        {/* Secondary Collapsible 4-Pillar Alignment Bars */}
+        {/* Secondary Collapsible Form Breakdown Bars */}
         {showTechnicalDetails && (
           <View style={styles.technicalDrawerContent}>
-            <Text style={styles.technicalHeading}>BIOMECHANICAL ALIGNMENT</Text>
+            <Text style={styles.technicalHeading}>LIVE FORM CHECK</Text>
             {[
-              { label: 'Trajectory (Elbow)', score: livePillars.strikingArm, color: '#3B82F6' },
-              { label: 'Kalasag Guard Hand', score: livePillars.guard, color: '#10B981' },
-              { label: 'Tindig Stance Base', score: livePillars.stance, color: '#F59E0B' },
-              { label: 'Pitik Wrist Snap', score: livePillars.wrist, color: '#8B5CF6' },
+              { label: 'Arm Reach & Path', score: livePillars.strikingArm, color: '#3B82F6' },
+              { label: 'Free Hand on Chest', score: livePillars.guard, color: '#10B981' },
+              { label: 'Balanced Knee Stance', score: livePillars.stance, color: '#F59E0B' },
+              { label: 'Wrist Control & Snap', score: livePillars.wrist, color: '#8B5CF6' },
             ].map((pillar) => (
               <View key={pillar.label} style={styles.pillarBarRow}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
@@ -1410,11 +1587,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-  },
-  cycleChevronBtn: {
-    padding: 3,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   techniqueTitleText: {
     fontSize: 15,
@@ -1471,21 +1643,28 @@ const styles = StyleSheet.create({
   },
   followVideoHeader: {
     height: 180,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0F172A',
     position: 'relative',
+    overflow: 'hidden',
     borderBottomWidth: 2,
     borderBottomColor: '#334155',
   },
-  followBadge: {
+  followControlsRow: {
     position: 'absolute',
     top: 8,
     left: 8,
+    right: 8,
     zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  followBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
   },
   followBadgeText: {
@@ -1493,6 +1672,36 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#F59E0B',
     letterSpacing: 0.5,
+  },
+  followMirrorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  followMirrorBtnActive: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+  },
+  followMirrorText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#E2E8F0',
+    letterSpacing: 0.4,
+  },
+  followMirrorTextActive: {
+    color: '#34D399',
+  },
+  followVideoWrap: {
+    flex: 1,
+    width: '100%',
+  },
+  followVideoMirrored: {
+    transform: [{ scaleX: -1 }],
   },
   followVideo: {
     flex: 1,

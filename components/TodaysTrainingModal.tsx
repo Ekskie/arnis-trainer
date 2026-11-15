@@ -33,69 +33,69 @@ interface RoutineStep {
 const DAILY_STEPS: RoutineStep[] = [
   {
     id: 'step_stance',
-    title: '1. Stance Drill (Tindig)',
-    subtitle: 'Knee Flexion & Center of Gravity',
-    durationSeconds: 120, // 2 min
+    title: '1. Balanced Stance (Tindig)',
+    subtitle: 'Knee Bend & Steady Footwork',
+    durationSeconds: 60, // 1 min
     icon: 'human-male',
     iconFamily: 'MaterialCommunityIcons',
     cues: [
-      'Bend both knees into an athletic 135°-165° crouch.',
-      '60% weight on lead foot, 40% on rear foot.',
-      'Hold position for 30s intervals, pulsing slightly.'
+      'Bend both knees slightly in a comfortable, balanced stance.',
+      'Keep your weight evenly balanced so you do not lean forward.',
+      'Hold this steady base cleanly as you get ready.'
     ]
   },
   {
     id: 'step_grip',
-    title: '2. Grip & Guard (Hawak & Kalasag)',
-    subtitle: 'Punyo Gap & Chest Guard Retention',
-    durationSeconds: 120, // 2 min
+    title: '2. Grip & Chest Guard',
+    subtitle: 'Safe Stick Grip & Free Hand Protection',
+    durationSeconds: 60, // 1 min
     icon: 'shield-check',
     iconFamily: 'MaterialCommunityIcons',
     cues: [
-      'Confirm 2 inches of Punyo wood below your pinky.',
-      'Pin non-striking live hand flat to your solar plexus.',
-      'Practice drawing stick from chamber without dropping guard.'
+      'Leave about two finger-widths of stick below your pinky.',
+      'Rest your free hand flat on your chest to guard your body.',
+      'Practice moving your stick arm without dropping your chest hand.'
     ]
   },
   {
     id: 'step_strike1',
-    title: '3. Strike 1 Practice (Left Temple)',
-    subtitle: 'Forehand Diagonal Downward Cut',
-    durationSeconds: 180, // 3 min
+    title: '3. Strike 1 Warmup (Left Temple)',
+    subtitle: 'Smooth Downward Diagonal Swing',
+    durationSeconds: 60, // 1 min
     icon: 'sword',
     iconFamily: 'MaterialCommunityIcons',
     cues: [
-      'Chamber at right ear at 45° angle.',
-      'Slash diagonally toward opponent\'s left temple.',
-      'Snap wrist at contact point and return to ready guard.'
+      'Hold the stick ready near your right shoulder.',
+      'Swing diagonally across toward head height on the left.',
+      'Give a light wrist snap at the end and return to guard.'
     ],
     strikeId: 'strike_1'
   },
   {
     id: 'step_strike2',
-    title: '4. Strike 2 Practice (Right Temple)',
-    subtitle: 'Backhand Diagonal Downward Cut',
-    durationSeconds: 180, // 3 min
+    title: '4. Strike 2 Warmup (Right Temple)',
+    subtitle: 'Smooth Backhand Diagonal Swing',
+    durationSeconds: 60, // 1 min
     icon: 'sword-cross',
     iconFamily: 'MaterialCommunityIcons',
     cues: [
-      'Chamber across body near left shoulder.',
-      'Pivot hips forward and drive diagonal backhand.',
-      'Rebound smoothly back into dominant side chamber.'
+      'Bring the stick across near your left shoulder.',
+      'Turn your hips gently and swing diagonally back across.',
+      'Bring your stick smoothly back to your ready position.'
     ],
     strikeId: 'strike_2'
   },
   {
     id: 'step_test',
-    title: '5. Quick AI Form Test',
-    subtitle: '2-Minute Apex Biomechanics Check',
-    durationSeconds: 120, // 2 min
+    title: '5. Quick Camera Form Check',
+    subtitle: '1-Minute Live Form Check',
+    durationSeconds: 60, // 1 min
     icon: 'target',
     iconFamily: 'MaterialCommunityIcons',
     cues: [
-      'Stand before your camera.',
-      'Perform 3 repetitions of Strike 1 and Strike 2.',
-      'AI computes your daily consistency score.'
+      'Stand where the camera can see your whole body.',
+      'Do a few slow, smooth reps of Strike 1 and Strike 2.',
+      'Check your score and coach tip before your main practice.'
     ],
     strikeId: 'strike_1'
   }
@@ -227,7 +227,7 @@ export function TodaysTrainingModal({
             <View>
               <View style={styles.headerTag}>
                 <Ionicons name="flame" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                <Text style={styles.headerTagText}>10–15 MIN DAILY DRILL</Text>
+                <Text style={styles.headerTagText}>5-MIN DAILY WARMUP</Text>
               </View>
               <Text style={styles.headerTitle}>TODAY&apos;S TRAINING</Text>
             </View>
@@ -346,9 +346,9 @@ export function TodaysTrainingModal({
                 <MaterialCommunityIcons name="trophy-award" size={44} color="#F59E0B" />
               </View>
 
-              <Text style={styles.completeTitle}>TRAINING COMPLETE! 🎉</Text>
+              <Text style={styles.completeTitle}>WARMUP COMPLETE! 🎉</Text>
               <Text style={styles.completeSub}>
-                You practiced for 12 focused minutes today.
+                You completed your 5-minute warmup today.
               </Text>
 
               {/* XP & Streak Reward Badge */}
@@ -395,8 +395,8 @@ export function TodaysTrainingModal({
               <View style={styles.nextTimeCard}>
                 <Ionicons name="bulb" size={16} color="#F59E0B" style={{ marginRight: 8 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.nextTimeLabel}>COACH ADVICE FOR NEXT SESSION:</Text>
-                  <Text style={styles.nextTimeText}>Focus on Strike 2 elbow position and keep your check hand high.</Text>
+                  <Text style={styles.nextTimeLabel}>COACH TIP FOR NEXT TIME:</Text>
+                  <Text style={styles.nextTimeText}>Focus on reaching cleanly on Strike 2 and keeping your free hand on your chest.</Text>
                 </View>
               </View>
 

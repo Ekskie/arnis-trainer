@@ -233,11 +233,67 @@ export interface MeasurementCoverageReport {
   };
 }
 
+export type MovementSegmentationMode =
+  | 'full_captured'
+  | 'explicit_frame_range'
+  | 'explicit_time_range'
+  | 'speed_threshold_experimental';
+
+export interface MovementSegmentationConfig {
+  mode: MovementSegmentationMode;
+  startFrameIndex?: number;
+  endFrameIndex?: number;
+  startTimeMs?: number;
+  endTimeMs?: number;
+  speedFractionOfPeak?: number;
+}
+
+export interface SpeedPeakCandidate {
+  frameIndex: number;
+  relativeTimeMs: number;
+  normalizedTime: number;
+  speedNormPerSec: number;
+  /** Always true: speed peaks are kinematic candidates only, not confirmed physical impacts. */
+  isKinematicCandidateOnly: true;
+}
+
+export interface MovementWindowSelection {
+  mode: MovementSegmentationMode;
+  totalCapturedFrames: number;
+  validWristPointCount: number;
+  selectedPointCount: number;
+  selectedStartFrameIndex: number | null;
+  selectedEndFrameIndex: number | null;
+  selectedStartTimeMs: number | null;
+  selectedEndTimeMs: number | null;
+  candidateSpeedPeaks: SpeedPeakCandidate[];
+  note: string;
+}
+
+export interface DtwConstraintSpec {
+  mode: 'sakoe_chiba_band';
+  requestedOffsetPoints: number;
+  allowedOffsetPoints: number;
+  referencePoints: number;
+  /** Always true while DTW offset constraints remain under experimental calibration. */
+  isExperimentalConfig: true;
+}
+
 export interface RawTrajectoryMetrics {
   dtwMeanDistance: number;
   dtwMedianDistance: number;
   dtwRmsDistance: number;
   dtwMaxDistance: number;
+  linearMeanDistance: number;
+  linearMedianDistance: number;
+  linearRmsDistance: number;
+  linearMaxDistance: number;
+  dtwConstraint: DtwConstraintSpec;
+  warpingPathLength: number;
+  timingDistortionMeanNorm: number;
+  timingDistortionMaxNorm: number;
+  timingDistortionMeanRefPoints: number;
+  timingDistortionMaxRefPoints: number;
   directionCosineMean: number | null;
   directionAgreementFraction: number | null;
   pathLengthUser: number;
@@ -280,7 +336,7 @@ export type ShadowReferenceStatus =
 
 /**
  * Non-grading shadow evaluation output. Contains raw distances, direction agreement,
- * measurement coverage, kinematic speed landmarks, and 2D joint comparisons only.
+ * measurement coverage, kinematic speed landmarks, movement window diagnostics, and 2D joint comparisons only.
  */
 export interface ShadowEvaluationReport {
   strikeId: string;
@@ -289,8 +345,55 @@ export interface ShadowEvaluationReport {
   referenceProvenance?: ExpertReferenceProvenance;
   normalizationMeta: NormalizationMetadataV2;
   measurementCoverage: MeasurementCoverageReport;
+  movementWindow?: MovementWindowSelection;
   trajectoryMetrics: RawTrajectoryMetrics | null;
   kinematicLandmarks: KinematicLandmarkComparison | null;
   jointComparisons2D: JointComparison2D[];
   notes: string[];
+}
+
+export interface PoseSamplingStats {
+  capturedFrameCount: number;
+  calibrationFrameCount: number;
+  firstTimestampMs: number | null;
+  lastTimestampMs: number | null;
+  durationMs: number;
+  effectiveFps: number | null;
+  medianFrameIntervalMs: number | null;
+  minFrameIntervalMs: number | null;
+  maxFrameIntervalMs: number | null;
+  droppedGapCount: number;
+  bridgeThrottleTargetMs: number;
+}
+
+export interface ResearchCoordinateConventions {
+  cameraPreviewDisplay: 'mirrored_selfie_display';
+  rawPoseCoordinateSpace: 'raw_unmirrored_normalized' | 'pixel_unmirrored';
+  normalizedPoseCoordinateConvention: CoordinateConvention;
+  snapshotExportConvention: 'unmirrored_image_2d';
+  explanation: string;
+}
+
+export interface ResearchCaptureSession {
+  schemaVersion: '1.0.0-research-capture';
+  captureId: string;
+  createdAt: string;
+  consentGranted: true;
+  consentedAt: string;
+  localOnly: true;
+  isNonGradingResearch: true;
+  selectedStrikeId: string;
+  selectedStrikeNumber: number;
+  selectedStrikeName: string;
+  practiceMode: 'follow' | 'guided' | 'test' | 'research_manual';
+  coordinateConventions: ResearchCoordinateConventions;
+  samplingStats: PoseSamplingStats;
+  movementWindow: MovementWindowSelection;
+  calibrationFramesRaw2D: Raw2DPoseFrame[];
+  rawPoseFrames2D: Raw2DPoseFrame[];
+  normalizedPoseV2: {
+    metadata: NormalizationMetadataV2;
+    frames: NormalizedPoseFrame2D[];
+  };
+  shadowEvaluation: ShadowEvaluationReport | null;
 }

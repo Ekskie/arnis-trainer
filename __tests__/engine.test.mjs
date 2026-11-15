@@ -298,3 +298,479 @@ test('poseEngineHtml: inline WebView script compiles as valid JS without syntax 
     });
   }
 });
+
+test('poseEngineHtml: drawOutput constructs and emits POSE_DATA with rawPose2d without ReferenceError', () => {
+  const html = getPoseEngineHtml('https://example.com/pose_landmarker_lite.task');
+  const scriptMatches = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+  assert.ok(scriptMatches.length > 0);
+
+  const postedMessages = [];
+  const consoleWarnings = [];
+
+  const noop = () => {};
+  const mockCtx = new Proxy(
+    {
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      font: '12px sans-serif',
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+      globalAlpha: 1,
+      shadowColor: 'transparent',
+      shadowBlur: 0,
+      createLinearGradient: () => ({ addColorStop: noop }),
+      createRadialGradient: () => ({ addColorStop: noop }),
+      measureText: (t) => ({ width: String(t || '').length * 8 }),
+      getImageData: () => ({ data: new Uint8ClampedArray(64) }),
+    },
+    {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        return noop;
+      },
+    }
+  );
+
+  const mockCanvas = {
+    width: 640,
+    height: 480,
+    getContext: () => mockCtx,
+    toDataURL: () => 'data:image/jpeg;base64,TEST',
+  };
+  const mockVideo = {
+    readyState: 2,
+    videoWidth: 640,
+    videoHeight: 480,
+  };
+  const mockLoadingEl = {
+    classList: { add: noop, remove: noop },
+    textContent: '',
+  };
+
+  const sandbox = {
+    console: {
+      log: noop,
+      warn: (...args) => consoleWarnings.push(args.join(' ')),
+      error: (...args) => consoleWarnings.push(args.join(' ')),
+    },
+    Math,
+    Date,
+    JSON,
+    Number,
+    String,
+    Array,
+    Object,
+    Float32Array,
+    Uint8ClampedArray,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => 12345 },
+    requestAnimationFrame: noop,
+    document: {
+      readyState: 'loading',
+      getElementById: (id) => {
+        if (id === 'output_canvas') return mockCanvas;
+        if (id === 'webcam') return mockVideo;
+        if (id === 'loading' || id === 'loading-text') return mockLoadingEl;
+        return mockLoadingEl;
+      },
+      createElement: () => ({
+        width: 640,
+        height: 480,
+        getContext: () => mockCtx,
+        toDataURL: () => 'data:image/jpeg;base64,TEST',
+      }),
+    },
+    navigator: { mediaDevices: {} },
+    addEventListener: noop,
+  };
+  sandbox.window = sandbox;
+  sandbox.ReactNativeWebView = {
+    postMessage: (raw) => postedMessages.push(JSON.parse(raw)),
+  };
+
+  const ctx = vm.createContext(sandbox);
+  for (const match of scriptMatches) {
+    const body = match[1].trim();
+    if (!body) continue;
+    vm.runInContext(body, ctx);
+  }
+
+  // Construct 33 upright MediaPipe landmarks (facing camera, right-handed guard)
+  const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.95 }));
+  lm[0] = { x: 0.5, y: 0.2, z: -0.05, visibility: 0.99 }; // nose
+  lm[2] = { x: 0.52, y: 0.19, z: -0.05, visibility: 0.95 }; // left eye
+  lm[5] = { x: 0.48, y: 0.19, z: -0.05, visibility: 0.95 }; // right eye
+  lm[11] = { x: 0.62, y: 0.35, z: 0, visibility: 0.98 }; // leftShoulder
+  lm[12] = { x: 0.38, y: 0.35, z: 0, visibility: 0.98 }; // rightShoulder
+  lm[13] = { x: 0.65, y: 0.45, z: 0, visibility: 0.95 }; // leftElbow
+  lm[14] = { x: 0.34, y: 0.42, z: -0.04, visibility: 0.95 }; // rightElbow
+  lm[15] = { x: 0.55, y: 0.42, z: -0.05, visibility: 0.95 }; // leftWrist
+  lm[16] = { x: 0.30, y: 0.30, z: -0.08, visibility: 0.96 }; // rightWrist
+  lm[19] = { x: 0.54, y: 0.41, z: -0.05, visibility: 0.9 }; // leftIndex
+  lm[20] = { x: 0.29, y: 0.28, z: -0.08, visibility: 0.9 }; // rightIndex
+  lm[23] = { x: 0.58, y: 0.62, z: 0, visibility: 0.95 }; // leftHip
+  lm[24] = { x: 0.42, y: 0.62, z: 0, visibility: 0.95 }; // rightHip
+  lm[25] = { x: 0.60, y: 0.78, z: 0.02, visibility: 0.9 }; // leftKnee
+  lm[26] = { x: 0.40, y: 0.78, z: 0.02, visibility: 0.9 }; // rightKnee
+  lm[27] = { x: 0.61, y: 0.92, z: 0.04, visibility: 0.85 }; // leftAnkle
+  lm[28] = { x: 0.39, y: 0.92, z: 0.04, visibility: 0.85 }; // rightAnkle
+
+  vm.runInContext('drawOutput', ctx)({ landmarks: [lm] });
+
+  assert.equal(
+    consoleWarnings.some((w) => w.includes('drawOutput error')),
+    false,
+    `drawOutput threw runtime error: ${consoleWarnings.join(' | ')}`
+  );
+
+  const poseMessages = postedMessages.filter((m) => m.type === 'POSE_DATA');
+  assert.equal(poseMessages.length, 1, 'Expected one POSE_DATA emission');
+  assert.equal(poseMessages[0].persons.length, 1);
+
+  const emittedPerson = poseMessages[0].persons[0];
+  assert.equal(emittedPerson.detectedStrike, null);
+  assert.equal(emittedPerson.isPersonVisible, true);
+  assert.ok(Number.isFinite(emittedPerson.accuracy));
+  assert.equal(emittedPerson.rawPose2d.coordinateSpace, 'raw_unmirrored_normalized');
+  assert.equal(emittedPerson.rawPose2d.frameWidth, 640);
+  assert.equal(emittedPerson.rawPose2d.frameHeight, 480);
+  assert.ok(emittedPerson.rawPose2d.landmarks.rightWrist);
+});
+
+test('poseEngineHtml: 1-Euro landmark smoothing damps jitter while preserving rawPose2d', () => {
+  const html = getPoseEngineHtml('https://example.com/pose_landmarker_lite.task');
+  const scriptMatches = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+
+  let simNowMs = 1000;
+  const postedMessages = [];
+  const noop = () => {};
+  const mockCtx = new Proxy(
+    {
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      font: '12px sans-serif',
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+      globalAlpha: 1,
+      shadowColor: 'transparent',
+      shadowBlur: 0,
+      createLinearGradient: () => ({ addColorStop: noop }),
+      createRadialGradient: () => ({ addColorStop: noop }),
+      measureText: (t) => ({ width: String(t || '').length * 8 }),
+    },
+    { get: (t, p) => (p in t ? t[p] : noop) }
+  );
+
+  const mockCanvas = { width: 640, height: 480, getContext: () => mockCtx, toDataURL: () => '' };
+  const mockVideo = { readyState: 2, videoWidth: 640, videoHeight: 480 };
+  const mockLoadingEl = { classList: { add: noop, remove: noop }, textContent: '' };
+
+  const sandbox = {
+    console: { log: noop, warn: noop, error: noop },
+    Math,
+    Date,
+    JSON,
+    Number,
+    String,
+    Array,
+    Object,
+    setTimeout,
+    clearTimeout,
+    performance: { now: () => simNowMs },
+    requestAnimationFrame: noop,
+    document: {
+      readyState: 'loading',
+      getElementById: (id) => (id === 'output_canvas' ? mockCanvas : id === 'webcam' ? mockVideo : mockLoadingEl),
+      createElement: () => mockCanvas,
+    },
+    navigator: { mediaDevices: {} },
+    addEventListener: noop,
+  };
+  sandbox.window = sandbox;
+  sandbox.ReactNativeWebView = { postMessage: (raw) => postedMessages.push(JSON.parse(raw)) };
+
+  const ctx = vm.createContext(sandbox);
+  for (const match of scriptMatches) {
+    const body = match[1].trim();
+    if (body) vm.runInContext(body, ctx);
+  }
+
+  const smoothFn = vm.runInContext('smoothPoseLandmarks', ctx);
+  const drawFn = vm.runInContext('drawOutput', ctx);
+
+  // Build valid human landmarks and inject high-frequency noise on rightWrist.x across 33ms steps
+  const makeFrame = (wristX) => {
+    const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.95 }));
+    lm[0] = { x: 0.5, y: 0.2, z: -0.05, visibility: 0.99 };
+    lm[2] = { x: 0.52, y: 0.19, z: -0.05, visibility: 0.95 };
+    lm[5] = { x: 0.48, y: 0.19, z: -0.05, visibility: 0.95 };
+    lm[11] = { x: 0.62, y: 0.35, z: 0, visibility: 0.98 };
+    lm[12] = { x: 0.38, y: 0.35, z: 0, visibility: 0.98 };
+    lm[13] = { x: 0.65, y: 0.45, z: 0, visibility: 0.95 };
+    lm[14] = { x: 0.34, y: 0.42, z: -0.04, visibility: 0.95 };
+    lm[15] = { x: 0.55, y: 0.42, z: -0.05, visibility: 0.95 };
+    lm[16] = { x: wristX, y: 0.32, z: -0.08, visibility: 0.96 };
+    lm[19] = { x: 0.54, y: 0.41, z: -0.05, visibility: 0.9 };
+    lm[20] = { x: wristX - 0.01, y: 0.30, z: -0.08, visibility: 0.9 };
+    lm[23] = { x: 0.58, y: 0.62, z: 0, visibility: 0.95 };
+    lm[24] = { x: 0.42, y: 0.62, z: 0, visibility: 0.95 };
+    lm[25] = { x: 0.60, y: 0.78, z: 0.02, visibility: 0.9 };
+    lm[26] = { x: 0.40, y: 0.78, z: 0.02, visibility: 0.9 };
+    lm[27] = { x: 0.61, y: 0.92, z: 0.04, visibility: 0.85 };
+    lm[28] = { x: 0.39, y: 0.92, z: 0.04, visibility: 0.85 };
+    return lm;
+  };
+
+  // Direct smoothPoseLandmarks test with oscillating +/-0.04 jitter
+  const s0 = smoothFn(0, makeFrame(0.30), 1000);
+  const s1 = smoothFn(0, makeFrame(0.34), 1033);
+  const s2 = smoothFn(0, makeFrame(0.26), 1066);
+  const rawSwingDelta = Math.abs(0.34 - 0.26); // 0.08
+  const smoothedDelta = Math.abs(s1[16].x - s2[16].x);
+  assert.equal(s0[16].x, 0.30);
+  assert.ok(smoothedDelta < rawSwingDelta, `Expected smoothed delta (${smoothedDelta}) < raw delta (${rawSwingDelta})`);
+
+  // Verify drawOutput retains raw unsmoothed landmarks in rawPose2d and emits chamberReadinessScore + trajectoryAccuracy
+  simNowMs = 2000;
+  drawFn({ landmarks: [makeFrame(0.34)] });
+  simNowMs = 2060;
+  drawFn({ landmarks: [makeFrame(0.26)] });
+
+  const poseMsgs = postedMessages.filter((m) => m.type === 'POSE_DATA');
+  assert.equal(poseMsgs.length, 2);
+  const secondPerson = poseMsgs[1].persons[0];
+  assert.equal(secondPerson.rawPose2d.landmarks.rightWrist.x, 0.26);
+  assert.ok(Number.isFinite(secondPerson.chamberReadinessScore));
+  assert.ok(Number.isFinite(secondPerson.trajectoryAccuracy));
+});
+
+test('strikeEvaluator: uncapped chamberScore, unified strikingArm pillar, and computeDtwTrajectoryScore', () => {
+  const rule = STRIKE_RULES.strike_1;
+
+  // 1. Static hold caps accuracy <= 55, while chamberScore remains uncapped
+  const chamberEval = strikeEval.evaluatePoseFrame(
+    {
+      id: 0,
+      leftAngle: 75,
+      rightAngle: rule.chamber_elb,
+      leftShoulderAngle: 50,
+      rightShoulderAngle: rule.ideal_shoulder,
+      leftKneeAngle: 155,
+      rightKneeAngle: 155,
+      leftWristAngle: 10,
+      rightWristAngle: 10,
+      isLeftGood: true,
+      isRightGood: true,
+      isHoldingLeft: false,
+      isHoldingRight: true,
+      isPersonVisible: true,
+      accuracy: 90,
+      elbowScore: 100,
+      shoulderScore: 100,
+      wristScore: 100,
+      kneeScore: 95,
+      guardScore: 95,
+      stanceScore: 95,
+      trajectoryAccuracy: 50,
+      leadKneeAngle: 155,
+      isStaticHold: true,
+    },
+    rule
+  );
+
+  assert.ok(chamberEval.accuracy <= 55);
+  assert.ok(chamberEval.chamberScore >= 90, `Expected uncapped chamberScore >= 90, got ${chamberEval.chamberScore}`);
+  // Balanced calibration: 100*0.38 + 100*0.22 + 50*0.40 = 38 + 22 + 20 = 80
+  assert.equal(chamberEval.pillars.strikingArm, 80);
+
+  // 2. Angle-only fallback (no trajectoryAccuracy): 100*0.65 + 50*0.35 = 83
+  const compiledAngleOnly = strikeEval.compileSessionResult(
+    {
+      score: 85,
+      elbowScore: 100,
+      shoulderScore: 50,
+      wristScore: 90,
+      guardScore: 90,
+      stanceScore: 90,
+    },
+    rule
+  );
+  assert.equal(compiledAngleOnly.pillarScores.strikingArm, 83);
+
+  // 3. computeDtwTrajectoryScore handles missing/short vs evaluated reports
+  assert.equal(strikeEval.computeDtwTrajectoryScore(null), null);
+  assert.equal(
+    strikeEval.computeDtwTrajectoryScore({
+      strikeId: 'strike_1',
+      referenceStatus: 'no_reference_loaded',
+      isNonGradingShadow: true,
+      normalizationMeta: {
+        normalizationVersion: 'v2_median_shoulder_width',
+        coordinateConvention: 'anatomical_mirrored_2d',
+        fixedMedianShoulderWidthPx: 120,
+        shoulderWidthSampleCount: 10,
+        shoulderWidthIqrPx: [118, 122],
+        scaleSource: 'recording_window_median',
+        aspectRatio: 1.33,
+      },
+      measurementCoverage: {
+        totalFrames: 10,
+        validNormalizedFrames: 10,
+        validFrameRatio: 1,
+        facingOrientationConsistentRatio: 1,
+        jointCoverage: {
+          rightWrist: 1,
+          rightElbow: 1,
+          rightShoulder: 1,
+          leftWrist: 1,
+          leftElbow: 1,
+          leftShoulder: 1,
+          rightKnee: 1,
+          leftKnee: 1,
+        },
+      },
+      trajectoryMetrics: null,
+      kinematicLandmarks: null,
+      jointComparisons2D: [],
+      notes: [],
+    }),
+    null
+  );
+
+  const dtwPerfect = strikeEval.computeDtwTrajectoryScore({
+    strikeId: 'strike_1',
+    referenceStatus: 'evaluated',
+    isNonGradingShadow: true,
+    normalizationMeta: {
+      normalizationVersion: 'v2_median_shoulder_width',
+      coordinateConvention: 'anatomical_mirrored_2d',
+      fixedMedianShoulderWidthPx: 120,
+      shoulderWidthSampleCount: 10,
+      shoulderWidthIqrPx: [118, 122],
+      scaleSource: 'recording_window_median',
+      aspectRatio: 1.33,
+    },
+    measurementCoverage: {
+      totalFrames: 10,
+      validNormalizedFrames: 10,
+      validFrameRatio: 1,
+      facingOrientationConsistentRatio: 1,
+      jointCoverage: {
+        rightWrist: 1,
+        rightElbow: 1,
+        rightShoulder: 1,
+        leftWrist: 1,
+        leftElbow: 1,
+        leftShoulder: 1,
+        rightKnee: 1,
+        leftKnee: 1,
+      },
+    },
+    trajectoryMetrics: {
+      dtwMeanDistance: 0.2,
+      dtwMedianDistance: 0.2,
+      dtwRmsDistance: 0.22,
+      dtwMaxDistance: 0.3,
+      linearMeanDistance: 0.25,
+      linearMedianDistance: 0.25,
+      linearRmsDistance: 0.28,
+      linearMaxDistance: 0.35,
+      dtwConstraint: {
+        mode: 'sakoe_chiba_band',
+        requestedOffsetPoints: 4,
+        allowedOffsetPoints: 4,
+        referencePoints: 50,
+        isExperimentalConfig: true,
+      },
+      warpingPathLength: 50,
+      timingDistortionMeanNorm: 0.02,
+      timingDistortionMaxNorm: 0.05,
+      timingDistortionMeanRefPoints: 1,
+      timingDistortionMaxRefPoints: 2,
+      directionCosineMean: 0.98,
+      directionAgreementFraction: 1,
+      pathLengthUser: 1.5,
+      pathLengthReference: 1.5,
+      pathLengthRatio: 1,
+      iqrContainmentFraction: 0.9,
+      userSampleCount: 10,
+      referenceSampleCount: 50,
+      alignedPairCount: 50,
+    },
+    kinematicLandmarks: null,
+    jointComparisons2D: [],
+    notes: [],
+  });
+  assert.equal(dtwPerfect, 100);
+});
+
+test('ImpactDetector: selects bent-arm canonical apex over straight-arm windup on Strike 3 and backfills snapshot', () => {
+  const detector = new ImpactDetector();
+  const rule3 = STRIKE_RULES.strike_3; // optimal_min: 88.4, optimal_max: 115.0
+  detector.reset(Date.now() - 800);
+
+  const templatePose = {
+    id: 0,
+    leftAngle: 75,
+    rightAngle: 168,
+    leftShoulderAngle: 50,
+    rightShoulderAngle: 20,
+    leftKneeAngle: 155,
+    rightKneeAngle: 155,
+    leftWristAngle: 10,
+    rightWristAngle: 10,
+    isLeftGood: true,
+    isRightGood: false,
+    isHoldingLeft: false,
+    isHoldingRight: true,
+    isPersonVisible: true,
+    accuracy: 58,
+    elbowScore: 55,
+    shoulderScore: 60,
+    wristScore: 85,
+    kneeScore: 85,
+    guardScore: 85,
+    stanceScore: 85,
+    leadKneeAngle: 155,
+    swingVelocity: 0.20,
+    isApex: false,
+  };
+
+  // Frame 0: Extended straight-arm windup (168 deg) — previously fooled naive elbow-max detector
+  detector.addFrame(templatePose, rule3);
+
+  // Frame 1: Canonical flexed Strike 3 impact angle (102 deg), even without explicit isApex flag
+  detector.addFrame(
+    {
+      ...templatePose,
+      rightAngle: 102,
+      rightShoulderAngle: rule3.ideal_shoulder,
+      isRightGood: true,
+      accuracy: 92,
+      swingVelocity: 0.24,
+      isApex: false,
+    },
+    rule3
+  );
+
+  // Frame 2: Async snapshot arrives 1 frame later
+  detector.addFrame(
+    {
+      ...templatePose,
+      rightAngle: 130,
+      accuracy: 70,
+      swingVelocity: 0.10,
+      isApex: false,
+    },
+    rule3,
+    'data:image/jpeg;base64,ASYNC_BENT_ARM_SNAP'
+  );
+
+  const res = detector.finalize(1200);
+  assert.equal(res.impactFrame, 1);
+  assert.equal(res.detectedPose.rightAngle, 102);
+  assert.equal(res.snapshotBase64, 'data:image/jpeg;base64,ASYNC_BENT_ARM_SNAP');
+});

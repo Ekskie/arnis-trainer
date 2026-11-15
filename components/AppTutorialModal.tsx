@@ -658,7 +658,7 @@ export function AppTutorialModal({
                 {currentStep.content.demoSpotlight.type === 'overview' && (
                   <View style={styles.mockOverviewHighlight}>
                     <Image
-                      source={require('@/assets/images/Logo.png')}
+                      source={require('@/assets/images/Logo.jpg')}
                       style={{ width: 48, height: 48, borderRadius: 12 }}
                       resizeMode="contain"
                     />

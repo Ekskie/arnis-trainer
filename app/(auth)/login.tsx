@@ -21,7 +21,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, resetPasswordForEmail, resendConfirmationEmail } = useAuth();
+  const { signIn, resetPasswordForEmail } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,7 +54,7 @@ export default function LoginScreen() {
       const msg = error.message || 'Failed to sign in. Please check your credentials.';
       if (msg.toLowerCase().includes('email not confirmed')) {
         setNeedsConfirmation(true);
-        setErrorMessage('Please verify your email address from the confirmation link sent to your inbox before signing in.');
+        setErrorMessage('Your email address is not verified yet. Enter your 6-digit verification code to finish setting up your account.');
       } else {
         setErrorMessage(msg);
       }
@@ -64,16 +64,12 @@ export default function LoginScreen() {
     }
   };
 
-  const handleResendVerification = async () => {
+  const handleOpenEmailVerification = () => {
     if (!email.trim()) return;
-    setLoading(true);
-    const { error } = await resendConfirmationEmail(email);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Resend Failed', error.message);
-    } else {
-      Alert.alert('Email Sent', `A new verification link has been sent to ${email.trim()}.`);
-    }
+    router.push({
+      pathname: '/(auth)/verify-email' as any,
+      params: { email: email.trim(), autoResend: '1' },
+    });
   };
 
   const handleSendPasswordReset = async () => {
@@ -89,10 +85,10 @@ export default function LoginScreen() {
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setResetModalVisible(false);
-      Alert.alert(
-        'Reset Link Sent',
-        `Check ${resetEmail.trim()} for instructions to reset your password.`
-      );
+      router.push({
+        pathname: '/(auth)/reset-password' as any,
+        params: { email: resetEmail.trim() },
+      });
     }
   };
 
@@ -124,8 +120,8 @@ export default function LoginScreen() {
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.errorText}>{errorMessage}</Text>
                 {needsConfirmation && (
-                  <TouchableOpacity onPress={handleResendVerification} disabled={loading}>
-                    <Text style={styles.resendLinkText}>Resend Verification Email</Text>
+                  <TouchableOpacity onPress={handleOpenEmailVerification} disabled={loading}>
+                    <Text style={styles.resendLinkText}>Verify Email with 6-Digit Code</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -219,7 +215,7 @@ export default function LoginScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Reset Password</Text>
             <Text style={styles.modalDesc}>
-              Enter the email linked to your account and we will send a password reset link.
+              Enter the email linked to your account and we will send a 6-digit password reset code.
             </Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="mail-outline" size={20} color="#7D8C84" style={styles.inputIcon} />
@@ -247,7 +243,7 @@ export default function LoginScreen() {
                 {resetSending ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.modalSendText}>Send Reset Link</Text>
+                  <Text style={styles.modalSendText}>Send Reset Code</Text>
                 )}
               </TouchableOpacity>
             </View>

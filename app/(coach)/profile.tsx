@@ -22,10 +22,11 @@ import * as Haptics from 'expo-haptics';
 import { MartialTheme } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import AppPrivacyAboutModal from '@/components/AppPrivacyAboutModal';
+import EmailChangeModal from '@/components/auth/EmailChangeModal';
 
 export default function CoachProfileScreen() {
   const router = useRouter();
-  const { profile, signOut, deleteAccount, isConfigured, updateProfile, updatePassword, updateEmail } = useAuth();
+  const { user, profile, signOut, deleteAccount, isConfigured, updateProfile, updatePassword } = useAuth();
 
   // Avatar upload state
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -46,8 +47,6 @@ export default function CoachProfileScreen() {
 
   // Email Modal state
   const [emailModalVisible, setEmailModalVisible] = useState(false);
-  const [newEmail, setNewEmail] = useState(profile?.email || '');
-  const [savingEmail, setSavingEmail] = useState(false);
 
   // Handle Avatar Selection & Upload
   const handlePickAvatar = async () => {
@@ -152,28 +151,6 @@ export default function CoachProfileScreen() {
       setNewPassword('');
       setConfirmPassword('');
       Alert.alert('Success', 'Your coach account password has been updated.');
-    }
-  };
-
-  // Save Email Change
-  const handleSaveEmail = async () => {
-    if (!newEmail.trim() || !newEmail.includes('@')) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address.');
-      return;
-    }
-
-    setSavingEmail(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    const { error } = await updateEmail(newEmail.trim());
-    setSavingEmail(false);
-
-    if (error) {
-      Alert.alert('Email Update Failed', error.message);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setEmailModalVisible(false);
-      Alert.alert('Success', 'Account email address has been updated.');
     }
   };
 
@@ -326,7 +303,6 @@ export default function CoachProfileScreen() {
           <TouchableOpacity
             style={styles.settingItem}
             onPress={() => {
-              setNewEmail(profile?.email || '');
               setEmailModalVisible(true);
             }}
             activeOpacity={0.7}>
@@ -604,60 +580,14 @@ export default function CoachProfileScreen() {
       </Modal>
 
       {/* --- MODAL 3: CHANGE EMAIL --- */}
-      <Modal
+      <EmailChangeModal
         visible={emailModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setEmailModalVisible(false)}>
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Update Email Address</Text>
-              <TouchableOpacity
-                onPress={() => setEmailModalVisible(false)}
-                style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={20} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>NEW EMAIL ADDRESS</Text>
-              <TextInput
-                style={styles.modalInput}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={newEmail}
-                onChangeText={setNewEmail}
-                placeholder="guro@example.com"
-                placeholderTextColor="#9CA3AF"
-              />
-            </View>
-
-            <View style={styles.modalActionsRow}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setEmailModalVisible(false)}
-                activeOpacity={0.7}>
-                <Text style={styles.modalCancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalSaveBtn, { backgroundColor: '#D97706' }]}
-                onPress={handleSaveEmail}
-                disabled={savingEmail}
-                activeOpacity={0.85}>
-                {savingEmail ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.modalSaveBtnText}>Save Email</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setEmailModalVisible(false)}
+        currentEmail={user?.email || profile?.email || ''}
+        placeholder="guro@example.com"
+        accentColor="#D97706"
+        accentBorderColor="#B45309"
+      />
 
       {/* About & Privacy Notice Modal */}
       <AppPrivacyAboutModal

@@ -34,10 +34,11 @@ import {
 import { getHistory } from '@/constants/historyStore';
 import CoachSharedDataModal from '@/components/CoachSharedDataModal';
 import AppPrivacyAboutModal from '@/components/AppPrivacyAboutModal';
+import EmailChangeModal from '@/components/auth/EmailChangeModal';
 
 export default function StudentProfileScreen() {
   const router = useRouter();
-  const { user, profile, signOut, deleteAccount, isConfigured, updateProfile, updatePassword, updateEmail } =
+  const { user, profile, signOut, deleteAccount, isConfigured, updateProfile, updatePassword } =
     useAuth();
   const { unreadCount } = useNotifications();
 
@@ -96,8 +97,6 @@ export default function StudentProfileScreen() {
 
   // Email Modal state
   const [emailModalVisible, setEmailModalVisible] = useState(false);
-  const [newEmail, setNewEmail] = useState(profile?.email || '');
-  const [savingEmail, setSavingEmail] = useState(false);
 
   // Handle Avatar Selection & Upload
   const handlePickAvatar = async () => {
@@ -212,42 +211,6 @@ export default function StudentProfileScreen() {
       setNewPassword('');
       setConfirmPassword('');
       Alert.alert('Success', 'Your student account password has been updated.');
-    }
-  };
-
-  // Save Email Change
-  const handleSaveEmail = async () => {
-    if (!user) {
-      Alert.alert(
-        'Sign In Required',
-        'Please sign in or create an account to configure email credentials.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Sign In / Register', onPress: () => router.push('/(auth)/login' as any) },
-        ]
-      );
-      return;
-    }
-    if (!newEmail.trim() || !newEmail.includes('@')) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address.');
-      return;
-    }
-
-    setSavingEmail(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    const { error } = await updateEmail(newEmail.trim());
-    setSavingEmail(false);
-
-    if (error) {
-      Alert.alert('Email Update Failed', error.message);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setEmailModalVisible(false);
-      Alert.alert(
-        'Email Updated',
-        'Your account email has been updated. Please confirm the link sent to your new email address if confirmation is required.'
-      );
     }
   };
 
@@ -535,7 +498,6 @@ export default function StudentProfileScreen() {
                 return;
               }
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setNewEmail(profile?.email || '');
               setEmailModalVisible(true);
             }}
             activeOpacity={0.7}>
@@ -807,52 +769,14 @@ export default function StudentProfileScreen() {
       </Modal>
 
       {/* ================= CHANGE EMAIL MODAL ================= */}
-      <Modal
+      <EmailChangeModal
         visible={emailModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEmailModalVisible(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Update Email Address</Text>
-              <TouchableOpacity
-                onPress={() => setEmailModalVisible(false)}
-                activeOpacity={0.7}>
-                <Ionicons name="close" size={24} color={MartialTheme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.modalLabel}>NEW EMAIL ADDRESS</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g. warrior@arnis.ph"
-              placeholderTextColor="#9CA3AF"
-              value={newEmail}
-              onChangeText={setNewEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <TouchableOpacity
-              style={[styles.modalSaveBtn, savingEmail && styles.btnDisabled]}
-              onPress={handleSaveEmail}
-              disabled={savingEmail}
-              activeOpacity={0.85}>
-              {savingEmail ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <Ionicons name="mail" size={18} color="#FFFFFF" />
-                  <Text style={styles.modalSaveBtnText}>Save Email</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setEmailModalVisible(false)}
+        currentEmail={user?.email || profile?.email || ''}
+        placeholder="e.g. warrior@arnis.ph"
+        accentColor={MartialTheme.colors.primary}
+        accentBorderColor={MartialTheme.colors.border3DPrimary}
+      />
 
       {/* Coach Shared Data & Privacy Modal */}
       <CoachSharedDataModal

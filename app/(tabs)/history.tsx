@@ -940,10 +940,10 @@ export default function ProgressHistoryScreen() {
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.analyticsAccordionTitle}>
-                {showAdvancedAnalytics ? 'Hide Detailed Analysis' : 'Detailed Biomechanical Analysis'}
+                {showAdvancedAnalytics ? 'Hide Form Breakdown' : 'Detailed Form Breakdown'}
               </Text>
               <Text style={styles.analyticsAccordionSub}>
-                12-Axis Radar, Kinetic Pillars & Motor Diagnostics
+                12-Strike Chart &amp; Body Part Averages
               </Text>
             </View>
           </View>
@@ -995,10 +995,10 @@ export default function ProgressHistoryScreen() {
               }}
             />
 
-            {/* 4-Pillar Kinetic Averages */}
-            <Text style={styles.pillarSectionHeading}>4-PILLAR KINETIC POSTURE</Text>
+            {/* 4-Pillar Form Averages */}
+            <Text style={styles.pillarSectionHeading}>YOUR FORM AVERAGES</Text>
             <Text style={styles.pillarSectionSub}>
-              Average motor precision across all recorded repetitions
+              Average form score across all your recorded practices
             </Text>
 
             {/* Stance & Tindig */}
@@ -1006,7 +1006,7 @@ export default function ProgressHistoryScreen() {
               <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="human-male-height" size={17} color="#F59E0B" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarCardTitle}>Stance & Base Stability (Tindig)</Text>
+                  <Text style={styles.pillarCardTitle}>Balanced Knee Stance (Tindig)</Text>
                 </View>
                 <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.stance) }]}>
                   {pillarAverages.stance}%
@@ -1022,7 +1022,7 @@ export default function ProgressHistoryScreen() {
               <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="sword" size={17} color="#3B82F6" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarCardTitle}>Strike Trajectory & Slicing Path</Text>
+                  <Text style={styles.pillarCardTitle}>Arm Reach &amp; Strike Path</Text>
                 </View>
                 <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.elbow) }]}>
                   {pillarAverages.elbow}%
@@ -1038,7 +1038,7 @@ export default function ProgressHistoryScreen() {
               <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="shield-check" size={17} color="#10B981" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarCardTitle}>Check Hand Defense (Kalasag)</Text>
+                  <Text style={styles.pillarCardTitle}>Free Hand on Chest (Guard)</Text>
                 </View>
                 <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.guard) }]}>
                   {pillarAverages.guard}%
@@ -1054,7 +1054,7 @@ export default function ProgressHistoryScreen() {
               <View style={styles.pillarCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="flash" size={17} color="#8B5CF6" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarCardTitle}>Wrist Snap & Alignment (Pitik)</Text>
+                  <Text style={styles.pillarCardTitle}>Wrist Control &amp; Snap (Pitik)</Text>
                 </View>
                 <Text style={[styles.pillarCardScore, { color: getScoreColor(pillarAverages.wrist) }]}>
                   {pillarAverages.wrist}%
@@ -1307,10 +1307,10 @@ export default function ProgressHistoryScreen() {
           strikeName={whySession.strikeName}
           strikeId={whySession.strikeId}
           breakdown={{
-            directionScore: whySession.breakdown?.elbow?.score || whySession.score,
-            bodyScore: whySession.breakdown?.stance?.score || 80,
-            guardScore: whySession.breakdown?.guard?.score || 80,
-            wristScore: whySession.breakdown?.wrist?.score || 85,
+            directionScore: whySession.breakdown?.elbow?.score ?? whySession.score,
+            bodyScore: whySession.breakdown?.stance?.score ?? 80,
+            guardScore: whySession.breakdown?.guard?.score ?? 80,
+            wristScore: whySession.breakdown?.wrist?.score ?? 85,
           }}
           onPracticeLesson={(targetId) => {
             const sid = whySession.strikeId;

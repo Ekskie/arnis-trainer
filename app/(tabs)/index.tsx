@@ -110,7 +110,7 @@ export default function HomeDashboardScreen() {
       <View style={styles.topBar}>
         <View style={styles.logoRow}>
           <Image
-            source={require('@/assets/images/Logo.png')}
+            source={require('@/assets/images/Logo.jpg')}
             style={styles.logoImage}
             resizeMode="contain"
           />

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { usePracticeSession } from '@/hooks/usePracticeSession';
 import { PracticeHomeScreen } from '@/components/practice/PracticeHomeScreen';
 import { PracticeLive } from '@/components/practice/PracticeLive';
@@ -9,6 +9,8 @@ import { PracticeResult } from '@/components/practice/PracticeResult';
 import { StrikeVideoModal } from '@/components/StrikeVideoModal';
 import { AppTutorialModal } from '@/components/AppTutorialModal';
 import { SafetyCheckModal } from '@/components/SafetyCheckModal';
+import { getCurriculumProgress, isStrikeUnlocked } from '@/constants/curriculumStore';
+import { useAuth } from '@/contexts/AuthContext';
 import { MartialTheme } from '@/constants/theme';
 
 const DEFAULT_TAB_BAR_STYLE = {
@@ -36,6 +38,8 @@ const DEFAULT_TAB_BAR_STYLE = {
 export default function EvaluateScreen() {
   const practice = usePracticeSession();
   const navigation = useNavigation();
+  const router = useRouter();
+  const { user } = useAuth();
 
   // Modals for video demonstration & quickstart walkthrough
   const [videoModalVisible, setVideoModalVisible] = useState(false);
@@ -43,18 +47,37 @@ export default function EvaluateScreen() {
   const [tutorialModalVisible, setTutorialModalVisible] = useState(false);
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [pendingSafetyStrikeId, setPendingSafetyStrikeId] = useState<string | null>(null);
+  const [pendingSafetyStrikeMode, setPendingSafetyStrikeMode] = useState<'follow' | 'guided' | 'test'>('guided');
 
-  const startStrikeWithSafety = async (sid: string) => {
+  const startStrikeWithSafety = async (
+    sid: string,
+    mode: 'follow' | 'guided' | 'test' = 'guided'
+  ) => {
     try {
+      const prog = await getCurriculumProgress(user?.id);
+      if (!isStrikeUnlocked(sid, prog.completedLessonIds)) {
+        const strikeNum = Number(sid.replace('strike_', '')) || 1;
+        const prevNum = strikeNum > 1 ? strikeNum - 1 : 1;
+        Alert.alert(
+          'Strike Locked 🔒',
+          `Complete and pass Strike ${prevNum} with at least Grade C (75%+) in the Journey first to unlock Strike ${strikeNum}.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Go to Journey 🗺️', onPress: () => router.push('/explore' as any) },
+          ]
+        );
+        return;
+      }
       const hasSeen = await AsyncStorage.getItem('@arnis_has_seen_safety_modal');
       if (hasSeen === '1') {
-        practice.startStrike(sid, 'guided');
+        practice.startStrike(sid, mode);
       } else {
         setPendingSafetyStrikeId(sid);
+        setPendingSafetyStrikeMode(mode);
         setShowSafetyModal(true);
       }
     } catch {
-      practice.startStrike(sid, 'guided');
+      practice.startStrike(sid, mode);
     }
   };
 
@@ -62,7 +85,7 @@ export default function EvaluateScreen() {
     await AsyncStorage.setItem('@arnis_has_seen_safety_modal', '1');
     setShowSafetyModal(false);
     if (pendingSafetyStrikeId) {
-      practice.startStrike(pendingSafetyStrikeId, 'guided');
+      practice.startStrike(pendingSafetyStrikeId, pendingSafetyStrikeMode);
       setPendingSafetyStrikeId(null);
     }
   };
@@ -161,9 +184,11 @@ export default function EvaluateScreen() {
           improvement={practice.sessionImprovement}
           strikeRule={practice.currentRule}
           promotionResult={practice.promotionResult}
+          sessionId={practice.lastSessionId}
           lastSnapshot={practice.lastSnapshot}
           lastReplayVideo={practice.lastReplayVideo}
           lastImpactMeta={practice.lastImpactMeta}
+          researchCapture={practice.lastResearchCapture}
           isFromLesson={practice.source === 'lesson'}
           practiceMode={practice.mode}
           activeRoutine={practice.activeRoutine}

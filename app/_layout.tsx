@@ -53,7 +53,7 @@ export const unstable_settings = {
 };
 
 function RootNavigator() {
-  const { user, profile, isLoading } = useAuth();
+  const { user, profile, isLoading, isRecoveringPassword } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -61,6 +61,7 @@ function RootNavigator() {
     if (isLoading) return;
 
     const segment0 = segments[0] as string | undefined;
+    const segment1 = segments[1] as string | undefined;
     const inAuthGroup = segment0 === '(auth)';
     const inCoachGroup = segment0 === '(coach)';
     const isAuthenticated = Boolean(user);
@@ -69,6 +70,8 @@ function RootNavigator() {
       if (!inAuthGroup) {
         router.replace('/(auth)/welcome' as any);
       }
+    } else if (isRecoveringPassword && inAuthGroup && segment1 === 'reset-password') {
+      return;
     } else {
       const role = profile?.role || 'student';
       if (role === 'coach') {
@@ -91,7 +94,7 @@ function RootNavigator() {
         }
       }
     }
-  }, [user, profile, isLoading, segments]);
+  }, [user, profile, isLoading, isRecoveringPassword, segments]);
 
   if (isLoading) {
     return (

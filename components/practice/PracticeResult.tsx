@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,10 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { WebView } from 'react-native-webview';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,6 +22,12 @@ import { CloudSyncService } from '@/services/cloudSyncService';
 import { MartialTheme } from '@/constants/theme';
 import { StrikeRule } from '@/constants/strikeRules';
 import { StrikeEvaluationResult } from '@/engine/evaluation/evaluationTypes';
+import { ResearchCaptureSession } from '@/engine/reference/referenceTypes';
+import {
+  getSavedPublicDirectoryUri,
+  requestPublicDirectoryPermission,
+  saveFileToPublicFolder,
+} from '@/services/mediaStorageService';
 import { SessionImprovement } from '@/hooks/usePracticeSession';
 import { CoachCharacter } from '@/components/ui/CoachCharacter';
 import { WhyFailedModal } from '@/components/WhyFailedModal';
@@ -47,8 +53,10 @@ export interface PracticeResultProps {
   improvement: SessionImprovement;
   strikeRule: StrikeRule;
   promotionResult?: { newRank: SashRankInfo; level: number } | null;
+  sessionId?: string | null;
   lastSnapshot?: string | null;
   lastReplayVideo?: string | null;
+  researchCapture?: ResearchCaptureSession | null;
   lastImpactMeta?: {
     impactFrame?: number;
     impactTime?: number;
@@ -109,6 +117,7 @@ export function PracticeResult({
   improvement,
   strikeRule,
   promotionResult,
+  sessionId,
   lastSnapshot,
   lastReplayVideo,
   lastImpactMeta,
@@ -135,19 +144,59 @@ export function PracticeResult({
   const { user } = useAuth();
   const [attachedVideoUri, setAttachedVideoUri] = useState<string | null>(lastReplayVideo || null);
   const [isPickingVideo, setIsPickingVideo] = useState(false);
+  const [isSavingToFolder, setIsSavingToFolder] = useState(false);
+  const [hasPublicFolder, setHasPublicFolder] = useState(false);
+  const [publicFolderSavedMsg, setPublicFolderSavedMsg] = useState<string | null>(null);
   const [shareVideoWithCoach, setShareVideoWithCoach] = useState(false);
   const [isSyncingVideo, setIsSyncingVideo] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  const fallbackSessionIdRef = useRef('session_' + Date.now());
+  const activeSessionId = sessionId || fallbackSessionIdRef.current;
+  const syncedSessionIdRef = useRef<string | null>(null);
 
   React.useEffect(() => {
     getGamificationStats(user?.id).then((g) => {
       setSashInfo(getSashRankByLevel(g.level));
     });
+    getSavedPublicDirectoryUri()
+      .then((uri) => setHasPublicFolder(Boolean(uri)))
+      .catch(() => {});
   }, [user?.id]);
 
   const coachRef = getCoachReference(strikeRule.id);
 
-  // Auto-sync metrics upon result view for authenticated students
+  const buildCloudSessionPayload = () => {
+    const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
+    const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
+    const effectiveDesc = activeRoutine
+      ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
+      : strikeRule.desc;
+
+    return {
+      id: activeSessionId,
+      strikeId: effectiveId,
+      strikeName: effectiveName,
+      description: effectiveDesc,
+      score: result.score,
+      grade: result.grade,
+      date: new Date().toLocaleDateString(),
+      snapshotBase64: lastSnapshot || undefined,
+      replayVideoBase64: attachedVideoUri || lastReplayVideo || undefined,
+      userVideoUri: attachedVideoUri || lastReplayVideo || undefined,
+      breakdown: {
+        elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
+        shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
+        wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
+        guard: { score: result.guardScore, actual: 0, ideal: coachRef.angles.guard || 70 },
+        stance: { score: result.stanceScore, actual: lastImpactMeta?.actualAngles?.knee || 0, ideal: coachRef.angles.knee || 145 },
+      },
+    };
+  };
+  const latestSyncPayloadRef = useRef(buildCloudSessionPayload);
+  latestSyncPayloadRef.current = buildCloudSessionPayload;
+
+  // Auto-sync metrics once per completed session for authenticated students
   React.useEffect(() => {
     let isMounted = true;
     getAutoShareCoachPreference().then((autoShare) => {
@@ -156,30 +205,9 @@ export function PracticeResult({
       }
     });
 
-    if (user) {
-      const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
-      const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
-      const effectiveDesc = activeRoutine
-        ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
-        : strikeRule.desc;
-
-      const sessionItem = {
-        id: 'session_' + Date.now(),
-        strikeId: effectiveId,
-        strikeName: effectiveName,
-        description: effectiveDesc,
-        score: result.score,
-        grade: result.grade,
-        date: new Date().toLocaleDateString(),
-        snapshotBase64: lastSnapshot || undefined,
-        replayVideoBase64: attachedVideoUri || lastReplayVideo || undefined,
-        userVideoUri: attachedVideoUri || undefined,
-        breakdown: {
-          elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
-          shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
-          wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
-        },
-      };
+    if (user?.id && syncedSessionIdRef.current !== activeSessionId) {
+      syncedSessionIdRef.current = activeSessionId;
+      const sessionItem = latestSyncPayloadRef.current();
 
       getAutoShareCoachPreference().then(async (autoShare) => {
         const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, autoShare);
@@ -192,7 +220,7 @@ export function PracticeResult({
     return () => {
       isMounted = false;
     };
-  }, [user?.id, strikeRule.id, activeRoutine?.id, result.score, attachedVideoUri]);
+  }, [user?.id, activeSessionId]);
 
   // Pick screen recording or practice video from gallery
   const handlePickVideo = async () => {
@@ -211,18 +239,18 @@ export function PracticeResult({
         setAttachedVideoUri(videoUri);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        // Update local session
+        // Update local session matching activeSessionId (falling back to most recent)
         const history = await getHistory(user?.id);
-        if (history.length > 0) {
-          const targetSessionId = history[0].id;
-          await updateSessionVideo(targetSessionId, videoUri, user?.id);
+        const matchingItem = history.find((item) => item.id === activeSessionId) || history[0];
+        if (matchingItem) {
+          await updateSessionVideo(matchingItem.id, videoUri, user?.id);
 
           // If student already has sharing toggled ON, sync to cloud
           if (shareVideoWithCoach && user?.id) {
             setIsSyncingVideo(true);
             setSyncStatus('Uploading attached video for coach review...');
-            await CloudSyncService.updateSessionSharing(user.id, targetSessionId, true, {
-              ...history[0],
+            await CloudSyncService.updateSessionSharing(user.id, matchingItem.id, true, {
+              ...matchingItem,
               userVideoUri: videoUri,
             });
             setIsSyncingVideo(false);
@@ -258,35 +286,20 @@ export function PracticeResult({
       return;
     }
 
+    const history = await getHistory(user.id);
+    const matchingItem = history.find((item) => item.id === activeSessionId) || history[0];
+    const targetSessionId = matchingItem?.id || activeSessionId;
+
     if (value) {
       const activeVideo = attachedVideoUri || lastReplayVideo;
       if (activeVideo || lastSnapshot) {
         setIsSyncingVideo(true);
         setSyncStatus('Uploading for coach review...');
-        const effectiveId = activeRoutine ? activeRoutine.id : strikeRule.id;
-        const effectiveName = activeRoutine ? activeRoutine.name : strikeRule.name;
-        const effectiveDesc = activeRoutine
-          ? `Anyo Routine (${anyoStepScores?.length || activeRoutine.strikes.length} strikes)`
-          : strikeRule.desc;
-
         const sessionItem = {
-          id: 'session_' + Date.now(),
-          strikeId: effectiveId,
-          strikeName: effectiveName,
-          description: effectiveDesc,
-          score: result.score,
-          grade: result.grade,
-          date: new Date().toLocaleDateString(),
-          snapshotBase64: lastSnapshot || undefined,
+          ...buildCloudSessionPayload(),
+          id: targetSessionId,
           replayVideoBase64: undefined,
           userVideoUri: activeVideo || undefined,
-          breakdown: {
-            elbow: { score: result.elbowScore, actual: lastImpactMeta?.actualAngles?.elbow || 0, ideal: coachRef.angles.elbow || 45 },
-            shoulder: { score: result.shoulderScore, actual: lastImpactMeta?.actualAngles?.shoulder || 0, ideal: coachRef.angles.shoulder || 55 },
-            wrist: { score: result.wristScore, actual: lastImpactMeta?.actualAngles?.wrist || 0, ideal: coachRef.angles.wrist || 90 },
-            guard: { score: result.guardScore, actual: 0, ideal: 70 },
-            stance: { score: result.stanceScore, actual: lastImpactMeta?.actualAngles?.knee || 0, ideal: 145 },
-          },
         };
 
         const res = await CloudSyncService.syncPracticeSession(user.id, sessionItem as any, true);
@@ -296,21 +309,124 @@ export function PracticeResult({
         } else {
           setSyncStatus('Shared with Coach! 🥋');
         }
-
-        // Update local session in history store
-        const history = await getHistory(user.id);
-        if (history.length > 0) {
-          await updateSessionSharing(history[0].id, true, user.id);
-        }
+      }
+      if (matchingItem) {
+        await updateSessionSharing(matchingItem.id, true, user.id);
       }
     } else {
       // Revoke sharing
-      const history = await getHistory(user.id);
-      if (history.length > 0) {
-        await updateSessionSharing(history[0].id, false, user.id);
-        await CloudSyncService.updateSessionSharing(user.id, history[0].id, false);
+      if (matchingItem) {
+        await updateSessionSharing(matchingItem.id, false, user.id);
+        await CloudSyncService.updateSessionSharing(user.id, matchingItem.id, false);
       }
       setSyncStatus('Recording kept private to device 🔒');
+    }
+  };
+
+  const readMediaAsBase64 = async (uriOrDataUrl: string): Promise<string | null> => {
+    if (!uriOrDataUrl) return null;
+    if (uriOrDataUrl.startsWith('data:')) {
+      return uriOrDataUrl;
+    }
+    try {
+      return await FileSystem.readAsStringAsync(uriOrDataUrl, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSaveSessionFilesToFolder = async (forceChangeFolder = false) => {
+    try {
+      setIsSavingToFolder(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const dirUri = await requestPublicDirectoryPermission(forceChangeFolder);
+      if (!dirUri) {
+        Alert.alert(
+          'Folder Access Needed',
+          'Choose a phone folder (such as Downloads or Documents) so Arnis Trainer can create your practice files there.'
+        );
+        return;
+      }
+      setHasPublicFolder(true);
+
+      const stamp = Date.now();
+      const safeStrike = strikeRule.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const createdFiles: string[] = [];
+
+      if (lastSnapshot) {
+        const snapBase64 = await readMediaAsBase64(lastSnapshot);
+        if (snapBase64) {
+          const snapName = `arnis_${safeStrike}_${stamp}_snapshot.jpg`;
+          const uri = await saveFileToPublicFolder({
+            fileName: snapName,
+            mimeType: 'image/jpeg',
+            content: snapBase64,
+            encoding: 'base64',
+            promptIfNeeded: false,
+          });
+          if (uri) createdFiles.push(snapName);
+        }
+      }
+
+      const activeVideo = attachedVideoUri || lastReplayVideo;
+      if (activeVideo) {
+        const vidBase64 = await readMediaAsBase64(activeVideo);
+        if (vidBase64) {
+          const ext = activeVideo.includes('mp4') ? 'mp4' : 'webm';
+          const vidName = `arnis_${safeStrike}_${stamp}_video.${ext}`;
+          const uri = await saveFileToPublicFolder({
+            fileName: vidName,
+            mimeType: ext === 'mp4' ? 'video/mp4' : 'video/webm',
+            content: vidBase64,
+            encoding: 'base64',
+            promptIfNeeded: false,
+          });
+          if (uri) createdFiles.push(vidName);
+        }
+      }
+
+      const summaryName = `arnis_${safeStrike}_${stamp}_summary.json`;
+      const summaryJson = JSON.stringify(
+        {
+          sessionId: activeSessionId,
+          strikeId: strikeRule.id,
+          strikeName: strikeRule.name,
+          score: result.score,
+          grade: result.grade,
+          pillarScores: result.pillarScores,
+          kineticPhases: result.kineticPhases,
+          feedback: result.feedback,
+          savedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      );
+      const summaryUri = await saveFileToPublicFolder({
+        fileName: summaryName,
+        mimeType: 'application/json',
+        content: summaryJson,
+        encoding: 'utf8',
+        promptIfNeeded: false,
+      });
+      if (summaryUri) createdFiles.push(summaryName);
+
+      if (createdFiles.length > 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const msg = `Created ${createdFiles.length} file(s): ${createdFiles.join(', ')}`;
+        setPublicFolderSavedMsg(msg);
+        Alert.alert('Saved to Phone Folder', msg);
+      } else {
+        Alert.alert('Save Failed', 'Could not create files in the selected phone folder.');
+      }
+    } catch (err) {
+      Alert.alert(
+        'Save Failed',
+        err instanceof Error ? err.message : 'Unable to save files to your phone folder.'
+      );
+    } finally {
+      setIsSavingToFolder(false);
     }
   };
 
@@ -432,16 +548,12 @@ export function PracticeResult({
                     <Text style={styles.anyoStepDurationText}>
                       ⏱ {((step.durationMs || 0) / 1000).toFixed(1)}s
                     </Text>
-                    {step.breakdown?.elbow?.actual != null && (
-                      <Text style={styles.anyoStepAngleText}>
-                        Elbow: {Math.round(step.breakdown.elbow.actual)}°
-                      </Text>
-                    )}
-                    {step.breakdown?.shoulder?.actual != null && (
-                      <Text style={styles.anyoStepAngleText}>
-                        Shoulder: {Math.round(step.breakdown.shoulder.actual)}°
-                      </Text>
-                    )}
+                    <Text style={styles.anyoStepAngleText}>
+                      Arm Path: {step.breakdown?.elbow?.score ?? step.score}%
+                    </Text>
+                    <Text style={styles.anyoStepAngleText}>
+                      Guard: {step.breakdown?.guard?.score ?? step.score}%
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -639,29 +751,29 @@ export function PracticeResult({
           </View>
         )}
 
-        {/* --- 2. 3-PHASE KINETIC SEQUENCE CARD (25% Chamber / 50% Apex / 25% Recovery) --- */}
+        {/* --- 2. YOUR STRIKE IN 3 STEPS CARD --- */}
         <View style={styles.kineticCard}>
           <View style={styles.kineticHeaderRow}>
             <View style={styles.kineticHeaderLeft}>
               <MaterialCommunityIcons name="timer-sand-complete" size={20} color={MartialTheme.colors.bambooDark} />
-              <Text style={styles.kineticHeaderTitle}>Kinetic Strike Phases</Text>
+              <Text style={styles.kineticHeaderTitle}>Your Strike in 3 Steps</Text>
             </View>
             <View style={styles.kineticFormulaBadge}>
-              <Text style={styles.kineticFormulaBadgeText}>25% • 50% • 25% FORMULA</Text>
+              <Text style={styles.kineticFormulaBadgeText}>START • STRIKE • RETURN</Text>
             </View>
           </View>
           <Text style={styles.kineticSubtitle}>
-            Full Arnis strike evaluated across 3 canonical motion phases:
+            How your form looked from start to finish:
           </Text>
 
           <View style={styles.kineticPhasesRow}>
-            {/* Phase 1: Chamber */}
+            {/* Step 1: Ready Position */}
             <View style={styles.phaseCol}>
               <View style={[styles.phaseIconContainer, { backgroundColor: '#EFF6FF' }]}>
                 <MaterialCommunityIcons name="shield-account" size={20} color="#2563EB" />
               </View>
-              <Text style={styles.phaseLabel}>1. Chamber</Text>
-              <Text style={styles.phaseWeight}>25% weight</Text>
+              <Text style={styles.phaseLabel}>1. Ready Position</Text>
+              <Text style={styles.phaseWeight}>25% of score</Text>
               <Text style={[styles.phaseScore, { color: getScoreColor(result.kineticPhases?.chamber ?? result.pillarScores.stance) }]}>
                 {result.kineticPhases?.chamber ?? result.pillarScores.stance}%
               </Text>
@@ -676,18 +788,18 @@ export function PracticeResult({
                   ]}
                 />
               </View>
-              <Text style={styles.phaseDesc}>Ready & Guard</Text>
+              <Text style={styles.phaseDesc}>Stick Ready &amp; Guard Up</Text>
             </View>
 
             <View style={styles.phaseDivider} />
 
-            {/* Phase 2: Apex Impact */}
+            {/* Step 2: The Strike */}
             <View style={[styles.phaseCol, styles.phaseColApex]}>
               <View style={[styles.phaseIconContainer, { backgroundColor: '#FEF3C7' }]}>
                 <MaterialCommunityIcons name="sword-cross" size={22} color="#D97706" />
               </View>
-              <Text style={[styles.phaseLabel, { color: '#B45309' }]}>2. Apex Impact</Text>
-              <Text style={styles.phaseWeight}>50% (Primary)</Text>
+              <Text style={[styles.phaseLabel, { color: '#B45309' }]}>2. The Strike</Text>
+              <Text style={styles.phaseWeight}>50% (Main)</Text>
               <Text style={[styles.phaseScore, styles.phaseScoreApex, { color: getScoreColor(result.kineticPhases?.apex ?? result.score) }]}>
                 {result.kineticPhases?.apex ?? result.score}%
               </Text>
@@ -702,18 +814,18 @@ export function PracticeResult({
                   ]}
                 />
               </View>
-              <Text style={styles.phaseDesc}>Strike Trajectory</Text>
+              <Text style={styles.phaseDesc}>Main Swing (Counts Most)</Text>
             </View>
 
             <View style={styles.phaseDivider} />
 
-            {/* Phase 3: Recovery */}
+            {/* Step 3: Return to Guard */}
             <View style={styles.phaseCol}>
               <View style={[styles.phaseIconContainer, { backgroundColor: '#ECFDF5' }]}>
                 <MaterialCommunityIcons name="sync" size={20} color="#059669" />
               </View>
-              <Text style={styles.phaseLabel}>3. Recovery</Text>
-              <Text style={styles.phaseWeight}>25% weight</Text>
+              <Text style={styles.phaseLabel}>3. Return to Guard</Text>
+              <Text style={styles.phaseWeight}>25% of score</Text>
               <Text style={[styles.phaseScore, { color: getScoreColor(result.kineticPhases?.recovery ?? result.pillarScores.strikingArm) }]}>
                 {result.kineticPhases?.recovery ?? result.pillarScores.strikingArm}%
               </Text>
@@ -728,15 +840,15 @@ export function PracticeResult({
                   ]}
                 />
               </View>
-              <Text style={styles.phaseDesc}>Return to Kalasag</Text>
+              <Text style={styles.phaseDesc}>Back to Ready Stance</Text>
             </View>
           </View>
 
-          {/* Formula summary footer */}
+          {/* Beginner-friendly summary footer */}
           <View style={styles.kineticFormulaFooter}>
             <Ionicons name="information-circle-outline" size={14} color={MartialTheme.colors.textMuted} style={{ marginRight: 4 }} />
             <Text style={styles.kineticFormulaFooterText}>
-              Formula: (Chamber × 25%) + (Apex × 50%) + (Recovery × 25%) = {result.score}%
+              Tip: The main strike counts for half your score, while starting ready and returning to guard count for a quarter each.
             </Text>
           </View>
         </View>
@@ -780,14 +892,14 @@ export function PracticeResult({
 
         {showTechnicalDetails && (
           <View style={styles.technicalCard}>
-            <Text style={styles.technicalCardTitle}>4-Pillar Biomechanical Alignment</Text>
+            <Text style={styles.technicalCardTitle}>Form Breakdown by Body Part</Text>
 
             {/* Pillar 1: Striking Arm */}
             <View style={styles.pillarItem}>
               <View style={styles.pillarTextRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="sword" size={16} color="#3B82F6" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarLabel}>Striking Arm Trajectory</Text>
+                  <Text style={styles.pillarLabel}>Arm Reach &amp; Strike Path</Text>
                 </View>
                 <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.strikingArm) }]}>
                   {result.pillarScores.strikingArm}%
@@ -811,7 +923,7 @@ export function PracticeResult({
               <View style={styles.pillarTextRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="shield-check" size={16} color="#10B981" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarLabel}>Check Hand Defense (Kalasag)</Text>
+                  <Text style={styles.pillarLabel}>Free Hand on Chest (Guard)</Text>
                 </View>
                 <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.guard) }]}>
                   {result.pillarScores.guard}%
@@ -835,7 +947,7 @@ export function PracticeResult({
               <View style={styles.pillarTextRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="human-male-height" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarLabel}>Base Stability (Tindig)</Text>
+                  <Text style={styles.pillarLabel}>Balanced Stance (Knees Bent)</Text>
                 </View>
                 <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.stance) }]}>
                   {result.pillarScores.stance}%
@@ -859,7 +971,7 @@ export function PracticeResult({
               <View style={styles.pillarTextRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialCommunityIcons name="flash" size={16} color="#8B5CF6" style={{ marginRight: 6 }} />
-                  <Text style={styles.pillarLabel}>Wrist Snap & Alignment (Pitik)</Text>
+                  <Text style={styles.pillarLabel}>Wrist Control &amp; Snap</Text>
                 </View>
                 <Text style={[styles.pillarScore, { color: getScoreColor(result.pillarScores.wrist) }]}>
                   {result.pillarScores.wrist}%
@@ -899,7 +1011,7 @@ export function PracticeResult({
                 {/* Snapshot if available */}
                 {lastSnapshot && (
                   <View style={styles.mediaContainer}>
-                    <Text style={styles.mediaHeading}>IMPACT ZONE SNAPSHOT</Text>
+                    <Text style={styles.mediaHeading}>STRIKE POINT PHOTO</Text>
                     <Image source={{ uri: lastSnapshot }} style={styles.snapshotImg} resizeMode="contain" />
                   </View>
                 )}
@@ -936,59 +1048,58 @@ export function PracticeResult({
               activeOpacity={0.8}
             >
               <Ionicons name="help-circle" size={16} color="#0284C7" style={{ marginRight: 6 }} />
-              <Text style={styles.whyBtnText}>Why Did I Get {result.score}%? (Diagnosis)</Text>
+              <Text style={styles.whyBtnText}>How Can I Improve This {result.score}%?</Text>
             </TouchableOpacity>
-
-            {/* Research Shadow Telemetry (Non-Grading) */}
-            {result.shadowEvaluation && (
-              <View style={styles.shadowTelemetryBox}>
-                <Text style={styles.shadowTelemetryHeading}>
-                  SHADOW RESEARCH TELEMETRY (NON-GRADING)
-                </Text>
-                <Text style={styles.shadowTelemetryLine}>
-                  Status: {result.shadowEvaluation.referenceStatus} · Frames:{' '}
-                  {result.shadowEvaluation.measurementCoverage.validNormalizedFrames}/
-                  {result.shadowEvaluation.measurementCoverage.totalFrames} (V2 shoulder scale:{' '}
-                  {result.shadowEvaluation.normalizationMeta.fixedMedianShoulderWidthPx ?? 'N/A'}px)
-                </Text>
-                {result.shadowEvaluation.trajectoryMetrics && (
-                  <Text style={styles.shadowTelemetryLine}>
-                    DTW Mean/RMS Dist:{' '}
-                    {result.shadowEvaluation.trajectoryMetrics.dtwMeanDistance.toFixed(3)} /{' '}
-                    {result.shadowEvaluation.trajectoryMetrics.dtwRmsDistance.toFixed(3)} · Dir
-                    Cosine:{' '}
-                    {result.shadowEvaluation.trajectoryMetrics.directionCosineMean !== null
-                      ? result.shadowEvaluation.trajectoryMetrics.directionCosineMean.toFixed(3)
-                      : 'N/A'}{' '}
-                    · Dir Agree:{' '}
-                    {result.shadowEvaluation.trajectoryMetrics.directionAgreementFraction !== null
-                      ? `${Math.round(
-                          result.shadowEvaluation.trajectoryMetrics.directionAgreementFraction * 100
-                        )}%`
-                      : 'N/A'}
-                  </Text>
-                )}
-                {result.shadowEvaluation.kinematicLandmarks && (
-                  <Text style={styles.shadowTelemetryLine}>
-                    Kinematic Peak Speed (non-impact):{' '}
-                    {result.shadowEvaluation.kinematicLandmarks.userPeakWristSpeedNormPerSec?.toFixed(
-                      2
-                    ) ?? 'N/A'}{' '}
-                    shld/s @ tNorm{' '}
-                    {result.shadowEvaluation.kinematicLandmarks.userPeakSpeedTimeNorm ?? 'N/A'}
-                  </Text>
-                )}
-                {result.shadowEvaluation.jointComparisons2D.map((jc, idx) => (
-                  <Text key={`${jc.jointName}_${jc.phase}_${idx}`} style={styles.shadowTelemetryLine}>
-                    2D {jc.jointName} ({jc.phase}) [{jc.reliabilityStatus}]: actual{' '}
-                    {jc.actualAngle2D !== null ? `${jc.actualAngle2D}°` : 'N/A'} vs median{' '}
-                    {jc.referenceMedian2D !== null ? `${jc.referenceMedian2D}°` : 'N/A'}
-                  </Text>
-                ))}
-              </View>
-            )}
           </View>
         )}
+
+        {/* --- SAVE FILES TO PHONE FOLDER CARD --- */}
+        <View style={styles.saveFolderCard}>
+          <View style={styles.saveFolderHeaderRow}>
+            <View style={styles.saveFolderIconBadge}>
+              <Ionicons name="folder-open" size={20} color="#0369A1" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.saveFolderTitle}>Save Practice Files to Phone</Text>
+              <Text style={styles.saveFolderSubtitle}>
+                {hasPublicFolder
+                  ? 'Folder connected. Save your strike photo, video, and score summary where you can open them anytime.'
+                  : 'Choose a folder like Downloads or Documents so Arnis Trainer can create files you can open.'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.saveFolderActionsRow}>
+            <TouchableOpacity
+              style={[styles.saveFolderPrimaryBtn, isSavingToFolder && { opacity: 0.6 }]}
+              onPress={() => handleSaveSessionFilesToFolder(false)}
+              disabled={isSavingToFolder}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="download-outline" size={15} color="#FFFFFF" />
+              <Text style={styles.saveFolderPrimaryBtnText}>
+                {isSavingToFolder
+                  ? 'Saving...'
+                  : hasPublicFolder
+                  ? 'Save to Phone Folder'
+                  : 'Choose Folder & Save'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.saveFolderSecondaryBtn, isSavingToFolder && { opacity: 0.6 }]}
+              onPress={() => handleSaveSessionFilesToFolder(true)}
+              disabled={isSavingToFolder}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.saveFolderSecondaryBtnText}>Change Folder</Text>
+            </TouchableOpacity>
+          </View>
+
+          {publicFolderSavedMsg && (
+            <Text style={styles.saveFolderStatusText}>{publicFolderSavedMsg}</Text>
+          )}
+        </View>
 
         {/* --- COACH VIDEO SHARING PERMISSION CARD --- */}
         {(attachedVideoUri || lastReplayVideo || lastSnapshot) && (
@@ -1209,10 +1320,10 @@ export function PracticeResult({
         strikeName={strikeRule.name}
         strikeId={strikeRule.id}
         breakdown={{
-          directionScore: result.elbowScore,
-          bodyScore: result.stanceScore,
-          guardScore: result.guardScore,
-          wristScore: result.wristScore,
+          directionScore: result.pillarScores.strikingArm,
+          bodyScore: result.pillarScores.stance,
+          guardScore: result.pillarScores.guard,
+          wristScore: result.pillarScores.wrist,
         }}
         onPracticeLesson={(targetId) => {
           setShowWhyModal(false);
@@ -2064,25 +2175,82 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  shadowTelemetryBox: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    gap: 4,
+  saveFolderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  shadowTelemetryHeading: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    color: '#334155',
-    letterSpacing: 0.5,
+  saveFolderHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  saveFolderIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveFolderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: MartialTheme.colors.text,
     marginBottom: 2,
   },
-  shadowTelemetryLine: {
+  saveFolderSubtitle: {
     fontSize: 11,
-    color: '#475569',
+    color: MartialTheme.colors.textSecondary,
     lineHeight: 15,
+  },
+  saveFolderActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  saveFolderPrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#0284C7',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  saveFolderPrimaryBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  saveFolderSecondaryBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  saveFolderSecondaryBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  saveFolderStatusText: {
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0369A1',
   },
 });

@@ -65,12 +65,14 @@ function loadTsModule(relativePath, cache = new Map()) {
   return mod.exports;
 }
 
-const refLoader = loadTsModule('engine/reference/referenceLoader.ts');
-const poseNormalizer = loadTsModule('engine/reference/poseNormalizer.ts');
-const trajMatcher = loadTsModule('engine/reference/trajectoryMatcher.ts');
-const shadowEval = loadTsModule('engine/reference/shadowEvaluator.ts');
-const strikeEval = loadTsModule('engine/evaluation/strikeEvaluator.ts');
-const { STRIKE_RULES } = loadTsModule('constants/strikeRules.ts');
+const tsModuleCache = new Map();
+const refLoader = loadTsModule('engine/reference/referenceLoader.ts', tsModuleCache);
+const poseNormalizer = loadTsModule('engine/reference/poseNormalizer.ts', tsModuleCache);
+const trajMatcher = loadTsModule('engine/reference/trajectoryMatcher.ts', tsModuleCache);
+const shadowEval = loadTsModule('engine/reference/shadowEvaluator.ts', tsModuleCache);
+const researchCapture = loadTsModule('engine/reference/researchCapture.ts', tsModuleCache);
+const strikeEval = loadTsModule('engine/evaluation/strikeEvaluator.ts', tsModuleCache);
+const { STRIKE_RULES } = loadTsModule('constants/strikeRules.ts', tsModuleCache);
 
 /**
  * Synthetic test fixture strictly for unit testing schema validation & pipeline math.
@@ -379,4 +381,171 @@ test('shadowEvaluator: runs non-grading Strike 1 comparison without altering bas
   assert.equal(withShadow.stars, baselineOnly.stars);
   assert.deepEqual(withShadow.feedback, baselineOnly.feedback);
   assert.equal(withShadow.shadowEvaluation.isNonGradingShadow, true);
+});
+
+test('trajectoryMatcher: enforces Sakoe-Chiba DTW constraint (maxOffset=4 at 50 pts) and reports linear baseline', () => {
+  const sampleCount = 50;
+  const ref50Samples = [];
+  const userNormFrames = [];
+  for (let i = 0; i < sampleCount; i += 1) {
+    const u = i / (sampleCount - 1);
+    const dx = -0.6 + 1.2 * u; // unmirrored_image_2d: -x (viewer left) -> +x (viewer right)
+    const dy = -0.3 + 0.9 * u;
+    ref50Samples.push({
+      u: Number(u.toFixed(4)),
+      dxMedian: Number(dx.toFixed(4)),
+      dyMedian: Number(dy.toFixed(4)),
+      dxIqr: [Number((dx - 0.1).toFixed(4)), Number((dx + 0.1).toFixed(4))],
+      dyIqr: [Number((dy - 0.1).toFixed(4)), Number((dy + 0.1).toFixed(4))],
+    });
+
+    // Simulate slight mid-swing temporal lag (~6 points shifted past mid) within a 50-frame user capture
+    const laggedIdx = i < 10 ? i : Math.min(sampleCount - 1, Math.max(0, i - 3));
+    const uUser = laggedIdx / (sampleCount - 1);
+    userNormFrames.push({
+      timestampMs: 1000 + i * 33,
+      relativeTimeMs: i * 33,
+      shoulderWidthPx: 160,
+      originPx: { x: 320, y: 170 },
+      facingOrientationConsistent: true,
+      points: {
+        rightWrist: {
+          dx: -0.6 + 1.2 * uUser,
+          dy: -0.3 + 0.9 * uUser,
+          visibility: 0.95,
+        },
+      },
+      angles2D: {
+        rightElbow: null,
+        leftElbow: null,
+        rightShoulder: null,
+        leftShoulder: null,
+        rightKnee: null,
+        leftKnee: null,
+      },
+    });
+  }
+
+  const ref50 = {
+    ...buildSyntheticStrike1ContractFixture('unmirrored_image_2d'),
+    wristTrajectory: {
+      joint: 'right_wrist',
+      resampleCount: 50,
+      samples: ref50Samples,
+    },
+  };
+
+  const matchOut = trajMatcher.matchWristTrajectory(userNormFrames, ref50);
+  assert.ok(matchOut);
+  assert.equal(matchOut.metrics.dtwConstraint.mode, 'sakoe_chiba_band');
+  assert.equal(matchOut.metrics.dtwConstraint.requestedOffsetPoints, 4);
+  assert.equal(matchOut.metrics.dtwConstraint.allowedOffsetPoints, 4);
+  assert.equal(matchOut.metrics.dtwConstraint.referencePoints, 50);
+  assert.equal(matchOut.metrics.dtwConstraint.isExperimentalConfig, true);
+
+  // Every aligned pair must stay within +/-4 points of proportional index
+  for (const pair of matchOut.alignedPairs) {
+    assert.ok(Math.abs(pair.refIndex - pair.userIndex) <= 4);
+  }
+
+  // Linear alignment baseline & timing distortion fields must be populated
+  assert.ok(matchOut.metrics.linearMeanDistance >= matchOut.metrics.dtwMeanDistance);
+  assert.ok(matchOut.metrics.warpingPathLength >= 50);
+  assert.ok(matchOut.metrics.timingDistortionMaxRefPoints <= 4);
+  assert.ok(matchOut.metrics.timingDistortionMeanNorm >= 0);
+});
+
+test('trajectoryMatcher: preserves full sequence by default and surfaces multi-peak candidates', () => {
+  // Construct 20 frames with a large early preparatory speed spike (frames 2->3)
+  // AND a second lower/target strike speed spike later (frames 13->14)
+  const dxPattern = [
+    -0.5, -0.5, -0.1, 0.35, -0.4, // large early prep transient
+    -0.55, -0.55, -0.55, -0.55, -0.55,
+    -0.5, -0.35, -0.1, 0.25, 0.55, 0.65, // actual Strike 1 sweep
+    0.6, 0.55, 0.55, 0.55,
+  ];
+  const points = dxPattern.map((dx, idx) => ({
+    frameIndex: idx,
+    relativeTimeMs: idx * 50,
+    dx,
+    dy: idx >= 10 ? -0.2 + (idx - 10) * 0.1 : 0,
+    speedNormPerSec: 0,
+  }));
+
+  // Compute finite-difference speeds cleanly
+  for (let i = 1; i < points.length; i += 1) {
+    const dist = Math.hypot(points[i].dx - points[i - 1].dx, points[i].dy - points[i - 1].dy);
+    points[i].speedNormPerSec = dist / 0.05;
+  }
+
+  const fullWindow = trajMatcher.selectMovementWindow(points, points.length);
+  assert.equal(fullWindow.selection.mode, 'full_captured');
+  assert.equal(fullWindow.selectedPoints.length, points.length);
+  assert.equal(fullWindow.selection.selectedStartFrameIndex, 0);
+  assert.equal(fullWindow.selection.selectedEndFrameIndex, points.length - 1);
+  assert.ok(fullWindow.selection.candidateSpeedPeaks.length >= 2);
+  assert.ok(fullWindow.selection.candidateSpeedPeaks.every((c) => c.isKinematicCandidateOnly === true));
+
+  // Explicit frame range isolates the second (target) technique cleanly
+  const explicitWindow = trajMatcher.selectMovementWindow(points, points.length, {
+    mode: 'explicit_frame_range',
+    startFrameIndex: 10,
+    endFrameIndex: 16,
+  });
+  assert.equal(explicitWindow.selection.mode, 'explicit_frame_range');
+  assert.equal(explicitWindow.selection.selectedStartFrameIndex, 10);
+  assert.equal(explicitWindow.selection.selectedEndFrameIndex, 16);
+  assert.equal(explicitWindow.selectedPoints.length, 7);
+});
+
+test('researchCapture & referenceLoader: enforces consent, separates mirroring conventions, and validates JSON text', () => {
+  const frames = buildMockMediaPipeFrames();
+  const refUnmirrored = buildSyntheticStrike1ContractFixture('unmirrored_image_2d');
+
+  // Parse & register raw JSON text cleanly
+  refLoader.clearExpertReferences();
+  const regResult = refLoader.parseAndRegisterExpertReferenceJson(JSON.stringify(refUnmirrored));
+  assert.equal(regResult.valid, true);
+  assert.equal(refLoader.getExpertReference('strike_1')?.normalization.coordinateConvention, 'unmirrored_image_2d');
+
+  // Must refuse assembling capture without explicit consent
+  assert.throws(() => {
+    researchCapture.buildResearchCaptureSession({
+      consentGranted: false,
+      consentedAt: null,
+      strikeId: 'strike_1',
+      strikeNumber: 1,
+      strikeName: 'Left Temple Strike',
+      practiceMode: 'research_manual',
+      rawFrames: frames,
+    });
+  }, /consent/i);
+
+  // With consent granted: captures sampling stats, raw + V2 normalized frames, and distinguishes mirroring
+  const capture = researchCapture.buildResearchCaptureSession({
+    consentGranted: true,
+    consentedAt: '2026-11-12T10:00:00.000Z',
+    strikeId: 'strike_1',
+    strikeNumber: 1,
+    strikeName: 'Left Temple Strike',
+    practiceMode: 'research_manual',
+    rawFrames: frames,
+    poseCoordinateConvention: 'unmirrored_image_2d',
+  });
+
+  assert.equal(capture.schemaVersion, '1.0.0-research-capture');
+  assert.equal(capture.consentGranted, true);
+  assert.equal(capture.localOnly, true);
+  assert.equal(capture.isNonGradingResearch, true);
+  assert.equal(capture.coordinateConventions.cameraPreviewDisplay, 'mirrored_selfie_display');
+  assert.equal(capture.coordinateConventions.rawPoseCoordinateSpace, 'raw_unmirrored_normalized');
+  assert.equal(capture.coordinateConventions.normalizedPoseCoordinateConvention, 'unmirrored_image_2d');
+  assert.equal(capture.samplingStats.capturedFrameCount, 10);
+  assert.equal(capture.samplingStats.durationMs, 900);
+  assert.equal(capture.samplingStats.medianFrameIntervalMs, 100);
+  assert.equal(capture.rawPoseFrames2D.length, 10);
+  assert.equal(capture.normalizedPoseV2.frames.length, 10);
+  assert.equal(capture.movementWindow.mode, 'full_captured');
+  assert.ok(capture.shadowEvaluation?.trajectoryMetrics?.dtwConstraint);
+  refLoader.clearExpertReferences();
 });

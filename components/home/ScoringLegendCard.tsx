@@ -19,36 +19,36 @@ interface CoachTipInfo {
 }
 
 const COACH_TIPS: Record<string, CoachTipInfo> = {
-  // 4 Biomechanical Pillars
+  // 4 Form Areas
   trajectory: {
     id: 'trajectory',
-    badge: '40% WEIGHT • DOMINANT DRIVER',
-    title: 'Striking Arm & Elbow Trajectory',
-    cue: 'Lead the cut with your elbow before extending the weapon through the exact anatomical angle. Maintain a clean, unbroken strike plane without flaring or dropping early.',
+    badge: '40% OF YOUR SCORE • MOST IMPORTANT',
+    title: 'Arm Reach & Strike Path',
+    cue: 'Reach your arm out smoothly toward the target along the strike path instead of swinging wildly or stopping short.',
     icon: 'sword',
     color: '#15803D',
   },
   kalasag: {
     id: 'kalasag',
-    badge: '25% WEIGHT • DEFENSIVE SHIELD',
-    title: 'Check Hand (Kalasag) Guard',
-    cue: 'Keep your non-weapon live hand pressed firmly to your solar plexus/chest throughout the entire cut. In Arnis, Kalasag deflects counters and primes immediate disarms.',
+    badge: '25% OF YOUR SCORE • PROTECTION',
+    title: 'Free Hand Chest Guard (Kalasag)',
+    cue: 'Keep your non-stick hand resting flat near your chest throughout the strike to protect your body.',
     icon: 'shield-check',
     color: '#2563EB',
   },
   tindig: {
     id: 'tindig',
-    badge: '20% WEIGHT • KINETIC BASE',
-    title: 'Stance Tindig Knee Flexion',
-    cue: 'Lower your center of gravity with knee flexion in your Tindig stance. True martial power generates from the ground up through active hip rotation, not just the arm.',
+    badge: '20% OF YOUR SCORE • BALANCE',
+    title: 'Balanced Stance (Bent Knees)',
+    cue: 'Bend both knees slightly instead of standing stiff and straight so you stay steady and balanced.',
     icon: 'run-fast',
     color: '#D97706',
   },
   pitik: {
     id: 'pitik',
-    badge: '15% WEIGHT • IMPACT VELOCITY',
-    title: 'Wrist Snap (Pitik) Alignment',
-    cue: 'Deliver a sharp, whip-like wrist snap right at the point of contact, aligning the stick tip with forearm geometry before smoothly returning to chamber.',
+    badge: '15% OF YOUR SCORE • FINISH',
+    title: 'Firm Wrist & Snap (Pitik)',
+    cue: 'Keep your wrist steady and give a quick, light snap right as you reach the target before returning to guard.',
     icon: 'flash',
     color: '#DC2626',
   },
@@ -58,31 +58,31 @@ const COACH_TIPS: Record<string, CoachTipInfo> = {
     id: 'gradeA',
     badge: '95 - 100% • MASTER FORM',
     title: 'Master Form Locked',
-    cue: 'Flawless kinetic chain execution: Kalasag shield stays glued to chest, Tindig stance is deep and stable, and the Pitik whip snaps cleanly on plane.',
+    cue: 'Smooth strike on target: your free hand stayed on your chest, your knees stayed bent, and your finish was crisp.',
     icon: 'trophy',
     color: '#15803D',
   },
   gradeB: {
     id: 'gradeB',
-    badge: '85 - 94% • ADVANCED TECHNIQUE',
-    title: 'Advanced Technique',
-    cue: 'Strong strike line and crisp power delivery. Fine-tune your recovery to guard position and keep the Kalasag hand tight to your center of gravity.',
+    badge: '85 - 94% • GREAT TECHNIQUE',
+    title: 'Great Technique',
+    cue: 'Strong strike path and clean control. Keep bringing your stick right back to guard after each strike.',
     icon: 'medal',
     color: '#2563EB',
   },
   gradeC: {
     id: 'gradeC',
-    badge: '75 - 84% • INTERMEDIATE (PASSING)',
-    title: 'Intermediate (Passing Threshold)',
-    cue: 'Required passing threshold (75%+) to unlock subsequent strikes. Demonstrates solid kinetic chain and strike geometry with minor areas to polish.',
+    badge: '75 - 84% • PASSING LEVEL',
+    title: 'Passing Level',
+    cue: 'You need 75% or higher to pass and unlock the next strike. Solid control with just a few small habits to polish.',
     icon: 'school',
     color: '#D97706',
   },
   gradeDF: {
     id: 'gradeDF',
-    badge: '< 75% • NEEDS CORRECTION (FAIL)',
-    title: 'Needs Form Calibration (Fail)',
-    cue: 'Below the 75% passing threshold. The next strike remains locked. Slow down repetition speed, utilize the 5-minute warmup mirror drills, and lock in the 4 fundamental pillars step by step.',
+    badge: '< 75% • KEEP PRACTICING',
+    title: 'Needs a Little More Practice',
+    cue: 'Below 75%. Slow down, try the 5-minute warmup first, and focus on one cue at a time.',
     icon: 'alert-circle',
     color: '#DC2626',
   },
@@ -109,7 +109,7 @@ export function ScoringLegendCard() {
       </View>
 
       {/* --- TITLE --- */}
-      <Text style={styles.cardTitle}>4-Pillar Scoring Weights</Text>
+      <Text style={styles.cardTitle}>How Your Strike Is Scored</Text>
 
       {/* --- GRADES INNER CONTAINER --- */}
       <View style={styles.gradesBox}>
@@ -146,7 +146,7 @@ export function ScoringLegendCard() {
           <View style={[styles.gradePill, styles.gradePillB]}>
             <Text style={[styles.gradePillText, styles.gradePillTextB]}>85 - 94%</Text>
           </View>
-          <Text style={styles.gradeLabel}>Grade B (Advanced Technique)</Text>
+          <Text style={styles.gradeLabel}>Grade B (Great Technique)</Text>
           <Ionicons
             name={activeTipId === 'gradeB' ? 'chevron-up' : 'chevron-forward'}
             size={14}
@@ -167,7 +167,7 @@ export function ScoringLegendCard() {
           <View style={[styles.gradePill, styles.gradePillC]}>
             <Text style={[styles.gradePillText, styles.gradePillTextC]}>75 - 84%</Text>
           </View>
-          <Text style={styles.gradeLabel}>Grade C (Passing / Intermediate)</Text>
+          <Text style={styles.gradeLabel}>Grade C (Passing)</Text>
           <Ionicons
             name={activeTipId === 'gradeC' ? 'chevron-up' : 'chevron-forward'}
             size={14}
@@ -189,7 +189,7 @@ export function ScoringLegendCard() {
           <View style={[styles.gradePill, styles.gradePillDF]}>
             <Text style={[styles.gradePillText, styles.gradePillTextDF]}>&lt; 75%</Text>
           </View>
-          <Text style={styles.gradeLabel}>Grade D/F (Needs Correction / Fail)</Text>
+          <Text style={styles.gradeLabel}>Grade D/F (Keep Practicing)</Text>
           <Ionicons
             name={activeTipId === 'gradeDF' ? 'chevron-up' : 'chevron-forward'}
             size={14}
@@ -202,7 +202,7 @@ export function ScoringLegendCard() {
       {/* --- FORMULA BREAKDOWN SECTION --- */}
       <View style={styles.formulaSection}>
         <View style={styles.formulaHeaderRow}>
-          <Text style={styles.formulaHeading}>Formula Breakdown:</Text>
+          <Text style={styles.formulaHeading}>What We Check:</Text>
           <Text style={styles.formulaHintText}>Tap for Coach cues 💡</Text>
         </View>
 
@@ -217,7 +217,7 @@ export function ScoringLegendCard() {
         >
           <Text style={styles.formulaBullet}>•</Text>
           <Text style={styles.formulaItemText}>
-            Striking Arm & Elbow Trajectory:{' '}
+            Arm Reach &amp; Strike Path:{' '}
             <Text style={styles.formulaWeightHighlight}>40%</Text>
           </Text>
         </TouchableOpacity>
@@ -233,7 +233,7 @@ export function ScoringLegendCard() {
         >
           <Text style={styles.formulaBullet}>•</Text>
           <Text style={styles.formulaItemText}>
-            Check Hand Kalasag Guard:{' '}
+            Free Hand Chest Guard:{' '}
             <Text style={styles.formulaWeightHighlight}>25%</Text>
           </Text>
         </TouchableOpacity>
@@ -249,7 +249,7 @@ export function ScoringLegendCard() {
         >
           <Text style={styles.formulaBullet}>•</Text>
           <Text style={styles.formulaItemText}>
-            Stance Tindig Knee Flexion:{' '}
+            Balanced Stance (Bent Knees):{' '}
             <Text style={styles.formulaWeightHighlight}>20%</Text>
           </Text>
         </TouchableOpacity>
@@ -265,7 +265,7 @@ export function ScoringLegendCard() {
         >
           <Text style={styles.formulaBullet}>•</Text>
           <Text style={styles.formulaItemText}>
-            Wrist Snap Pitik Alignment:{' '}
+            Firm Wrist &amp; Snap:{' '}
             <Text style={styles.formulaWeightHighlight}>15%</Text>
           </Text>
         </TouchableOpacity>

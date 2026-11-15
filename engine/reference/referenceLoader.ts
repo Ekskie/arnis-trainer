@@ -281,6 +281,26 @@ export function registerExpertReference(rawPayload: unknown): ReferenceValidatio
   return result;
 }
 
+/**
+ * Parses a raw UTF-8 JSON string (e.g., an exported Google Colab `strike_1.json`)
+ * and validates + registers it in the in-memory registry without altering grading rules.
+ */
+export function parseAndRegisterExpertReferenceJson(
+  jsonText: string
+): ReferenceValidationResult {
+  try {
+    const parsed = JSON.parse(jsonText);
+    return registerExpertReference(parsed);
+  } catch (err) {
+    return {
+      valid: false,
+      errors: [
+        `Invalid JSON syntax: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+    };
+  }
+}
+
 export function unregisterExpertReference(strikeId: string): void {
   const norm = normalizeStrikeId(strikeId);
   if (norm) {
